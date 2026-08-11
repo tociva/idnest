@@ -10,6 +10,10 @@ const googleMapper = readFileSync(
   "utf8",
 );
 const kratosTemplate = readFileSync(new URL("../../../../../../config/kratos.tpl.yml", import.meta.url), "utf8");
+const kratosRenderer = readFileSync(
+  new URL("../../../../../../scripts/docker/render-kratos-config.sh", import.meta.url),
+  "utf8",
+);
 
 function providerBlock(id: string): string {
   const marker = `- id: ${id}`;
@@ -49,6 +53,17 @@ describe("Social OIDC Kratos config", () => {
     expect(kratosTemplate).toContain("default_browser_return_url: ${AUTH_URL}/error");
     expect(kratosTemplate).toMatch(/flows:\n\s+error:\n\s+ui_url: \$\{AUTH_URL\}\/error/);
     expect(kratosTemplate).not.toContain("${AUTH_URL}/auth/error");
+  });
+
+  it("quotes comma-separated CORS origins before rendering Kratos YAML", () => {
+    expect(kratosTemplate).toContain(
+      "allowed_origins: ${KRATOS_CORS_ALLOWED_ORIGINS_YAML}",
+    );
+    expect(kratosTemplate).not.toContain("allowed_origins: [${CORS_ALLOWED_ORIGINS}]");
+    expect(kratosRenderer).toContain(
+      'KRATOS_CORS_ALLOWED_ORIGINS_YAML="$(render_cors_origins_yaml)"',
+    );
+    expect(kratosRenderer).toContain('printf "%s\\\"%s\\\"", separator, origin');
   });
 
   it("uses Kratos v26.2-compatible Google and Apple provider config", () => {
