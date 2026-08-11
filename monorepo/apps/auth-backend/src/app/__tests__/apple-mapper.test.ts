@@ -34,6 +34,23 @@ describe("Social OIDC Kratos config", () => {
     expect(googleMapper).toContain("verified_addresses");
   });
 
+  it("maps optional Google profile claims only when Google supplies them", () => {
+    expect(googleMapper).toContain(
+      "[if 'name' in claims then 'name' else null]: claims.name",
+    );
+    expect(googleMapper).toContain(
+      "[if 'picture' in claims then 'picture' else null]: claims.picture",
+    );
+    expect(googleMapper).not.toMatch(/^\s*name:\s*claims\.name/m);
+    expect(googleMapper).not.toMatch(/^\s*picture:\s*claims\.picture/m);
+  });
+
+  it("routes Kratos browser errors to the backend error handler", () => {
+    expect(kratosTemplate).toContain("default_browser_return_url: ${AUTH_URL}/error");
+    expect(kratosTemplate).toMatch(/flows:\n\s+error:\n\s+ui_url: \$\{AUTH_URL\}\/error/);
+    expect(kratosTemplate).not.toContain("${AUTH_URL}/auth/error");
+  });
+
   it("uses Kratos v26.2-compatible Google and Apple provider config", () => {
     const google = providerBlock("google");
     const apple = providerBlock("apple");

@@ -35,7 +35,7 @@ session:
 selfservice:
   # OAuth transactions provide the opaque transaction callback explicitly.
   # Non-orchestrated browser flows fall back to a safe error surface.
-  default_browser_return_url: ${AUTH_URL}/auth/error
+  default_browser_return_url: ${AUTH_URL}/error
   allowed_return_urls:
     - ${AUTH_URL}/oauth2/login/complete
     - ${AUTH_URL}/login/return
@@ -89,7 +89,7 @@ selfservice:
 
   flows:
     error:
-      ui_url: ${AUTH_URL}/auth/error
+      ui_url: ${AUTH_URL}/error
 
     settings:
       ui_url: ${AUTH_URL}/settings
