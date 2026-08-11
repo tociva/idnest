@@ -63,7 +63,9 @@ describe("Social OIDC Kratos config", () => {
     expect(kratosRenderer).toContain(
       'KRATOS_CORS_ALLOWED_ORIGINS_YAML="$(render_cors_origins_yaml)"',
     );
-    expect(kratosRenderer).toContain('printf "%s\\\"%s\\\"", separator, origin');
+    expect(kratosRenderer).toContain(
+      String.raw`printf "%s\"%s\"", separator, origin`,
+    );
   });
 
   it("uses Kratos v26.2-compatible Google and Apple provider config", () => {
