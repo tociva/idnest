@@ -5,7 +5,7 @@ It combines Ory Hydra and Ory Kratos with Express backends, Angular frontends,
 PostgreSQL, and a shared authorization store in an Nx workspace.
 
 This README is the single project guide. It covers the architecture, local
-development, common workflows, and security boundaries.
+development, development deployment, common workflows, and security boundaries.
 
 ## Contents
 
@@ -14,6 +14,7 @@ development, common workflows, and security boundaries.
 - [Local development](#local-development)
 - [Configuration](#configuration)
 - [Common commands](#common-commands)
+- [GitHub Actions development deployments](#github-actions-development-deployments)
 - [OAuth clients and access](#oauth-clients-and-access)
 - [Authentication flow](#authentication-flow)
 - [Troubleshooting](#troubleshooting)
@@ -253,6 +254,320 @@ generated configuration is refreshed:
 ```bash
 docker compose -f scripts/docker/docker-compose.yml up -d --force-recreate ory-kratos
 ```
+
+## GitHub Actions development deployments
+
+The development workflows build multi-architecture auth and admin images, push
+immutable digests to Amazon ECR, and submit signed release requests to the VPS.
+The VPS runs the root-owned release processor; the `github-deploy` SSH account
+does not receive Docker or sudo access.
+
+| Service | Public hostname | VPS HTTPS port |
+| --- | --- | ---: |
+| Auth | `auth-dev.idnest.cloud` | `8444` |
+| Admin | `admin-dev.idnest.cloud` | `8445` |
+| Hydra public API | `hydra-dev.idnest.cloud` | `8446` |
+| Kratos public API | `kratos-dev.idnest.cloud` | `8447` |
+
+Hydra admin `4445` and Kratos admin `4434` stay bound to loopback/private
+network interfaces. The VPS does not need Nginx for this deployment model.
+
+### 1. Provision AWS with Terraform
+
+Install Terraform, AWS CLI, GitHub CLI, `jq`, OpenSSL, and OpenSSH on a trusted
+workstation. Authenticate AWS with permission to manage ECR, IAM roles and
+policies, and the account-wide GitHub OIDC provider.
+
+```bash
+aws sts get-caller-identity
+gh auth status
+
+cp infrastructure/terraform/aws-development/terraform.tfvars.example \
+  infrastructure/terraform/aws-development/terraform.tfvars
+${EDITOR:-vi} infrastructure/terraform/aws-development/terraform.tfvars
+
+terraform -chdir=infrastructure/terraform/aws-development init
+terraform -chdir=infrastructure/terraform/aws-development fmt
+terraform -chdir=infrastructure/terraform/aws-development validate
+terraform -chdir=infrastructure/terraform/aws-development plan \
+  -out=ory-auth-deployment.tfplan
+terraform -chdir=infrastructure/terraform/aws-development apply \
+  ory-auth-deployment.tfplan
+terraform -chdir=infrastructure/terraform/aws-development output \
+  github_environment_variables
+```
+
+Set `create_github_oidc_provider=true` only when the AWS account does not
+already have GitHub's account-wide OIDC provider. Set
+`create_ecr_repositories=false` when both ECR repositories already exist.
+Keep Terraform state in an encrypted remote backend for shared environments.
+
+The current input contract requires all four development and production VPS
+targets in `github_deployment_targets`, even when only development is being
+configured. Production targets and roles are not used by the development
+workflows.
+
+### 2. Create development deployment credentials
+
+Generate the keys outside the repository. The SSH key authenticates the
+unprivileged release-submit account; the independent signing key authorizes the
+root processor to activate checked-in host scripts.
+
+```bash
+DEPLOY_KEYS_DIR="/absolute/secure/path/ory-auth-development"
+DEVELOPMENT_VPS_HOST="development-vps.example.net"
+
+install -d -m 700 "$DEPLOY_KEYS_DIR"
+ssh-keygen -t ed25519 -a 64 -N '' \
+  -f "$DEPLOY_KEYS_DIR/github-deploy-ed25519"
+openssl genpkey -algorithm ED25519 \
+  -out "$DEPLOY_KEYS_DIR/host-release-signing-private.pem"
+openssl pkey \
+  -in "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" \
+  -pubout \
+  -out "$DEPLOY_KEYS_DIR/host-release-signing-public.pem"
+
+ssh-keyscan -p 22 "$DEVELOPMENT_VPS_HOST" \
+  > "$DEPLOY_KEYS_DIR/vps-known-hosts"
+ssh-keygen -lf "$DEPLOY_KEYS_DIR/vps-known-hosts"
+chmod 600 \
+  "$DEPLOY_KEYS_DIR/github-deploy-ed25519" \
+  "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" \
+  "$DEPLOY_KEYS_DIR/vps-known-hosts"
+```
+
+Verify the displayed VPS host-key fingerprint through a second trusted channel
+before uploading the known-hosts value to GitHub.
+
+### 3. Bootstrap the development VPS
+
+Install Docker Engine with the Compose plugin using Docker's official packages.
+From a trusted checkout on the VPS, run the following minimum host setup after
+copying the two public keys to the shown protected paths:
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl openssl tar util-linux coreutils
+sudo adduser --disabled-password --gecos '' github-deploy
+
+sudo scripts/deploy/vps/provision-host.sh \
+  github-deploy \
+  ory-runtime-development \
+  /secure/ory-auth-development/host-release-signing-public.pem \
+  /secure/ory-auth-development/github-deploy-ed25519.pub
+
+sudo systemctl status ory-auth-release-queue.path --no-pager
+sudo test ! -e /etc/sudoers.d/ory-auth-deploy
+```
+
+Install the VPS-owned development environment files, replace every placeholder,
+and validate them. These runtime secrets stay on the VPS and are not transferred
+through GitHub Actions.
+
+```bash
+sudo install -o root -g root -m 600 \
+  scripts/deploy/env/auth-app.env.example /etc/ory-auth/auth-app.env
+sudo install -o root -g root -m 600 \
+  scripts/deploy/env/admin-app.env.example /etc/ory-auth/admin-app.env
+sudo install -o root -g root -m 600 \
+  scripts/deploy/env/ory.env.example /etc/ory-auth/ory.env
+
+sudoedit /etc/ory-auth/auth-app.env
+sudoedit /etc/ory-auth/admin-app.env
+sudoedit /etc/ory-auth/ory.env
+sudoedit /etc/ory-auth/auth.conf
+sudoedit /etc/ory-auth/admin.conf
+sudoedit /etc/ory-auth/ory.conf
+
+sudo /usr/local/sbin/validate-ory-app-env /etc/ory-auth/auth-app.env
+sudo /usr/local/sbin/validate-ory-app-env /etc/ory-auth/admin-app.env
+sudo /usr/local/sbin/validate-ory-app-env /etc/ory-auth/ory.env
+sudo stat -c '%U:%G %a %n' /etc/ory-auth/*.env /etc/ory-auth/*.conf
+```
+
+Before the first workflow run, create the PostgreSQL roles, databases, and
+schemas referenced by `HYDRA_DSN`, `KRATOS_DSN`, and `AUTHZ_DATABASE_URL`.
+When PostgreSQL runs on the VPS, it must accept traffic from the Docker bridge
+without exposing port `5432` publicly. The first auth release runs Hydra,
+Kratos, and authorization migrations; it does not create the database roles or
+databases. A managed database should be prepared by its administrator.
+
+### 4. Create and install a Cloudflare Origin CA certificate
+
+In Cloudflare, open **SSL/TLS → Origin Server → Create Certificate**. Create a
+PEM certificate for these four exact SANs:
+
+```text
+auth-dev.idnest.cloud
+admin-dev.idnest.cloud
+hydra-dev.idnest.cloud
+kratos-dev.idnest.cloud
+```
+
+Save the origin certificate and private key immediately; Cloudflare displays
+the generated private key only once. Download the Cloudflare Origin CA root
+matching the selected key type from the
+[Origin CA documentation](https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/).
+Copy the three files to the VPS and install them:
+
+```bash
+sudo install -o root -g root -m 644 \
+  /secure/ory-auth-development/origin-cert.pem \
+  /etc/ory-auth/tls/origin-cert.pem
+sudo install -o root -g ory-auth-tls -m 640 \
+  /secure/ory-auth-development/origin-key.pem \
+  /etc/ory-auth/tls/origin-key.pem
+sudo install -o root -g root -m 644 \
+  /secure/ory-auth-development/origin-ca.pem \
+  /etc/ory-auth/tls/origin-ca.pem
+
+sudo openssl x509 -in /etc/ory-auth/tls/origin-cert.pem -noout \
+  -subject -issuer -dates -ext subjectAltName
+for hostname in auth-dev.idnest.cloud admin-dev.idnest.cloud \
+  hydra-dev.idnest.cloud kratos-dev.idnest.cloud; do
+  sudo openssl x509 -in /etc/ory-auth/tls/origin-cert.pem \
+    -noout -checkhost "$hostname"
+done
+sudo stat -c '%U:%G %a %n' /etc/ory-auth/tls/*
+```
+
+Set the zone's SSL/TLS encryption mode to
+[**Full (strict)**](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/)
+after the certificate is installed. Origin CA certificates are intended for
+Cloudflare-to-origin traffic, so keep all four DNS records proxied.
+
+### 5. Configure Cloudflare DNS and origin port rewrites
+
+Create proxied `A`/`AAAA` records for all four development hostnames pointing
+to the VPS. Then create four exact-hostname rules under **Rules → Origin
+Rules**. For each rule, set **Destination port → Rewrite to**:
+
+| Rule expression | Destination port |
+| --- | ---: |
+| `http.host eq "auth-dev.idnest.cloud"` | `8444` |
+| `http.host eq "admin-dev.idnest.cloud"` | `8445` |
+| `http.host eq "hydra-dev.idnest.cloud"` | `8446` |
+| `http.host eq "kratos-dev.idnest.cloud"` | `8447` |
+
+Cloudflare documents destination-port overrides in
+[Origin Rules](https://developers.cloudflare.com/rules/origin-rules/examples/change-port/).
+Browser URLs remain normal `https://...` URLs on port `443`; only Cloudflare's
+connection to the VPS is rewritten.
+
+Restrict VPS ports `8444`–`8447` to Cloudflare's current
+[published IP ranges](https://www.cloudflare.com/ips/). Permit SSH only from
+approved administration and CI sources. Never open Hydra admin `4445`, Kratos
+admin `4434`, PostgreSQL `5432`, or Docker's socket to the public internet.
+
+### 6. Configure GitHub environments
+
+Render Terraform's non-secret variables, create the three development
+environments, and upload the relevant variable files:
+
+```bash
+GITHUB_REPOSITORY="tociva/ory-auth-apps"
+GITHUB_VARIABLE_DIR="$(mktemp -d)"
+
+scripts/deploy/render-github-environment-vars.sh \
+  infrastructure/terraform/aws-development \
+  "$GITHUB_VARIABLE_DIR"
+
+for environment in ecr-build development-auth development-admin; do
+  gh api --method PUT \
+    "repos/$GITHUB_REPOSITORY/environments/$environment" >/dev/null
+  gh variable set \
+    --repo "$GITHUB_REPOSITORY" \
+    --env "$environment" \
+    --env-file "$GITHUB_VARIABLE_DIR/$environment.vars.env"
+done
+```
+
+Upload the same development SSH and signing credentials to
+`development-auth` and `development-admin`. Values are base64 transport
+encoding, not encryption; the pipes avoid printing them.
+
+```bash
+for environment in development-auth development-admin; do
+  base64 < "$DEPLOY_KEYS_DIR/github-deploy-ed25519" | tr -d '\n' | \
+    gh secret set VPS_SSH_PRIVATE_KEY_B64 \
+      --repo "$GITHUB_REPOSITORY" --env "$environment"
+  base64 < "$DEPLOY_KEYS_DIR/vps-known-hosts" | tr -d '\n' | \
+    gh secret set VPS_SSH_KNOWN_HOSTS_B64 \
+      --repo "$GITHUB_REPOSITORY" --env "$environment"
+  base64 < "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" | tr -d '\n' | \
+    gh secret set HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 \
+      --repo "$GITHUB_REPOSITORY" --env "$environment"
+done
+
+gh variable list --repo "$GITHUB_REPOSITORY" --env ecr-build
+gh variable list --repo "$GITHUB_REPOSITORY" --env development-auth
+gh variable list --repo "$GITHUB_REPOSITORY" --env development-admin
+gh secret list --repo "$GITHUB_REPOSITORY" --env development-auth
+gh secret list --repo "$GITHUB_REPOSITORY" --env development-admin
+```
+
+In **GitHub → Settings → Environments**, restrict `ecr-build`,
+`development-auth`, and `development-admin` to the `development` branch. Remove
+the rendered variable directory after confirming the upload; retain the source
+keys only in the approved secret store.
+
+### 7. Run and verify the first deployment
+
+Run auth first because it also starts and migrates Hydra and Kratos:
+
+```bash
+gh workflow run deploy-auth-development.yml \
+  --repo tociva/ory-auth-apps --ref development
+gh run watch --repo tociva/ory-auth-apps --exit-status
+```
+
+After auth succeeds, provision the confidential admin OAuth client once from
+the trusted checkout on the VPS. The secret comes from the already-installed
+`admin-app.env`, the container joins the private Ory network, and Node trusts
+the installed Origin CA root:
+
+```bash
+sudo docker run --rm \
+  --network ory-runtime-development \
+  --env-file /etc/ory-auth/admin-app.env \
+  -e NODE_EXTRA_CA_CERTS=/run/ory-tls/origin-ca.pem \
+  --mount type=bind,src=/etc/ory-auth/tls/origin-ca.pem,dst=/run/ory-tls/origin-ca.pem,readonly \
+  --mount type=bind,src="$PWD/scripts/setup/provision-admin-client.js",dst=/work/provision-admin-client.js,readonly \
+  node:22.22.0 node /work/provision-admin-client.js
+```
+
+Rerun that command whenever the admin client secret, redirect URIs, or client
+metadata changes. Then deploy admin:
+
+```bash
+gh workflow run deploy-admin-development.yml \
+  --repo tociva/ory-auth-apps --ref development
+gh run watch --repo tociva/ory-auth-apps --exit-status
+```
+
+Verify the public services through Cloudflare:
+
+```bash
+curl --fail https://auth-dev.idnest.cloud/health
+curl --fail https://admin-dev.idnest.cloud/health
+curl --fail https://hydra-dev.idnest.cloud/health/ready
+curl --fail https://kratos-dev.idnest.cloud/health/ready
+```
+
+Relevant pushes to `development` trigger the matching workflow automatically;
+both workflows use the `ory-vps-development` concurrency group. For VPS
+diagnostics or rollback:
+
+```bash
+sudo systemctl status ory-auth-release-queue.path --no-pager
+sudo journalctl -u ory-auth-release-queue.service -n 200 --no-pager
+sudo ss -ltnp
+sudo /usr/local/sbin/rollback-ory-auth
+sudo /usr/local/sbin/rollback-ory-admin
+```
+
+Rollback restores the previous image digest but does not reverse database
+migrations.
 
 ## OAuth clients and access
 
