@@ -14,7 +14,6 @@ on:
       - 'scripts/docker/Dockerfile.admin-app'
       - 'scripts/docker/smoke-test-admin-image.sh'
       - 'scripts/deploy/env/admin-app.env.example'
-      - 'scripts/deploy/validate-env-file.mjs'
       - 'scripts/deploy/vps/**'
       - 'scripts/docker/render-kratos-config.sh'
       - 'package.json'

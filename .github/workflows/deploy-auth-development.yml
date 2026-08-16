@@ -17,7 +17,6 @@ on:
       - 'scripts/docker/smoke-test-auth-image.sh'
       - 'scripts/docker/render-kratos-config.sh'
       - 'scripts/deploy/env/auth-app.env.example'
-      - 'scripts/deploy/validate-env-file.mjs'
       - 'scripts/deploy/vps/**'
       - 'package.json'
       - 'monorepo/package.json'

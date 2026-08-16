@@ -19,8 +19,8 @@ export const getKratosPublicUrl = (): string =>
  * Kratos *public* API base used for this backend's own server-to-server calls
  * (load flow, whoami, logout, error lookup). Defaults to the browser-facing
  * URL, but should be set to the internal http:// address (e.g.
- * http://localhost:4433) so backend calls skip TLS termination / nginx and
- * don't depend on the local mkcert CA being trusted by Node.
+ * http://localhost:4433) so backend calls use direct local HTTP and do not
+ * depend on the browser-facing certificate being trusted by Node.
  *
  * This must NOT be used for anything the browser navigates to — those still
  * use getKratosPublicUrl(), since the browser can only reach the public host.

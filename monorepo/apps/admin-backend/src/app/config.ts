@@ -46,8 +46,8 @@ export const getKratosPublicUrl = (): string => process.env.KRATOS_PUBLIC_URL ??
 /**
  * Kratos public API base for backend-to-Kratos public API calls.
  * Defaults to the public URL, but set KRATOS_INTERNAL_URL to the internal
- * http:// address (e.g. http://localhost:4433) so the call skips TLS / nginx
- * and avoids needing the local mkcert CA in Node's trust store.
+ * http:// address (e.g. http://localhost:4433) so the call uses direct local
+ * HTTP and avoids browser-facing certificate trust requirements in Node.
  */
 export const getKratosInternalUrl = (): string =>
   process.env.KRATOS_INTERNAL_URL ?? getKratosPublicUrl();

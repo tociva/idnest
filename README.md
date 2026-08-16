@@ -33,9 +33,11 @@ development, development deployment, common workflows, and security boundaries.
 | Kratos public API | `https://kratos-local.idnest.cloud` | `4433` | Identity self-service and sessions |
 | Kratos admin API | Server-side only | `4434` | Privileged identity administration |
 
-Nginx provides locally trusted HTTPS and routes the browser-facing hostnames to
-the development servers. The Express backends call the Hydra and Kratos admin
-APIs directly; those privileged endpoints must never be browser-accessible.
+The browser-facing local hostnames require a developer-managed, locally trusted
+HTTPS gateway that maps them to the direct ports below. This repository does
+not install or configure that gateway. The Express backends call the Hydra and
+Kratos admin APIs directly; those privileged endpoints must never be
+browser-accessible.
 
 ## Repository layout
 
@@ -66,19 +68,18 @@ APIs directly; those privileged endpoints must never be browser-accessible.
 - pnpm `9.15.0` through Corepack
 - PostgreSQL
 - Docker with Docker Compose
-- Nginx
-- [`mkcert`](https://github.com/FiloSottile/mkcert)
+- A locally trusted HTTPS gateway for end-to-end browser flows
 
 On macOS, the non-Node dependencies can be installed with Homebrew:
 
 ```bash
-brew install nginx mkcert nss postgresql@16
-brew services start nginx
+brew install postgresql@16
 brew services start postgresql@16
 ```
 
-On Ubuntu or Debian, install the equivalent packages and start PostgreSQL and
-Nginx. Install Docker using its official distribution packages.
+On Ubuntu or Debian, install PostgreSQL using the distribution packages and
+Docker using its official packages. Certificate and gateway tooling is left to
+each developer's preferred local environment.
 
 ### 1. Install dependencies
 
@@ -120,7 +121,7 @@ enabled, its local redirect URI is:
 https://kratos-local.idnest.cloud/self-service/methods/oidc/callback/apple
 ```
 
-### 3. Configure local hostnames
+### 3. Configure local browser routing
 
 Add these entries to `/etc/hosts`:
 
@@ -131,43 +132,24 @@ Add these entries to `/etc/hosts`:
 127.0.0.1 kratos-local.idnest.cloud
 ```
 
-### 4. Configure local HTTPS
+The repository intentionally contains no gateway-specific configuration.
+Configure the HTTPS gateway of your choice with a locally trusted certificate
+and these routes:
 
-Install the local certificate authority once:
+| Browser hostname and path | Direct upstream |
+| --- | --- |
+| `auth-local.idnest.cloud/auth/v1/*` | `http://127.0.0.1:4000` |
+| `auth-local.idnest.cloud/auth/*` | `http://127.0.0.1:4502` |
+| All other `auth-local.idnest.cloud` paths | `http://127.0.0.1:4000` |
+| `admin-local.idnest.cloud/api/*` and `/config/config.json` | `http://127.0.0.1:4100` |
+| All other `admin-local.idnest.cloud` paths | `http://127.0.0.1:4501` |
+| All `hydra-local.idnest.cloud` paths | `http://127.0.0.1:4444` |
+| All `kratos-local.idnest.cloud` paths | `http://127.0.0.1:4433` |
 
-```bash
-mkcert -install
-```
+Preserve the original `Host` header, report the external scheme as HTTPS, and
+enable WebSocket forwarding for the two frontend development servers.
 
-For Homebrew Nginx on macOS:
-
-```bash
-NGINX_PREFIX="$(brew --prefix)"
-SSL_DIR="$NGINX_PREFIX/etc/nginx/ssl"
-SERVER_DIR="$NGINX_PREFIX/etc/nginx/servers"
-
-mkdir -p "$SSL_DIR" "$SERVER_DIR"
-mkcert \
-  -cert-file "$SSL_DIR/local.idnest.cloud.pem" \
-  -key-file "$SSL_DIR/local.idnest.cloud-key.pem" \
-  "*.idnest.cloud" idnest.cloud
-chmod 600 "$SSL_DIR/local.idnest.cloud-key.pem"
-
-for source in scripts/deploy/nginx/local/*.conf; do
-  destination="$SERVER_DIR/$(basename "$source")"
-  sed "s#/opt/homebrew#$NGINX_PREFIX#g" "$source" > "$destination"
-done
-
-nginx -t
-brew services restart nginx
-```
-
-On Linux, install the certificate and key under `/etc/nginx/ssl`, copy the
-files from `scripts/deploy/nginx/local/` into the Nginx configuration directory,
-and replace `/opt/homebrew/etc/nginx/ssl` with `/etc/nginx/ssl` in those copies.
-Validate with `sudo nginx -t` before restarting Nginx.
-
-### 5. Bootstrap the local services
+### 4. Bootstrap the local services
 
 ```bash
 pnpm bootstrap:local
@@ -185,7 +167,7 @@ The database roles, names, passwords, and schemas are derived from `HYDRA_DSN`,
 `KRATOS_DSN`, and `AUTHZ_DATABASE_URL`. Use URL-safe passwords or percent-encode
 reserved URL characters.
 
-### 6. Start the applications
+### 5. Start the applications
 
 Run each service in a separate terminal from the repository root:
 
@@ -274,7 +256,7 @@ management hostname is `vps-dev.idnest.cloud`; keep that record DNS-only, while
 the four public service records above remain proxied through Cloudflare.
 
 Hydra admin `4445` and Kratos admin `4434` stay bound to loopback/private
-network interfaces. The VPS does not need Nginx for this deployment model.
+network interfaces. The application containers terminate origin TLS directly.
 
 ### 1. Provision AWS with Terraform
 
@@ -681,9 +663,9 @@ docker compose -f scripts/docker/docker-compose.yml logs ory-hydra ory-kratos
 If a Kratos configuration change is not visible, force-recreate the
 `ory-kratos` container and inspect its logs.
 
-For local certificate or proxy failures, verify the four `/etc/hosts` entries,
-run `nginx -t` (or `sudo nginx -t`), and use `mkcert -CAROOT` to confirm the
-local certificate authority.
+For local certificate or gateway failures, verify the four `/etc/hosts`
+entries, confirm the wildcard certificate is trusted, and check each route
+against the direct upstream table in [Local development](#local-development).
 
 If the first admin login is forbidden, confirm that:
 
