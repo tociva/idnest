@@ -90,29 +90,6 @@ data "aws_iam_policy_document" "deploy_assume_role" {
   }
 }
 
-data "aws_iam_policy_document" "production_deploy_assume_role" {
-  for_each = var.production_deploy_environment_names
-  statement {
-    sid     = "GitHubActionsProductionDeploy"
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-    principals {
-      type        = "Federated"
-      identifiers = [local.github_oidc_provider_arn]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = local.oidc_audience_key
-      values   = ["sts.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = local.oidc_subject_key
-      values   = ["repo:${var.github_repository}:environment:${each.value}"]
-    }
-  }
-}
-
 resource "aws_iam_role" "build" {
   name                  = var.build_role_name
   description           = "GitHub Actions build/push role for Idnest auth and admin images"
@@ -127,16 +104,6 @@ resource "aws_iam_role" "deploy" {
   name                  = each.value
   description           = "GitHub Actions pull-only ${each.key} deployment role"
   assume_role_policy    = data.aws_iam_policy_document.deploy_assume_role[each.key].json
-  max_session_duration  = 3600
-  force_detach_policies = true
-}
-
-resource "aws_iam_role" "production_deploy" {
-  for_each = var.production_deploy_role_names
-
-  name                  = each.value
-  description           = "GitHub Actions pull-only production ${each.key} deployment role"
-  assume_role_policy    = data.aws_iam_policy_document.production_deploy_assume_role[each.key].json
   max_session_duration  = 3600
   force_detach_policies = true
 }
@@ -199,13 +166,6 @@ resource "aws_iam_role_policy" "deploy" {
   policy   = data.aws_iam_policy_document.deploy_ecr[each.key].json
 }
 
-resource "aws_iam_role_policy" "production_deploy" {
-  for_each = aws_iam_role.production_deploy
-  name     = "${each.value.name}-ecr"
-  role     = each.value.id
-  policy   = data.aws_iam_policy_document.deploy_ecr[each.key].json
-}
-
 resource "aws_iam_role_policies_exclusive" "build" {
   role_name    = aws_iam_role.build.name
   policy_names = [aws_iam_role_policy.build.name]
@@ -217,12 +177,6 @@ resource "aws_iam_role_policies_exclusive" "deploy" {
   policy_names = [aws_iam_role_policy.deploy[each.key].name]
 }
 
-resource "aws_iam_role_policies_exclusive" "production_deploy" {
-  for_each     = aws_iam_role.production_deploy
-  role_name    = each.value.name
-  policy_names = [aws_iam_role_policy.production_deploy[each.key].name]
-}
-
 resource "aws_iam_role_policy_attachments_exclusive" "build" {
   role_name   = aws_iam_role.build.name
   policy_arns = []
@@ -230,12 +184,6 @@ resource "aws_iam_role_policy_attachments_exclusive" "build" {
 
 resource "aws_iam_role_policy_attachments_exclusive" "deploy" {
   for_each    = aws_iam_role.deploy
-  role_name   = each.value.name
-  policy_arns = []
-}
-
-resource "aws_iam_role_policy_attachments_exclusive" "production_deploy" {
-  for_each    = aws_iam_role.production_deploy
   role_name   = each.value.name
   policy_arns = []
 }

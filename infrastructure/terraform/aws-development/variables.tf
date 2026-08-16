@@ -30,7 +30,7 @@ variable "build_environment_name" {
 
 variable "deploy_environment_names" {
   type        = map(string)
-  description = "Protected GitHub deployment environment for each application."
+  description = "Protected development GitHub deployment environment for each application."
   default = {
     auth  = "development-auth"
     admin = "development-admin"
@@ -42,23 +42,6 @@ variable "deploy_environment_names" {
       lookup(var.deploy_environment_names, "admin", "") == "development-admin"
     )
     error_message = "deploy_environment_names must match the development-auth and development-admin workflow environments."
-  }
-}
-
-variable "production_deploy_environment_names" {
-  type        = map(string)
-  description = "Protected GitHub production deployment environment for each application."
-  default = {
-    auth  = "production-auth"
-    admin = "production-admin"
-  }
-  validation {
-    condition = (
-      length(var.production_deploy_environment_names) == 2 &&
-      lookup(var.production_deploy_environment_names, "auth", "") == "production-auth" &&
-      lookup(var.production_deploy_environment_names, "admin", "") == "production-admin"
-    )
-    error_message = "production_deploy_environment_names must match the production-auth and production-admin workflow environments."
   }
 }
 
@@ -87,7 +70,7 @@ variable "build_role_name" {
 
 variable "deploy_role_names" {
   type        = map(string)
-  description = "Pull-only GitHub Actions deployment role for each application."
+  description = "Pull-only development GitHub Actions deployment role for each application."
   default = {
     auth  = "idnest-auth-development-deploy"
     admin = "idnest-admin-development-deploy"
@@ -101,36 +84,20 @@ variable "deploy_role_names" {
   }
 }
 
-variable "production_deploy_role_names" {
-  type        = map(string)
-  description = "Pull-only GitHub Actions production deployment role for each application."
-  default = {
-    auth  = "idnest-auth-production-deploy"
-    admin = "idnest-admin-production-deploy"
-  }
-  validation {
-    condition = (
-      length(var.production_deploy_role_names) == 2 &&
-      alltrue([for key in ["auth", "admin"] : contains(keys(var.production_deploy_role_names), key)])
-    )
-    error_message = "production_deploy_role_names must define exactly auth and admin."
-  }
-}
-
 variable "github_deployment_targets" {
   type = map(object({
     vps_host = string
     vps_port = number
     vps_user = string
   }))
-  description = "Non-secret VPS connection variables emitted for each GitHub deployment environment."
+  description = "Non-secret VPS connection variables emitted for the development GitHub deployment environments."
 
   validation {
-    condition = length(var.github_deployment_targets) == 4 && alltrue([
-      for key in ["development-auth", "development-admin", "production-auth", "production-admin"] :
+    condition = length(var.github_deployment_targets) == 2 && alltrue([
+      for key in ["development-auth", "development-admin"] :
       contains(keys(var.github_deployment_targets), key)
     ])
-    error_message = "github_deployment_targets must define all four development/production auth/admin environments."
+    error_message = "github_deployment_targets must define exactly development-auth and development-admin."
   }
   validation {
     condition = alltrue([

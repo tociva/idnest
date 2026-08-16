@@ -269,6 +269,10 @@ does not receive Docker or sudo access.
 | Hydra public API | `hydra-dev.idnest.cloud` | `8446` |
 | Kratos public API | `kratos-dev.idnest.cloud` | `8447` |
 
+All public development services use the `idnest.cloud` zone. The default SSH
+management hostname is `vps-dev.idnest.cloud`; keep that record DNS-only, while
+the four public service records above remain proxied through Cloudflare.
+
 Hydra admin `4445` and Kratos admin `4434` stay bound to loopback/private
 network interfaces. The VPS does not need Nginx for this deployment model.
 
@@ -287,58 +291,76 @@ cp infrastructure/terraform/aws-development/terraform.tfvars.example \
 ```
 
 Open `infrastructure/terraform/aws-development/terraform.tfvars` with any
-editor and configure these values:
-
-| Setting | What to enter |
-| --- | --- |
-| `aws_region` | AWS region for ECR and workflow AWS sessions, for example `"ap-south-1"` |
-| `github_repository` | Repository in `owner/name` form, normally `"tociva/ory-auth-apps"` |
-| `ecr_repository_names.auth` | Auth image repository, normally `"idnest/auth-app"` |
-| `ecr_repository_names.admin` | Admin image repository, normally `"idnest/admin-app"` |
-| `production_deploy_role_names` | Keep the provided role names unless existing production IAM roles use different names |
-| `create_github_oidc_provider` | `true` when this stack must create the AWS account's GitHub OIDC provider; otherwise `false` |
-| `create_ecr_repositories` | `true` to create both repositories; `false` when they already exist in the selected AWS account and region |
-| `force_delete_ecr_repositories` | Keep `false`; use `true` only for an intentional teardown that may delete repositories containing images |
-| `github_deployment_targets` | SSH connection details for all four GitHub environments: `vps_host`, `vps_port`, and `vps_user` |
-| `tags` | Optional AWS resource tags such as `Project = "daybook.cloud"` |
-
-The copied file already contains the recommended defaults. At minimum, replace
-all four `.example.com` VPS hostnames and confirm the two resource-creation
-flags match what already exists in the AWS account.
-
-Example development targets when auth and admin share one VPS:
+editor. The checked-in example contains the complete development configuration:
 
 ```hcl
+aws_region        = "ap-south-1"
+github_repository = "tociva/idnest"
+
+build_environment_name = "ecr-build"
+deploy_environment_names = {
+  auth  = "development-auth"
+  admin = "development-admin"
+}
+
+ecr_repository_names = {
+  auth  = "idnest/auth-app"
+  admin = "idnest/admin-app"
+}
+
+build_role_name = "idnest-development-build"
+deploy_role_names = {
+  auth  = "idnest-auth-development-deploy"
+  admin = "idnest-admin-development-deploy"
+}
+
+create_github_oidc_provider   = true
+create_ecr_repositories       = true
+force_delete_ecr_repositories = false
+
 github_deployment_targets = {
   development-auth = {
-    vps_host = "dev-vps.example.net"
+    vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
     vps_user = "github-deploy"
   }
   development-admin = {
-    vps_host = "dev-vps.example.net"
-    vps_port = 22
-    vps_user = "github-deploy"
-  }
-
-  # Required by the current Terraform input contract, but not used by the
-  # development workflows.
-  production-auth = {
-    vps_host = "production-vps.example.net"
-    vps_port = 22
-    vps_user = "github-deploy"
-  }
-  production-admin = {
-    vps_host = "production-vps.example.net"
+    vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
     vps_user = "github-deploy"
   }
 }
+
+tags = {
+  Project = "daybook.cloud"
+}
 ```
 
-Replace every `example.net` hostname with an actual SSH-reachable VPS hostname
-or IP address. The auth and admin targets may be the same VPS. Keep the default
-IAM role names unless the AWS account requires different names.
+Terraform also applies the provider-level tags `Application=idnest`,
+`Environment=development`, and `ManagedBy=terraform` to supported AWS
+resources. Values in `tags` are merged with those defaults.
+
+These defaults create both ECR repositories and the AWS GitHub OIDC provider.
+Change `create_github_oidc_provider` to `false` if the AWS account already has
+that provider. Change `create_ecr_repositories` to `false` only if both named
+repositories already exist. Keep `force_delete_ecr_repositories=false` for
+normal operation.
+
+`vps-dev.idnest.cloud` must resolve directly to the VPS for SSH and must not be
+Cloudflare-proxied. Replace it with the actual DNS-only management hostname or
+public IP if a different SSH endpoint is used. Auth and admin share the same
+VPS by default but remain separate GitHub deployment environments.
+
+This Terraform directory manages development only. Production will use a
+separate Terraform directory, state, IAM roles, and GitHub environments. If an
+older state already contains production IAM resources from this directory, do
+not apply this configuration until those resources are migrated to the future
+production state; otherwise Terraform may propose destroying them.
+
+When upgrading an older local `terraform.tfvars`, remove
+`production_deploy_role_names`, `production-auth`, and `production-admin`.
+Only `development-auth` and `development-admin` are valid deployment targets in
+this directory.
 
 After saving the file, run:
 
@@ -363,8 +385,8 @@ unprivileged release-submit account; the independent signing key authorizes the
 root processor to activate checked-in host scripts.
 
 ```bash
-DEPLOY_KEYS_DIR="/absolute/secure/path/ory-auth-development"
-DEVELOPMENT_VPS_HOST="development-vps.example.net"
+DEPLOY_KEYS_DIR="/absolute/secure/path/idnest-development"
+DEVELOPMENT_VPS_HOST="vps-dev.idnest.cloud"
 
 install -d -m 700 "$DEPLOY_KEYS_DIR"
 ssh-keygen -t ed25519 -a 64 -N '' \
@@ -402,8 +424,8 @@ sudo adduser --disabled-password --gecos '' github-deploy
 sudo scripts/deploy/vps/provision-host.sh \
   github-deploy \
   ory-runtime-development \
-  /secure/ory-auth-development/host-release-signing-public.pem \
-  /secure/ory-auth-development/github-deploy-ed25519.pub
+  /secure/idnest-development/host-release-signing-public.pem \
+  /secure/idnest-development/github-deploy-ed25519.pub
 
 sudo systemctl status ory-auth-release-queue.path --no-pager
 sudo test ! -e /etc/sudoers.d/ory-auth-deploy
@@ -461,13 +483,13 @@ Copy the three files to the VPS and install them:
 
 ```bash
 sudo install -o root -g root -m 644 \
-  /secure/ory-auth-development/origin-cert.pem \
+  /secure/idnest-development/origin-cert.pem \
   /etc/ory-auth/tls/origin-cert.pem
 sudo install -o root -g ory-auth-tls -m 640 \
-  /secure/ory-auth-development/origin-key.pem \
+  /secure/idnest-development/origin-key.pem \
   /etc/ory-auth/tls/origin-key.pem
 sudo install -o root -g root -m 644 \
-  /secure/ory-auth-development/origin-ca.pem \
+  /secure/idnest-development/origin-ca.pem \
   /etc/ory-auth/tls/origin-ca.pem
 
 sudo openssl x509 -in /etc/ory-auth/tls/origin-cert.pem -noout \
@@ -510,43 +532,27 @@ admin `4434`, PostgreSQL `5432`, or Docker's socket to the public internet.
 
 ### 6. Configure GitHub environments
 
-Render Terraform's non-secret variables, create the three development
-environments, and upload the relevant variable files:
+Render Terraform's non-secret variables and prepare the two development secret
+files. The helpers create/update only `ecr-build`, `development-auth`, and
+`development-admin`:
 
 ```bash
 GITHUB_REPOSITORY="tociva/idnest"
-GITHUB_VARIABLE_DIR="$(mktemp -d)"
+GITHUB_ENVIRONMENT_DIR="$(mktemp -d)"
 
 scripts/deploy/render-github-environment-vars.sh \
   infrastructure/terraform/aws-development \
-  "$GITHUB_VARIABLE_DIR"
+  "$GITHUB_ENVIRONMENT_DIR"
 
-for environment in ecr-build development-auth development-admin; do
-  gh api --method PUT \
-    "repos/$GITHUB_REPOSITORY/environments/$environment" >/dev/null
-  gh variable set \
-    --repo "$GITHUB_REPOSITORY" \
-    --env "$environment" \
-    --env-file "$GITHUB_VARIABLE_DIR/$environment.vars.env"
-done
-```
+scripts/deploy/prepare-github-environments.sh \
+  "$DEPLOY_KEYS_DIR/github-deploy-ed25519" \
+  "$DEPLOY_KEYS_DIR/vps-known-hosts" \
+  "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" \
+  "$GITHUB_ENVIRONMENT_DIR"
 
-Upload the same development SSH and signing credentials to
-`development-auth` and `development-admin`. Values are base64 transport
-encoding, not encryption; the pipes avoid printing them.
-
-```bash
-for environment in development-auth development-admin; do
-  base64 < "$DEPLOY_KEYS_DIR/github-deploy-ed25519" | tr -d '\n' | \
-    gh secret set VPS_SSH_PRIVATE_KEY_B64 \
-      --repo "$GITHUB_REPOSITORY" --env "$environment"
-  base64 < "$DEPLOY_KEYS_DIR/vps-known-hosts" | tr -d '\n' | \
-    gh secret set VPS_SSH_KNOWN_HOSTS_B64 \
-      --repo "$GITHUB_REPOSITORY" --env "$environment"
-  base64 < "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" | tr -d '\n' | \
-    gh secret set HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 \
-      --repo "$GITHUB_REPOSITORY" --env "$environment"
-done
+scripts/deploy/configure-github-environments.sh \
+  "$GITHUB_REPOSITORY" \
+  "$GITHUB_ENVIRONMENT_DIR"
 
 gh variable list --repo "$GITHUB_REPOSITORY" --env ecr-build
 gh variable list --repo "$GITHUB_REPOSITORY" --env development-auth
@@ -555,10 +561,14 @@ gh secret list --repo "$GITHUB_REPOSITORY" --env development-auth
 gh secret list --repo "$GITHUB_REPOSITORY" --env development-admin
 ```
 
+The secret files contain base64 transport encoding, not encryption. The helper
+validates file modes, key formats, exact variable/secret names, and placeholder
+values without printing secrets.
+
 In **GitHub → Settings → Environments**, restrict `ecr-build`,
 `development-auth`, and `development-admin` to the `development` branch. Remove
-the rendered variable directory after confirming the upload; retain the source
-keys only in the approved secret store.
+the generated environment directory after confirming the upload; retain the
+source keys only in the approved secret store.
 
 ### 7. Run and verify the first deployment
 

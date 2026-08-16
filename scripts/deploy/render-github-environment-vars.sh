@@ -39,13 +39,17 @@ trap cleanup EXIT
 terraform -chdir="$terraform_directory" output -json github_environment_variables >"$json_file"
 jq -e 'type == "object"' "$json_file" >/dev/null \
   || fail "Terraform output github_environment_variables must be an object"
+actual_environments=$(jq -r 'keys | sort | join(" ")' "$json_file")
+expected_environments="development-admin development-auth ecr-build"
+[ "$actual_environments" = "$expected_environments" ] \
+  || fail "Terraform output must contain exactly the three development GitHub environments"
 
 expected_keys() {
   case "$1" in
     ecr-build)
       printf '%s\n' "ADMIN_ECR_REPOSITORY AUTH_ECR_REPOSITORY AWS_ACCOUNT_ID AWS_BUILD_ROLE_ARN AWS_REGION"
       ;;
-    development-auth|development-admin|production-auth|production-admin)
+    development-auth|development-admin)
       printf '%s\n' "AWS_ACCOUNT_ID AWS_DEPLOY_ROLE_ARN AWS_REGION ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER"
       ;;
     *) fail "unsupported GitHub environment: $1" ;;
@@ -88,7 +92,7 @@ validate_value() {
   esac
 }
 
-environments=(ecr-build development-auth development-admin production-auth production-admin)
+environments=(ecr-build development-auth development-admin)
 for environment in "${environments[@]}"; do
   jq -e --arg environment "$environment" '.[$environment] | type == "object"' "$json_file" >/dev/null \
     || fail "Terraform output is missing $environment"
@@ -112,4 +116,4 @@ for environment in "${environments[@]}"; do
   echo "Rendered $output_directory/$environment.vars.env"
 done
 
-echo "Rendered five GitHub environment variable files without secret values."
+echo "Rendered three development GitHub environment variable files without secret values."

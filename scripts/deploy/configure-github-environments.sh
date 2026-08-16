@@ -98,7 +98,7 @@ validate_env_contract() {
   ' "$file"
 }
 
-for environment in ecr-build development-auth development-admin production-auth production-admin; do
+for environment in ecr-build development-auth development-admin; do
   variables="$prepared_directory/$environment.vars.env"
   [ -f "$variables" ] && [ ! -L "$variables" ] && [ -s "$variables" ] || {
     echo "Missing non-empty variables file: $variables" >&2
@@ -118,7 +118,7 @@ for environment in ecr-build development-auth development-admin production-auth 
   esac
   validate_env_contract "$variables" "$expected" true
 done
-for environment in development-auth development-admin production-auth production-admin; do
+for environment in development-auth development-admin; do
   secrets="$prepared_directory/$environment.secrets.env"
   [ -f "$secrets" ] && [ ! -L "$secrets" ] && [ -s "$secrets" ] || {
     echo "Missing non-empty secrets file: $secrets" >&2
@@ -139,7 +139,7 @@ for environment in development-auth development-admin production-auth production
   done <"$secrets"
 done
 
-for environment in ecr-build development-auth development-admin production-auth production-admin; do
+for environment in ecr-build development-auth development-admin; do
   if ! gh api "repos/$repository/environments/$environment" >/dev/null 2>&1; then
     gh api --method PUT "repos/$repository/environments/$environment" >/dev/null
     echo "Created GitHub environment $environment."
@@ -149,10 +149,10 @@ for environment in ecr-build development-auth development-admin production-auth 
   echo "Updated variables for $environment."
 done
 
-for environment in development-auth development-admin production-auth production-admin; do
+for environment in development-auth development-admin; do
   gh secret set --repo "$repository" --env "$environment" \
     --env-file "$prepared_directory/$environment.secrets.env"
   echo "Updated secrets for $environment."
 done
 
-echo "GitHub environments were updated without printing secret values."
+echo "Development GitHub environments were updated without printing secret values."
