@@ -1,0 +1,66 @@
+services:
+  admin:
+    image: ${APP_IMAGE:?APP_IMAGE is required}
+    env_file:
+      - ${APP_ENV_FILE:-/etc/ory-auth/admin-app.env}
+    environment:
+      ADMIN_BACKEND_PORT: 3000
+      ADMIN_HTTPS_ENABLED: 'true'
+      APP_REVISION: ${APP_REVISION:-unknown}
+      HOST: 0.0.0.0
+      INTERNAL_HEALTH_PORT: 3001
+      INTERNAL_HEALTH_SERVER_ENABLED: 'true'
+      NODE_ENV: production
+      NODE_EXTRA_CA_CERTS: /run/ory-tls/origin-ca.pem
+      TLS_CERT_PATH: /run/ory-tls/origin-cert.pem
+      TLS_KEY_PATH: /run/ory-tls/origin-key.pem
+    ports:
+      - '0.0.0.0:${ORIGIN_HTTPS_PORT:-8445}:3000'
+    volumes:
+      - type: bind
+        source: ${TLS_CERT_FILE:?TLS_CERT_FILE is required}
+        target: /run/ory-tls/origin-cert.pem
+        read_only: true
+      - type: bind
+        source: ${TLS_KEY_FILE:?TLS_KEY_FILE is required}
+        target: /run/ory-tls/origin-key.pem
+        read_only: true
+      - type: bind
+        source: ${TLS_CA_FILE:?TLS_CA_FILE is required}
+        target: /run/ory-tls/origin-ca.pem
+        read_only: true
+    group_add:
+      - ${TLS_READ_GID:?TLS_READ_GID is required}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
+    pids_limit: 256
+    mem_limit: ${APP_MEMORY_LIMIT:-768m}
+    cpus: ${APP_CPU_LIMIT:-1.0}
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '5'
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      start_period: 20s
+      retries: 5
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks:
+      - runtime
+
+networks:
+  runtime:
+    name: ${RUNTIME_NETWORK:?RUNTIME_NETWORK is required}
+    external: true

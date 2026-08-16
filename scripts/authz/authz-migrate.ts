@@ -4,7 +4,7 @@ import {
 } from "../../monorepo/libs/authz-store/src/index";
 import { loadMonorepoEnv } from "./load-monorepo-env";
 
-loadMonorepoEnv();
+if (!process.env.AUTHZ_DATABASE_URL) loadMonorepoEnv();
 
 async function main() {
   const url = process.env.AUTHZ_DATABASE_URL;

@@ -1,0 +1,8 @@
+FROM oryd/kratos:v26.2.0
+
+USER root
+RUN (apk add --no-cache gettext 2>/dev/null) || \
+    (apt-get update && apt-get install -y --no-install-recommends gettext-base && rm -rf /var/lib/apt/lists/*)
+COPY render-kratos-config.sh /usr/local/bin/render-kratos-config.sh
+COPY config /etc/config
+RUN chmod 755 /usr/local/bin/render-kratos-config.sh

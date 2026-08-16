@@ -45,18 +45,33 @@ has_any_apple_provider_config() {
 KRATOS_CORS_ALLOWED_ORIGINS_YAML="$(render_cors_origins_yaml)"
 export KRATOS_CORS_ALLOWED_ORIGINS_YAML
 
+include_apple=false
 if has_apple_provider_config; then
-  envsubst < "$template" > "$tmp"
-else
-  if has_any_apple_provider_config; then
-    echo "Skipping Apple OIDC provider because one or more APPLE_* env vars are missing." >&2
-  fi
-
-  awk '
-    /# BEGIN optional apple provider/ { skip = 1; next }
-    /# END optional apple provider/ { skip = 0; next }
-    !skip { print }
-  ' "$template" | envsubst > "$tmp"
+  include_apple=true
+elif has_any_apple_provider_config; then
+  echo "Skipping Apple OIDC provider because one or more APPLE_* env vars are missing." >&2
 fi
+
+include_public_tls=false
+if [ "${KRATOS_PUBLIC_TLS_ENABLED:-false}" = true ]; then
+  include_public_tls=true
+elif [ "${KRATOS_PUBLIC_TLS_ENABLED:-false}" != false ]; then
+  echo "KRATOS_PUBLIC_TLS_ENABLED must be true or false." >&2
+  exit 1
+fi
+
+awk -v include_apple="$include_apple" -v include_public_tls="$include_public_tls" '
+  /# BEGIN optional apple provider/ {
+    if (include_apple != "true") skip_apple = 1
+    next
+  }
+  /# END optional apple provider/ { skip_apple = 0; next }
+  /# BEGIN optional public tls/ {
+    if (include_public_tls != "true") skip_public_tls = 1
+    next
+  }
+  /# END optional public tls/ { skip_public_tls = 0; next }
+  !skip_apple && !skip_public_tls { print }
+' "$template" | envsubst > "$tmp"
 
 mv "$tmp" "$output"

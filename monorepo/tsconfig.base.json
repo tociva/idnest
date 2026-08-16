@@ -16,6 +16,7 @@
     "baseUrl": ".",
     "paths": {
       "@idnest/authz-store": ["libs/authz-store/src/index.ts"],
+      "@idnest/server-runtime": ["libs/server-runtime/src/index.ts"],
       "@idnest/shared-types": ["libs/shared-types/src/index.ts"]
     }
   },

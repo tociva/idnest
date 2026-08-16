@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 function parseEnvValue(raw: string): string {
   const value = raw.trim();
@@ -14,8 +13,10 @@ function parseEnvValue(raw: string): string {
 }
 
 export function loadMonorepoEnv(): void {
-  const scriptDir = dirname(fileURLToPath(import.meta.url));
-  const envPath = resolve(scriptDir, "../../monorepo/.env");
+  const workingDirectory = process.cwd();
+  const directCandidate = resolve(workingDirectory, ".env");
+  const nestedCandidate = resolve(workingDirectory, "monorepo/.env");
+  const envPath = existsSync(nestedCandidate) ? nestedCandidate : directCandidate;
   if (!existsSync(envPath)) return;
 
   for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {

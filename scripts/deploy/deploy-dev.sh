@@ -20,6 +20,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MONOREPO_ROOT="$REPO_ROOT/monorepo"
 COMPOSE_FILE="$REPO_ROOT/scripts/docker/docker-compose.yml"
+ORY_RUNTIME_NETWORK="${ORY_RUNTIME_NETWORK:-ory-network}"
 ENV_VALIDATOR="$REPO_ROOT/scripts/deploy/validate-env-file.mjs"
 MIGRATION_RUNNER="$REPO_ROOT/scripts/deploy/run-migrations.sh"
 FRONTEND_PUBLISHER="$REPO_ROOT/scripts/deploy/publish-nginx-frontends.sh"
@@ -216,6 +217,11 @@ git pull --ff-only
 phase "Validating deployment inputs"
 require_commands chmod curl docker install mktemp mv node pm2 pnpm rm rsync sleep
 validate_healthcheck_settings
+
+if ! docker network inspect "$ORY_RUNTIME_NETWORK" >/dev/null 2>&1; then
+  docker network create --attachable "$ORY_RUNTIME_NETWORK" >/dev/null
+fi
+export ORY_RUNTIME_NETWORK
 
 for required_file in \
   "$COMPOSE_FILE" \

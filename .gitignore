@@ -32,3 +32,18 @@ npm-debug.log*
 # ory
 kratos.yml
 temp
+/tmp/
+
+# terraform working data and local plans/state
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+**/terraform.tfvars
+!**/terraform.tfvars.example
+
+# rendered GitHub environment payloads (examples remain tracked)
+**/*.vars.env
+!**/*.vars.env.example
+**/*.secrets.env
+!**/*.secrets.env.example

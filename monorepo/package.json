@@ -16,7 +16,8 @@
     "auth-frontend:serve": "nx serve auth-frontend",
     "admin-backend:serve": "nx serve admin-backend",
     "admin-frontend:serve": "nx serve admin-frontend",
-    "authz:migrate": "tsx ../scripts/authz/authz-migrate.ts"
+    "authz:migrate": "tsx ../scripts/authz/authz-migrate.ts",
+    "authz:migrate:build": "esbuild ../scripts/authz/authz-migrate.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/migrations/authz-migrate.cjs"
   },
   "dependencies": {
     "@angular/common": "^21.2.0",

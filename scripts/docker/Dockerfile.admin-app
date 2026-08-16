@@ -1,0 +1,61 @@
+ARG NODE_IMAGE=docker.io/library/node:22.22.0-bookworm-slim
+
+FROM ${NODE_IMAGE} AS build
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=${PNPM_HOME}:${PATH}
+ENV NX_DAEMON=false
+ENV NX_ISOLATE_PLUGINS=false
+WORKDIR /workspace
+
+RUN npm install --global corepack@0.34.7 \
+    && corepack enable \
+    && corepack install --global pnpm@9.15.0
+
+COPY monorepo/package.json monorepo/pnpm-lock.yaml monorepo/pnpm-workspace.yaml ./monorepo/
+COPY monorepo/.npmrc monorepo/nx.json monorepo/tsconfig.base.json ./monorepo/
+RUN --mount=type=cache,id=ory-admin-pnpm,target=/pnpm/store \
+    pnpm --dir=monorepo install --frozen-lockfile
+
+COPY monorepo ./monorepo
+COPY scripts/authz ./scripts/authz
+RUN pnpm --dir=monorepo admin-backend:build \
+    && pnpm --dir=monorepo admin-frontend:build \
+    && pnpm --dir=monorepo authz:migrate:build
+
+FROM ${NODE_IMAGE} AS runtime
+
+ARG APP_REVISION=unknown
+ARG APP_VERSION=unknown
+ARG APP_CREATED=unknown
+ARG APP_SOURCE=https://github.com/tociva/ory-auth-apps
+
+LABEL org.opencontainers.image.title="Idnest Admin" \
+      org.opencontainers.image.description="Idnest administration backend and browser application" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${APP_REVISION}" \
+      org.opencontainers.image.created="${APP_CREATED}" \
+      org.opencontainers.image.source="${APP_SOURCE}"
+
+ENV NODE_ENV=production \
+    ADMIN_BACKEND_PORT=3000 \
+    ADMIN_HTTPS_ENABLED=true \
+    ADMIN_FRONTEND_DIST_DIR=/app/public/admin \
+    ADMIN_FRONTEND_API_BASE_URL=/api \
+    HOST=0.0.0.0 \
+    INTERNAL_HEALTH_PORT=3001 \
+    INTERNAL_HEALTH_SERVER_ENABLED=true \
+    TLS_CERT_PATH=/run/ory-tls/origin-cert.pem \
+    TLS_KEY_PATH=/run/ory-tls/origin-key.pem \
+    APP_REVISION=${APP_REVISION}
+
+WORKDIR /app
+COPY --from=build --chown=node:node /workspace/monorepo/dist/apps/admin-backend/main.cjs ./server/main.cjs
+COPY --from=build --chown=node:node /workspace/monorepo/dist/apps/admin-frontend/browser ./public/admin
+COPY --from=build --chown=node:node /workspace/monorepo/dist/migrations/authz-migrate.cjs ./migrations/authz-migrate.cjs
+
+USER node
+EXPOSE 3000
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:3001/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+CMD ["node", "server/main.cjs"]

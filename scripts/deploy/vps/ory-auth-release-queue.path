@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for unprivileged Ory release requests
+After=local-fs.target
+
+[Path]
+PathExistsGlob=/var/lib/ory-auth/queue/incoming/request.*.*
+Unit=ory-auth-release-queue.service
+
+[Install]
+WantedBy=multi-user.target

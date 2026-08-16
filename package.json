@@ -17,11 +17,12 @@
     "admin-backend:serve": "pnpm --dir=monorepo admin-backend:serve",
     "admin-frontend:serve": "pnpm --dir=monorepo admin-frontend:serve",
     "authz:migrate": "pnpm --dir=monorepo authz:migrate",
+    "authz:migrate:build": "pnpm --dir=monorepo authz:migrate:build",
     "db:migrate": "./scripts/deploy/run-migrations.sh",
     "nx": "pnpm --dir=monorepo nx",
     "bootstrap:local": "./scripts/setup/bootstrap-local.sh",
-    "frontends:publish": "./scripts/deploy/publish-nginx-frontends.sh",
-    "deploy:dev": "./scripts/deploy/deploy-dev.sh"
+    "frontends:publish:legacy": "./scripts/deploy/publish-nginx-frontends.sh",
+    "deploy:dev:legacy": "./scripts/deploy/deploy-dev.sh"
   },
   "packageManager": "pnpm@9.15.0"
 }

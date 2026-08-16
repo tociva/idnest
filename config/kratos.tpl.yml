@@ -3,6 +3,13 @@ dsn: ${KRATOS_DSN}
 serve:
   public:
     base_url: ${KRATOS_SERVE_PUBLIC_BASE_URL}
+    # BEGIN optional public tls
+    tls:
+      cert:
+        path: /run/ory-tls/origin-cert.pem
+      key:
+        path: /run/ory-tls/origin-key.pem
+    # END optional public tls
     cors:
       enabled: true
       allowed_origins: ${KRATOS_CORS_ALLOWED_ORIGINS_YAML}

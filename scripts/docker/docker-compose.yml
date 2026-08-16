@@ -49,7 +49,9 @@ services:
       SERVE_COOKIES_DOMAIN=\"$$KRATOS_COOKIES_DOMAIN\";
       exec hydra serve all --dev"
     networks:
-      - ory-network
+      ory-network:
+        aliases:
+          - ory-hydra
 
   ory-kratos:
     build:
@@ -71,9 +73,12 @@ services:
       sh -c "sh /usr/local/bin/render-kratos-config.sh
       && exec kratos serve -c /etc/config/kratos.yml --watch-courier"
     networks:
-      - ory-network
+      ory-network:
+        aliases:
+          - ory-kratos
 
 
 networks:
   ory-network:
-    driver: bridge
+    name: ${ORY_RUNTIME_NETWORK:-ory-network}
+    external: true

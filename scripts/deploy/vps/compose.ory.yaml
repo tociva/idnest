@@ -1,0 +1,92 @@
+x-origin-tls: &origin-tls
+  volumes:
+    - type: bind
+      source: ${TLS_CERT_FILE:?TLS_CERT_FILE is required}
+      target: /run/ory-tls/origin-cert.pem
+      read_only: true
+    - type: bind
+      source: ${TLS_KEY_FILE:?TLS_KEY_FILE is required}
+      target: /run/ory-tls/origin-key.pem
+      read_only: true
+  group_add:
+    - ${TLS_READ_GID:?TLS_READ_GID is required}
+
+services:
+  hydra:
+    <<: *origin-tls
+    image: oryd/hydra:v26.2.0
+    container_name: ory-hydra
+    restart: unless-stopped
+    env_file:
+      - ${ORY_ENV_FILE:-/etc/ory-auth/ory.env}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      LOG_LEVEL: error
+      SERVE_PUBLIC_CORS_ENABLED: 'true'
+      SERVE_PUBLIC_CORS_ALLOWED_METHODS: GET,POST,PUT,DELETE,OPTIONS
+      SERVE_PUBLIC_CORS_ALLOWED_HEADERS: Authorization,Content-Type,Accept
+      SERVE_PUBLIC_CORS_ALLOW_CREDENTIALS: 'true'
+      SERVE_COOKIES_SAME_SITE_MODE: Lax
+      SERVE_COOKIES_SAME_SITE_LEGACY_WORKAROUND: 'false'
+      SERVE_COOKIES_SECURE: 'true'
+      SERVE_TLS_ENABLED: 'true'
+      SERVE_TLS_CERT_PATH: /run/ory-tls/origin-cert.pem
+      SERVE_TLS_KEY_PATH: /run/ory-tls/origin-key.pem
+      WEBFINGER_OIDC_DISCOVERY_SUPPORTED_SCOPES: openid,profile,email
+      WEBFINGER_OIDC_DISCOVERY_SUPPORTED_CLAIMS: sub,name,email
+      STRATEGIES_ACCESS_TOKEN: jwt
+      TTL_ACCESS_TOKEN: 5m
+      TTL_REFRESH_TOKEN: 720h
+      OAUTH2_PKCE_ENFORCED_FOR_PUBLIC_CLIENTS: 'true'
+    entrypoint: >-
+      sh -c "export DSN=\"$$HYDRA_DSN\"
+      URLS_SELF_ISSUER=\"$$HYDRA_URLS_SELF_ISSUER\"
+      URLS_CONSENT=\"$$HYDRA_URLS_CONSENT\"
+      URLS_LOGIN=\"$$HYDRA_URLS_LOGIN\"
+      URLS_LOGOUT=\"$$HYDRA_URLS_LOGOUT\"
+      URLS_POST_LOGOUT_REDIRECT=\"$$HYDRA_URLS_POST_LOGOUT_REDIRECT\"
+      URLS_ERROR=\"$$HYDRA_URLS_ERROR\"
+      SECRETS_SYSTEM=\"$$HYDRA_SECRETS_SYSTEM\"
+      SERVE_PUBLIC_CORS_ALLOWED_ORIGINS=\"$$CORS_ALLOWED_ORIGINS\"
+      SERVE_COOKIES_DOMAIN=\"$$KRATOS_COOKIES_DOMAIN\";
+      exec hydra serve all"
+    ports:
+      - '0.0.0.0:${HYDRA_ORIGIN_HTTPS_PORT:-8446}:4444'
+      - '127.0.0.1:${HYDRA_ADMIN_HTTPS_PORT:-4445}:4445'
+    networks:
+      runtime:
+        aliases:
+          - ory-hydra
+          - ${HYDRA_TLS_SERVER_NAME:?HYDRA_TLS_SERVER_NAME is required}
+
+  kratos:
+    <<: *origin-tls
+    build:
+      context: /opt/ory-auth/ory/kratos-build
+      dockerfile: Dockerfile
+    image: ory-kratos-envsubst:v26.2.0
+    container_name: ory-kratos
+    restart: unless-stopped
+    env_file:
+      - ${ORY_ENV_FILE:-/etc/ory-auth/ory.env}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      KRATOS_PUBLIC_TLS_ENABLED: 'true'
+    entrypoint: >-
+      sh -c "sh /usr/local/bin/render-kratos-config.sh
+      && exec kratos serve -c /etc/config/kratos.yml --watch-courier"
+    ports:
+      - '0.0.0.0:${KRATOS_ORIGIN_HTTPS_PORT:-8447}:4433'
+      - '127.0.0.1:${KRATOS_ADMIN_HTTP_PORT:-4434}:4434'
+    networks:
+      runtime:
+        aliases:
+          - ory-kratos
+          - ${KRATOS_TLS_SERVER_NAME:?KRATOS_TLS_SERVER_NAME is required}
+
+networks:
+  runtime:
+    name: ${ORY_RUNTIME_NETWORK:-ory-runtime-development}
+    external: true

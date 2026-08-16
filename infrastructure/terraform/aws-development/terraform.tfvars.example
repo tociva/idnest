@@ -1,0 +1,45 @@
+aws_region        = "ap-south-1"
+github_repository = "tociva/ory-auth-apps"
+
+ecr_repository_names = {
+  auth  = "idnest/auth-app"
+  admin = "idnest/admin-app"
+}
+
+create_github_oidc_provider = false
+create_ecr_repositories       = true
+force_delete_ecr_repositories = false
+
+production_deploy_role_names = {
+  auth  = "ory-auth-production-deploy"
+  admin = "ory-admin-production-deploy"
+}
+
+# Replace every .example.com value before planning. Auth and admin may point to
+# the same host, but the mapping remains explicit so they can be separated later.
+github_deployment_targets = {
+  development-auth = {
+    vps_host = "development-vps.example.com"
+    vps_port = 22
+    vps_user = "github-deploy"
+  }
+  development-admin = {
+    vps_host = "development-vps.example.com"
+    vps_port = 22
+    vps_user = "github-deploy"
+  }
+  production-auth = {
+    vps_host = "production-vps.example.com"
+    vps_port = 22
+    vps_user = "github-deploy"
+  }
+  production-admin = {
+    vps_host = "production-vps.example.com"
+    vps_port = 22
+    vps_user = "github-deploy"
+  }
+}
+
+tags = {
+  Project = "daybook.cloud"
+}
