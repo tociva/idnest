@@ -284,8 +284,65 @@ gh auth status
 
 cp infrastructure/terraform/aws-development/terraform.tfvars.example \
   infrastructure/terraform/aws-development/terraform.tfvars
-${EDITOR:-vi} infrastructure/terraform/aws-development/terraform.tfvars
+```
 
+Open `infrastructure/terraform/aws-development/terraform.tfvars` with any
+editor and configure these values:
+
+| Setting | What to enter |
+| --- | --- |
+| `aws_region` | AWS region for ECR and workflow AWS sessions, for example `"ap-south-1"` |
+| `github_repository` | Repository in `owner/name` form, normally `"tociva/ory-auth-apps"` |
+| `ecr_repository_names.auth` | Auth image repository, normally `"idnest/auth-app"` |
+| `ecr_repository_names.admin` | Admin image repository, normally `"idnest/admin-app"` |
+| `production_deploy_role_names` | Keep the provided role names unless existing production IAM roles use different names |
+| `create_github_oidc_provider` | `true` when this stack must create the AWS account's GitHub OIDC provider; otherwise `false` |
+| `create_ecr_repositories` | `true` to create both repositories; `false` when they already exist in the selected AWS account and region |
+| `force_delete_ecr_repositories` | Keep `false`; use `true` only for an intentional teardown that may delete repositories containing images |
+| `github_deployment_targets` | SSH connection details for all four GitHub environments: `vps_host`, `vps_port`, and `vps_user` |
+| `tags` | Optional AWS resource tags such as `Project = "daybook.cloud"` |
+
+The copied file already contains the recommended defaults. At minimum, replace
+all four `.example.com` VPS hostnames and confirm the two resource-creation
+flags match what already exists in the AWS account.
+
+Example development targets when auth and admin share one VPS:
+
+```hcl
+github_deployment_targets = {
+  development-auth = {
+    vps_host = "dev-vps.example.net"
+    vps_port = 22
+    vps_user = "github-deploy"
+  }
+  development-admin = {
+    vps_host = "dev-vps.example.net"
+    vps_port = 22
+    vps_user = "github-deploy"
+  }
+
+  # Required by the current Terraform input contract, but not used by the
+  # development workflows.
+  production-auth = {
+    vps_host = "production-vps.example.net"
+    vps_port = 22
+    vps_user = "github-deploy"
+  }
+  production-admin = {
+    vps_host = "production-vps.example.net"
+    vps_port = 22
+    vps_user = "github-deploy"
+  }
+}
+```
+
+Replace every `example.net` hostname with an actual SSH-reachable VPS hostname
+or IP address. The auth and admin targets may be the same VPS. Keep the default
+IAM role names unless the AWS account requires different names.
+
+After saving the file, run:
+
+```bash
 terraform -chdir=infrastructure/terraform/aws-development init
 terraform -chdir=infrastructure/terraform/aws-development fmt
 terraform -chdir=infrastructure/terraform/aws-development validate
@@ -297,15 +354,7 @@ terraform -chdir=infrastructure/terraform/aws-development output \
   github_environment_variables
 ```
 
-Set `create_github_oidc_provider=true` only when the AWS account does not
-already have GitHub's account-wide OIDC provider. Set
-`create_ecr_repositories=false` when both ECR repositories already exist.
 Keep Terraform state in an encrypted remote backend for shared environments.
-
-The current input contract requires all four development and production VPS
-targets in `github_deployment_targets`, even when only development is being
-configured. Production targets and roles are not used by the development
-workflows.
 
 ### 2. Create development deployment credentials
 
