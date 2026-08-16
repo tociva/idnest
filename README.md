@@ -290,9 +290,9 @@ terraform -chdir=infrastructure/terraform/aws-development init
 terraform -chdir=infrastructure/terraform/aws-development fmt
 terraform -chdir=infrastructure/terraform/aws-development validate
 terraform -chdir=infrastructure/terraform/aws-development plan \
-  -out=ory-auth-deployment.tfplan
+  -out=idnest-deployment.tfplan
 terraform -chdir=infrastructure/terraform/aws-development apply \
-  ory-auth-deployment.tfplan
+  idnest-deployment.tfplan
 terraform -chdir=infrastructure/terraform/aws-development output \
   github_environment_variables
 ```
@@ -465,7 +465,7 @@ Render Terraform's non-secret variables, create the three development
 environments, and upload the relevant variable files:
 
 ```bash
-GITHUB_REPOSITORY="tociva/ory-auth-apps"
+GITHUB_REPOSITORY="tociva/idnest"
 GITHUB_VARIABLE_DIR="$(mktemp -d)"
 
 scripts/deploy/render-github-environment-vars.sh \
@@ -517,8 +517,8 @@ Run auth first because it also starts and migrates Hydra and Kratos:
 
 ```bash
 gh workflow run deploy-auth-development.yml \
-  --repo tociva/ory-auth-apps --ref development
-gh run watch --repo tociva/ory-auth-apps --exit-status
+  --repo tociva/idnest --ref development
+gh run watch --repo tociva/idnest --exit-status
 ```
 
 After auth succeeds, provision the confidential admin OAuth client once from
@@ -541,8 +541,8 @@ metadata changes. Then deploy admin:
 
 ```bash
 gh workflow run deploy-admin-development.yml \
-  --repo tociva/ory-auth-apps --ref development
-gh run watch --repo tociva/ory-auth-apps --exit-status
+  --repo tociva/idnest --ref development
+gh run watch --repo tociva/idnest --exit-status
 ```
 
 Verify the public services through Cloudflare:
@@ -555,7 +555,7 @@ curl --fail https://kratos-dev.idnest.cloud/health/ready
 ```
 
 Relevant pushes to `development` trigger the matching workflow automatically;
-both workflows use the `ory-vps-development` concurrency group. For VPS
+both workflows use the `idnest-vps-development` concurrency group. For VPS
 diagnostics or rollback:
 
 ```bash

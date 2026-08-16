@@ -11,7 +11,7 @@ variable "aws_region" {
 variable "github_repository" {
   type        = string
   description = "GitHub repository in owner/name form."
-  default     = "tociva/ory-auth-apps"
+  default     = "tociva/idnest"
   validation {
     condition     = can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
     error_message = "github_repository must use owner/name form."
@@ -82,15 +82,15 @@ variable "ecr_repository_names" {
 variable "build_role_name" {
   type        = string
   description = "GitHub Actions role that builds and pushes both images."
-  default     = "ory-auth-development-build"
+  default     = "idnest-development-build"
 }
 
 variable "deploy_role_names" {
   type        = map(string)
   description = "Pull-only GitHub Actions deployment role for each application."
   default = {
-    auth  = "ory-auth-development-deploy"
-    admin = "ory-admin-development-deploy"
+    auth  = "idnest-auth-development-deploy"
+    admin = "idnest-admin-development-deploy"
   }
   validation {
     condition = (
@@ -105,8 +105,8 @@ variable "production_deploy_role_names" {
   type        = map(string)
   description = "Pull-only GitHub Actions production deployment role for each application."
   default = {
-    auth  = "ory-auth-production-deploy"
-    admin = "ory-admin-production-deploy"
+    auth  = "idnest-auth-production-deploy"
+    admin = "idnest-admin-production-deploy"
   }
   validation {
     condition = (

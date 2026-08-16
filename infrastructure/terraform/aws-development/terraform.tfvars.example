@@ -1,5 +1,5 @@
 aws_region        = "ap-south-1"
-github_repository = "tociva/ory-auth-apps"
+github_repository = "tociva/idnest"
 
 ecr_repository_names = {
   auth  = "idnest/auth-app"
@@ -11,8 +11,8 @@ create_ecr_repositories       = true
 force_delete_ecr_repositories = false
 
 production_deploy_role_names = {
-  auth  = "ory-auth-production-deploy"
-  admin = "ory-admin-production-deploy"
+  auth  = "idnest-auth-production-deploy"
+  admin = "idnest-admin-production-deploy"
 }
 
 # Replace every .example.com value before planning. Auth and admin may point to

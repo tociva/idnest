@@ -14,7 +14,7 @@ RUN npm install --global corepack@0.34.7 \
 
 COPY monorepo/package.json monorepo/pnpm-lock.yaml monorepo/pnpm-workspace.yaml ./monorepo/
 COPY monorepo/.npmrc monorepo/nx.json monorepo/tsconfig.base.json ./monorepo/
-RUN --mount=type=cache,id=ory-admin-pnpm,target=/pnpm/store \
+RUN --mount=type=cache,id=idnest-admin-pnpm,target=/pnpm/store \
     pnpm --dir=monorepo install --frozen-lockfile
 
 COPY monorepo ./monorepo
@@ -28,7 +28,7 @@ FROM ${NODE_IMAGE} AS runtime
 ARG APP_REVISION=unknown
 ARG APP_VERSION=unknown
 ARG APP_CREATED=unknown
-ARG APP_SOURCE=https://github.com/tociva/ory-auth-apps
+ARG APP_SOURCE=https://github.com/tociva/idnest
 
 LABEL org.opencontainers.image.title="Idnest Admin" \
       org.opencontainers.image.description="Idnest administration backend and browser application" \

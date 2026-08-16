@@ -122,7 +122,7 @@ jobs:
           role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
-          role-session-name: auth-build-${{ github.run_id }}
+          role-session-name: idnest-auth-build-${{ github.run_id }}
           mask-aws-account-id: true
 
       - name: Log in to Amazon ECR
@@ -157,8 +157,8 @@ jobs:
             APP_REVISION=${{ github.sha }}
             APP_CREATED=${{ steps.metadata.outputs.created }}
             APP_SOURCE=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=ory-auth-app
-          cache-to: type=gha,mode=max,scope=ory-auth-app
+          cache-from: type=gha,scope=idnest-auth-app
+          cache-to: type=gha,mode=max,scope=idnest-auth-app
           provenance: mode=max
           sbom: true
 
@@ -178,7 +178,7 @@ jobs:
     timeout-minutes: 40
     environment: development-auth
     concurrency:
-      group: ory-vps-development
+      group: idnest-vps-development
       cancel-in-progress: false
     permissions:
       contents: read
@@ -223,7 +223,7 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
-          role-session-name: auth-deploy-${{ github.run_id }}
+          role-session-name: idnest-auth-deploy-${{ github.run_id }}
           mask-aws-account-id: true
 
       - name: Prepare SSH and release

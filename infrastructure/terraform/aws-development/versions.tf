@@ -14,7 +14,7 @@ provider "aws" {
 
   default_tags {
     tags = merge({
-      Application = "ory-auth-apps"
+      Application = "idnest"
       Environment = "shared-deployment"
       ManagedBy   = "terraform"
     }, var.tags)
