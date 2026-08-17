@@ -474,11 +474,10 @@ It rejects `root` and `github-deploy` as the administrative account; use a
 separate non-root account that already has `sudo` access. The administrative
 key is not the generated `github-deploy` key.
 
-Identity secrets are never included in the bootstrap archive or transferred by
-this script. If the ignored `tmp/vps.env` file exists, the GitHub preparation
-helper in step 6 uses it as the protected source for the individual Hydra,
-Kratos, Google, and optional Apple settings. Otherwise it uses
-`../idnest-secure/idnest.env`.
+Runtime secrets are never included in the bootstrap archive or transferred by
+this script. The GitHub preparation helper in step 6 uses the ignored
+`tmp/development.env` as the single protected source for configurable auth,
+admin, Hydra, Kratos, Google, and optional Apple settings.
 
 On the VPS, execute the transferred runner as that same non-root administrative
 account:
@@ -516,29 +515,158 @@ Do not create or edit `/etc/idnest/idnest.env`, `/etc/idnest/auth-app.env`, or
 file from individual protected GitHub Environment settings. The root release
 processor verifies the file and installs it as `root:root` mode `0600`.
 
-Protected local source files remain on the trusted Mac and only seed individual
-GitHub settings; complete dotenv files are not stored as GitHub secrets. Create
-the sources once if they do not already exist:
+The protected local source remains on the trusted Mac and only seeds individual
+GitHub settings; the complete dotenv file is not stored as a GitHub secret.
+`tmp/development.env` is the single source of truth for development key-value
+settings. The bulk updater creates it from the tracked example with mode `0600`
+when missing and stops before contacting GitHub. You can also create it directly:
 
 ```bash
-test -e ../idnest-secure/auth-app.env || \
-  install -m 600 scripts/deploy/env/auth-app.env.example \
-  ../idnest-secure/auth-app.env
-test -e ../idnest-secure/admin-app.env || \
-  install -m 600 scripts/deploy/env/admin-app.env.example \
-  ../idnest-secure/admin-app.env
-test -e ../idnest-secure/idnest.env || test -e tmp/vps.env || \
-  install -m 600 scripts/deploy/env/idnest.env.example \
-  ../idnest-secure/idnest.env
+test ! -e tmp/development.env || {
+  echo "tmp/development.env already exists; refusing to overwrite it" >&2
+  exit 1
+}
+install -d -m 700 tmp
+install -m 600 scripts/deploy/env/development.env.example \
+  tmp/development.env
 ```
 
-Open the files in any editor you choose and replace the documented placeholders.
-If `tmp/vps.env` exists, the helper automatically uses it as the identity source;
-otherwise it uses `../idnest-secure/idnest.env`. The identity source must contain
-the exact keys in `idnest.env.example` and use mode `0600`. The helper validates
-all three exact contracts and rejects missing, duplicate, unexpected, empty
-required, or placeholder values. Only configurable values are uploaded; the
-identity workflow regenerates current development URLs from tracked defaults.
+The following is the complete copy-pasteable development file for a new setup.
+Do not overwrite an existing protected file; add any missing properties while
+preserving its current secrets. Values beginning with `replace-with-` are
+placeholders and must be changed:
+
+```dotenv
+AUTH_URL=https://auth-dev.idnest.cloud
+CORS_ALLOWED_ORIGINS=https://*.idnest.cloud,https://*.daybook.cloud
+HYDRA_DSN=postgres://hydrau:replace-with-hydra-password@host.docker.internal:5432/hydra?sslmode=disable
+HYDRA_URLS_SELF_ISSUER=https://hydra-dev.idnest.cloud/
+HYDRA_URLS_CONSENT=https://auth-dev.idnest.cloud/oauth2/consent
+HYDRA_URLS_LOGIN=https://auth-dev.idnest.cloud/oauth2/login
+HYDRA_URLS_LOGOUT=https://auth-dev.idnest.cloud/logout
+HYDRA_URLS_POST_LOGOUT_REDIRECT=https://admin-dev.idnest.cloud/auth/logout
+HYDRA_URLS_ERROR=https://auth-dev.idnest.cloud/error
+HYDRA_SECRETS_SYSTEM=replace-with-a-long-random-secret
+KRATOS_DSN=postgres://kratosu:replace-with-kratos-password@host.docker.internal:5432/kratos?sslmode=disable
+KRATOS_SERVE_PUBLIC_BASE_URL=https://kratos-dev.idnest.cloud
+KRATOS_ADMIN_URL=http://localhost:4434
+KRATOS_URLS_LOGOUT=https://hydra-dev.idnest.cloud/oauth2/sessions/logout
+KRATOS_COOKIES_DOMAIN=.idnest.cloud
+KRATOS_LOG_LEVEL=info
+KRATOS_CSRF_COOKIE_SECRET=replace-with-a-long-random-secret
+KRATOS_CIPHER_SECRET=replace-with-exactly-32-chars
+GOOGLE_CLIENT_ID=replace-with-google-client-id
+GOOGLE_CLIENT_SECRET=replace-with-google-client-secret
+APPLE_CLIENT_ID=
+APPLE_TEAM_ID=
+APPLE_PRIVATE_KEY_ID=
+APPLE_PRIVATE_KEY=
+AUTHZ_DATABASE_URL=postgres://authzu:replace-with-authz-password@host.docker.internal:5432/authz?sslmode=disable
+CONSENT_ACTION_SECRET=replace-with-a-long-random-secret
+AUTH_TRANSACTION_SECRET=replace-with-a-32-byte-or-longer-random-secret
+AUTH_AUDIT_HASH_SECRET=replace-with-an-independent-long-random-secret
+ADMIN_BOOTSTRAP_EMAILS=replace-with-real-admin-email-address
+ADMIN_CSRF_SECRET=replace-with-a-long-random-secret
+ADMIN_OIDC_CLIENT_SECRET=replace-with-admin-client-secret
+```
+
+Keep all 31 properties and replace every placeholder; do not copy placeholder
+values literally. Leave all four `APPLE_*` values empty to disable Apple login,
+or configure all four together. The helper validates the exact contract and
+rejects missing, duplicate, unexpected, empty required, partial Apple, or
+placeholder values. Only configurable values are uploaded; each workflow
+regenerates current development defaults from tracked templates.
+
+##### Development URL and behavior properties
+
+These values come from the Idnest development domain layout. Keep the defaults
+unless the corresponding public hostname or flow route intentionally changes.
+The deployment renderers own these stable defaults, so changing only the local
+file does not change a deployed URL. The validator rejects drift in these
+properties; update the matching renderer, validator, and example together.
+
+| Property | Default | Purpose and source |
+| --- | --- | --- |
+| `AUTH_URL` | `https://auth-dev.idnest.cloud` | Public auth UI/backend origin from the `auth-dev` DNS record. |
+| `CORS_ALLOWED_ORIGINS` | `https://*.idnest.cloud,https://*.daybook.cloud` | Browser origins allowed to call Kratos; derived from the development product domains. |
+| `HYDRA_URLS_SELF_ISSUER` | `https://hydra-dev.idnest.cloud/` | Public OAuth issuer. It must exactly match the URL clients use, including the trailing slash. |
+| `HYDRA_URLS_CONSENT` | `https://auth-dev.idnest.cloud/oauth2/consent` | Auth backend endpoint Hydra uses for consent challenges. |
+| `HYDRA_URLS_LOGIN` | `https://auth-dev.idnest.cloud/oauth2/login` | Auth backend endpoint Hydra uses for login challenges. |
+| `HYDRA_URLS_LOGOUT` | `https://auth-dev.idnest.cloud/logout` | Auth backend endpoint Hydra uses for logout challenges. |
+| `HYDRA_URLS_POST_LOGOUT_REDIRECT` | `https://admin-dev.idnest.cloud/auth/logout` | Default browser destination after Hydra logout. |
+| `HYDRA_URLS_ERROR` | `https://auth-dev.idnest.cloud/error` | Public OAuth error page. |
+| `KRATOS_SERVE_PUBLIC_BASE_URL` | `https://kratos-dev.idnest.cloud` | Public Kratos origin and the base used to form social-login callback URLs. |
+| `KRATOS_ADMIN_URL` | `http://localhost:4434` | Admin API address inside the Kratos container; never expose this port publicly. |
+| `KRATOS_URLS_LOGOUT` | `https://hydra-dev.idnest.cloud/oauth2/sessions/logout` | Hydra browser logout endpoint used after a Kratos logout. |
+| `KRATOS_COOKIES_DOMAIN` | `.idnest.cloud` | Shared cookie domain covering the Idnest development subdomains. |
+| `KRATOS_LOG_LEVEL` | `info` | Kratos runtime log verbosity; use `debug` only temporarily because logs can become noisy. |
+
+##### Database and generated secret properties
+
+Create three PostgreSQL roles and databases before deployment. Use a distinct,
+URL-safe password for each role, then place it in the matching DSN. When
+PostgreSQL runs on the VPS, `host.docker.internal` is the container-to-host
+address configured by the deployment Compose files. For a managed database,
+replace the host, port, and `sslmode` with values supplied by that provider.
+
+| Property | How to obtain or generate it |
+| --- | --- |
+| `HYDRA_DSN` | Create PostgreSQL role `hydrau` and database `hydra`; build `postgres://hydrau:PASSWORD@host.docker.internal:5432/hydra?sslmode=disable`. |
+| `KRATOS_DSN` | Create PostgreSQL role `kratosu` and database `kratos`; build `postgres://kratosu:PASSWORD@host.docker.internal:5432/kratos?sslmode=disable`. |
+| `AUTHZ_DATABASE_URL` | Create PostgreSQL role `authzu` and database `authz`; build `postgres://authzu:PASSWORD@host.docker.internal:5432/authz?sslmode=disable`. The updater sends this one value to both auth and admin. |
+| `HYDRA_SECRETS_SYSTEM` | Run `openssl rand -hex 32`; keep the value stable after Hydra has encrypted data with it. |
+| `KRATOS_CSRF_COOKIE_SECRET` | Run `openssl rand -hex 32`; this produces a 64-character secret. |
+| `KRATOS_CIPHER_SECRET` | Run `openssl rand -hex 16`; the result is exactly 32 characters, as required by the validator. |
+| `CONSENT_ACTION_SECRET` | Run `openssl rand -hex 32`; used to sign consent actions. |
+| `AUTH_TRANSACTION_SECRET` | Run `openssl rand -hex 32`; used to protect auth transaction state. |
+| `AUTH_AUDIT_HASH_SECRET` | Run `openssl rand -hex 32`; use an independent value for audit hashing. |
+| `ADMIN_CSRF_SECRET` | Run `openssl rand -hex 32`; used by the admin backend for CSRF protection. |
+| `ADMIN_OIDC_CLIENT_SECRET` | Run `openssl rand -hex 32`, then use this exact value when provisioning the confidential `idnest-admin` Hydra client after the first admin deployment. |
+| `ADMIN_BOOTSTRAP_EMAILS` | Enter the real, verified email allowed to receive initial system-admin access. Separate multiple emails with commas. |
+
+Never reuse a database password, the VPS sudo password, an SSH passphrase, the
+Cloudflare Origin CA private key, or another application secret. Do not rotate
+Hydra/Kratos encryption secrets without first planning how existing encrypted
+data will be handled.
+
+##### Google social-login properties
+
+In Google Cloud Console, configure the OAuth consent screen, then create an
+OAuth 2.0 client with application type **Web application**. Register this exact
+authorized redirect URI:
+
+```text
+https://kratos-dev.idnest.cloud/self-service/methods/oidc/callback/google
+```
+
+Google requires an exact redirect-URI match. Copy the resulting client ID into
+`GOOGLE_CLIENT_ID` and client secret into `GOOGLE_CLIENT_SECRET`. Keep the
+secret only in `tmp/development.env` and the protected GitHub Environment.
+See Google's official
+[web-server OAuth credential instructions](https://developers.google.com/identity/protocols/oauth2/web-server#creatingcred).
+
+##### Optional Apple social-login properties
+
+To enable Apple, use an Apple Developer account to enable **Sign in with Apple**
+for a primary App ID, create and configure a Services ID for the web integration,
+and create a Sign in with Apple private key. Configure:
+
+```text
+Domain:     kratos-dev.idnest.cloud
+Return URL: https://kratos-dev.idnest.cloud/self-service/methods/oidc/callback/apple
+```
+
+| Property | Apple Developer value |
+| --- | --- |
+| `APPLE_CLIENT_ID` | The Services ID identifier created for the web integration. |
+| `APPLE_TEAM_ID` | The Team ID shown in Apple Developer membership details. |
+| `APPLE_PRIVATE_KEY_ID` | The Key ID shown for the downloaded Sign in with Apple key. |
+| `APPLE_PRIVATE_KEY` | The complete downloaded `.p8` private-key content encoded as one JSON string with `\n` escapes. Run `jq -Rs . < AuthKey_KEY_ID.p8` and paste its quoted output after `APPLE_PRIVATE_KEY=`. |
+
+Apple displays the private-key download only once, so store the original `.p8`
+outside the repository. See Apple's official guides for
+[web configuration](https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/)
+and [creating a private key](https://developer.apple.com/help/account/capabilities/create-a-sign-in-with-apple-private-key).
 
 | GitHub Environment | GitHub secrets | GitHub variables |
 | --- | --- | --- |
@@ -551,10 +679,11 @@ known-hosts file, and release-signing private key as separate base64 transport
 secrets. Terraform supplies only `VPS_HOST`, `VPS_PORT`, and `VPS_USER` to
 `development-identity`; no AWS role is created for it.
 
-Use the same authorization DSN and bootstrap email in both environments.
-Generate independent random values for every other secret. Provision the OAuth
-client with the same `ADMIN_OIDC_CLIENT_SECRET` after the first admin workflow
-installs the generated file.
+The single `AUTHZ_DATABASE_URL` and `ADMIN_BOOTSTRAP_EMAILS` values are uploaded
+to both application environments. Generate independent random values for every
+other secret. Provision the OAuth client with the same
+`ADMIN_OIDC_CLIENT_SECRET` after the first admin workflow installs the generated
+file.
 
 The renderers hardcode development-only hostnames, internal service URLs, CORS
 origins, cookie domain, log level, frontend paths, consent/branding modes,
@@ -562,24 +691,10 @@ transaction TTL, and boolean defaults from the tracked examples. Change the
 renderer and examples together when one of those defaults intentionally
 changes; these defaults are not GitHub settings.
 
-Use a separate randomly generated value for every secret. Hydra and Kratos
-system/CSRF secrets should be at least 32 random bytes. `KRATOS_CIPHER_SECRET`
-must be exactly 32 characters. Do not reuse the VPS sudo password, SSH-key
-passphrase, database passwords, or Cloudflare private key. For PostgreSQL on
-the VPS, the expected DSN shape is:
-
-```text
-postgres://ROLE:PASSWORD@host.docker.internal:5432/DATABASE?sslmode=disable
-```
-
-Use URL-safe passwords or percent-encode reserved URL characters. The expected
-roles and databases are `hydrau`/`hydra`, `kratosu`/`kratos`, and
-`authzu`/`authz`. The same `authzu` DSN must appear in both application files.
-Google client ID and secret are required. To disable Apple login, leave all four
-Apple values empty. To enable it, configure all four; the local
-`APPLE_PRIVATE_KEY` must be a JSON-compatible double-quoted YAML string with
-`\n` escapes. The helper validates the PEM and stores its raw bytes as the
-individual `APPLE_PRIVATE_KEY_B64` GitHub secret.
+Use URL-safe database passwords or percent-encode reserved URL characters.
+Google client ID and secret are required. The helper validates an enabled Apple
+private key and stores its raw bytes as the individual
+`APPLE_PRIVATE_KEY_B64` GitHub secret.
 
 The `.conf` defaults are already suitable for development:
 
@@ -741,14 +856,20 @@ non-secret output, prepares the named secrets and variables, creates or updates
 ./scripts/deploy/update-development-github-environments.sh
 ```
 
-The default repository is `tociva/idnest`. The updater automatically selects
-`tmp/vps.env` when it exists; otherwise it selects
-`../idnest-secure/idnest.env`. Override either value when necessary:
+The default repository is `tociva/idnest`, and the default protected source is
+`tmp/development.env`. Override either value when necessary:
 
 ```bash
 ./scripts/deploy/update-development-github-environments.sh \
-  OWNER/REPOSITORY /absolute/secure/path/idnest.env
+  OWNER/REPOSITORY /absolute/secure/path/development.env
 ```
+
+The selected mode-`0600` file is the only key-value input to the bulk updater.
+When the default protected file is absent, the first run creates it from the
+tracked combined template and exits before contacting GitHub. Fill its
+placeholders, then run the same command again. SSH private keys, known hosts,
+and the release-signing key remain separate protected files because they are
+not dotenv properties.
 
 All three development deployment environments receive the transport secrets
 `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, and

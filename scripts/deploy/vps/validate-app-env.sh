@@ -6,7 +6,7 @@ fail() {
   exit 1
 }
 
-[ "$#" -ge 1 ] && [ "$#" -le 2 ] || fail "usage: validate-app-env.sh ENV_FILE [auth|admin|identity]"
+[ "$#" -ge 1 ] && [ "$#" -le 2 ] || fail "usage: validate-app-env.sh ENV_FILE [auth|admin|identity|development-source]"
 env_file=$1
 kind=${2:-}
 [ -f "$env_file" ] && [ ! -L "$env_file" ] || fail "environment file must be a regular file"
@@ -23,7 +23,10 @@ case "$kind" in
   identity)
     expected_keys='AUTH_URL CORS_ALLOWED_ORIGINS HYDRA_DSN HYDRA_URLS_SELF_ISSUER HYDRA_URLS_CONSENT HYDRA_URLS_LOGIN HYDRA_URLS_LOGOUT HYDRA_URLS_POST_LOGOUT_REDIRECT HYDRA_URLS_ERROR HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_SERVE_PUBLIC_BASE_URL KRATOS_ADMIN_URL KRATOS_URLS_LOGOUT KRATOS_COOKIES_DOMAIN KRATOS_LOG_LEVEL KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY'
     ;;
-  *) fail "environment kind must be auth, admin, or identity" ;;
+  development-source)
+    expected_keys='AUTH_URL CORS_ALLOWED_ORIGINS HYDRA_DSN HYDRA_URLS_SELF_ISSUER HYDRA_URLS_CONSENT HYDRA_URLS_LOGIN HYDRA_URLS_LOGOUT HYDRA_URLS_POST_LOGOUT_REDIRECT HYDRA_URLS_ERROR HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_SERVE_PUBLIC_BASE_URL KRATOS_ADMIN_URL KRATOS_URLS_LOGOUT KRATOS_COOKIES_DOMAIN KRATOS_LOG_LEVEL KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET ADMIN_BOOTSTRAP_EMAILS ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET'
+    ;;
+  *) fail "environment kind must be auth, admin, identity, or development-source" ;;
 esac
 
 duplicates=$(
@@ -39,7 +42,7 @@ duplicates=$(
 )
 [ -z "$duplicates" ] || fail "duplicate keys: $duplicates"
 
-if grep -Eiq '(^|=)(replace-with-|change-?me|todo)([^A-Za-z0-9]|$)|@example\.com([,[:space:]]|$)|https?://[^,[:space:]]*\.example\.com([,[:space:]]|$)' "$env_file"; then
+if grep -Eiq 'replace-with-|=[[:space:]]*(change-?me|todo)|@example\.com([,[:space:]]|$)|https?://[^,[:space:]]*\.example\.com([,[:space:]]|$)' "$env_file"; then
   fail "environment file contains placeholder values"
 fi
 
@@ -66,7 +69,7 @@ if [ -n "$expected_keys" ]; then
         printf "Application environment validation failed: unexpected key %s in %s\n", key, source > "/dev/stderr"
         failed = 1
       }
-      optional_identity_key = kind == "identity" && key ~ /^APPLE_(CLIENT_ID|TEAM_ID|PRIVATE_KEY_ID|PRIVATE_KEY)$/
+      optional_identity_key = (kind == "identity" || kind == "development-source") && key ~ /^APPLE_(CLIENT_ID|TEAM_ID|PRIVATE_KEY_ID|PRIVATE_KEY)$/
       if (length(value) == 0 && !optional_identity_key) {
         printf "Application environment validation failed: empty value for %s in %s\n", key, source > "/dev/stderr"
         failed = 1
@@ -106,7 +109,7 @@ dotenv_value() {
   ' "$env_file"
 }
 
-if [ "$kind" = identity ]; then
+if [ "$kind" = identity ] || [ "$kind" = development-source ]; then
   for identity_key in $expected_keys; do
     identity_value=$(dotenv_value "$identity_key")
     case "$identity_value" in
@@ -134,6 +137,32 @@ if [ "$kind" = identity ]; then
     0|4) ;;
     *) fail "Apple login values must be either all configured or all empty" ;;
   esac
+fi
+
+if [ "$kind" = development-source ]; then
+  authz_dsn=$(dotenv_value AUTHZ_DATABASE_URL)
+  case "$authz_dsn" in postgres://*|postgresql://*) ;; *) fail "AUTHZ_DATABASE_URL must be a PostgreSQL DSN" ;; esac
+
+  require_development_default() {
+    default_key=$1
+    expected_value=$2
+    actual_value=$(dotenv_value "$default_key")
+    [ "$actual_value" = "$expected_value" ] \
+      || fail "$default_key must keep the tracked development default: $expected_value"
+  }
+  require_development_default AUTH_URL 'https://auth-dev.idnest.cloud'
+  require_development_default CORS_ALLOWED_ORIGINS 'https://*.idnest.cloud,https://*.daybook.cloud'
+  require_development_default HYDRA_URLS_SELF_ISSUER 'https://hydra-dev.idnest.cloud/'
+  require_development_default HYDRA_URLS_CONSENT 'https://auth-dev.idnest.cloud/oauth2/consent'
+  require_development_default HYDRA_URLS_LOGIN 'https://auth-dev.idnest.cloud/oauth2/login'
+  require_development_default HYDRA_URLS_LOGOUT 'https://auth-dev.idnest.cloud/logout'
+  require_development_default HYDRA_URLS_POST_LOGOUT_REDIRECT 'https://admin-dev.idnest.cloud/auth/logout'
+  require_development_default HYDRA_URLS_ERROR 'https://auth-dev.idnest.cloud/error'
+  require_development_default KRATOS_SERVE_PUBLIC_BASE_URL 'https://kratos-dev.idnest.cloud'
+  require_development_default KRATOS_ADMIN_URL 'http://localhost:4434'
+  require_development_default KRATOS_URLS_LOGOUT 'https://hydra-dev.idnest.cloud/oauth2/sessions/logout'
+  require_development_default KRATOS_COOKIES_DOMAIN '.idnest.cloud'
+  require_development_default KRATOS_LOG_LEVEL 'info'
 fi
 
 echo "Application environment validation passed."

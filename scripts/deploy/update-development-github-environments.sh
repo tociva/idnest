@@ -8,16 +8,18 @@ fail() {
 
 usage() {
   cat <<'EOF'
-Usage: scripts/deploy/update-development-github-environments.sh [OWNER/REPOSITORY] [IDNEST_ENV]
+Usage: scripts/deploy/update-development-github-environments.sh [OWNER/REPOSITORY] [DEVELOPMENT_ENV]
 
 Bulk-creates or updates variables and secrets for ecr-build,
 development-auth, development-admin, and development-identity.
 
 Defaults:
   OWNER/REPOSITORY=tociva/idnest
-  IDNEST_ENV=tmp/vps.env when present, otherwise ../idnest-secure/idnest.env
+  DEVELOPMENT_ENV=tmp/development.env
 
-The deployment keys and auth/admin source files are read from ../idnest-secure.
+All configurable auth, admin, Hydra, Kratos, Google, and optional Apple values
+are read from that single protected development environment file. Deployment
+SSH and release-signing keys remain separate files under ../idnest-secure.
 Prepared dotenv files are kept in a mode-0700 temporary directory and removed
 after success or failure.
 EOF
@@ -35,32 +37,48 @@ GITHUB_REPOSITORY=${1:-tociva/idnest}
 printf '%s\n' "$GITHUB_REPOSITORY" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' \
   || fail "repository must use OWNER/REPOSITORY form"
 
-for command in chmod dirname gh grep mktemp rm; do
+for command in chmod dirname gh grep install mktemp rm; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
-gh auth status >/dev/null || fail "GitHub CLI authentication is required"
 
 SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)
 REPO_PARENT=$(CDPATH= cd "$REPO_ROOT/.." && pwd)
 DEPLOY_KEYS_DIR=$REPO_PARENT/idnest-secure
 TERRAFORM_DIRECTORY=$REPO_ROOT/infrastructure/terraform/aws-development
+[ -d "$DEPLOY_KEYS_DIR" ] && [ ! -L "$DEPLOY_KEYS_DIR" ] \
+  || fail "protected directory is missing or invalid: $DEPLOY_KEYS_DIR (run create-development-credentials.sh first)"
 
 if [ "$#" -eq 2 ]; then
-  IDNEST_ENV=$2
-elif [ -f "$REPO_ROOT/tmp/vps.env" ] && [ ! -L "$REPO_ROOT/tmp/vps.env" ]; then
-  IDNEST_ENV=$REPO_ROOT/tmp/vps.env
+  DEVELOPMENT_ENV=$2
 else
-  IDNEST_ENV=$DEPLOY_KEYS_DIR/idnest.env
+  DEVELOPMENT_ENV=$REPO_ROOT/tmp/development.env
+fi
+
+umask 077
+if [ "$DEVELOPMENT_ENV" = "$REPO_ROOT/tmp/development.env" ] \
+  && [ ! -e "$DEVELOPMENT_ENV" ] && [ ! -L "$DEVELOPMENT_ENV" ]; then
+  development_directory=$REPO_ROOT/tmp
+  if [ -e "$development_directory" ] || [ -L "$development_directory" ]; then
+    [ -d "$development_directory" ] && [ ! -L "$development_directory" ] \
+      || fail "development input directory is invalid: $development_directory"
+  else
+    install -d -m 700 "$development_directory" \
+      || fail "could not create protected input directory: $development_directory"
+  fi
+  template=$SCRIPT_DIR/env/development.env.example
+  [ -f "$template" ] && [ ! -L "$template" ] && [ -s "$template" ] \
+    || fail "missing or invalid tracked template: $template"
+  install -m 600 "$template" "$DEVELOPMENT_ENV" \
+    || fail "could not create protected source: $DEVELOPMENT_ENV"
+  fail "created $DEVELOPMENT_ENV; replace its placeholders and rerun this updater"
 fi
 
 for required_file in \
   "$DEPLOY_KEYS_DIR/github-deploy-ed25519" \
   "$DEPLOY_KEYS_DIR/vps-known-hosts" \
   "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" \
-  "$DEPLOY_KEYS_DIR/auth-app.env" \
-  "$DEPLOY_KEYS_DIR/admin-app.env" \
-  "$IDNEST_ENV"; do
+  "$DEVELOPMENT_ENV"; do
   [ -f "$required_file" ] && [ ! -L "$required_file" ] && [ -s "$required_file" ] \
     || fail "missing or invalid protected input: $required_file"
 done
@@ -68,12 +86,15 @@ done
 for helper in \
   "$SCRIPT_DIR/render-github-environment-vars.sh" \
   "$SCRIPT_DIR/prepare-github-environments.sh" \
-  "$SCRIPT_DIR/configure-github-environments.sh"; do
+  "$SCRIPT_DIR/configure-github-environments.sh" \
+  "$SCRIPT_DIR/vps/validate-app-env.sh"; do
   [ -f "$helper" ] && [ ! -L "$helper" ] && [ -x "$helper" ] \
     || fail "missing or invalid helper: $helper"
 done
 
-umask 077
+"$SCRIPT_DIR/vps/validate-app-env.sh" "$DEVELOPMENT_ENV" development-source >/dev/null
+gh auth status >/dev/null || fail "GitHub CLI authentication is required"
+
 temporary_parent=${TMPDIR:-/tmp}
 temporary_parent=${temporary_parent%/}
 PREPARED_DIRECTORY=$(mktemp -d "$temporary_parent/idnest-github-environments.XXXXXX")
@@ -95,9 +116,7 @@ chmod 700 "$PREPARED_DIRECTORY"
   "$DEPLOY_KEYS_DIR/github-deploy-ed25519" \
   "$DEPLOY_KEYS_DIR/vps-known-hosts" \
   "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" \
-  "$DEPLOY_KEYS_DIR/auth-app.env" \
-  "$DEPLOY_KEYS_DIR/admin-app.env" \
-  "$IDNEST_ENV" \
+  "$DEVELOPMENT_ENV" \
   "$PREPARED_DIRECTORY"
 
 "$SCRIPT_DIR/configure-github-environments.sh" \

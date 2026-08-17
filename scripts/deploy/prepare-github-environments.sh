@@ -1,30 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 6 ] && [ "$#" -ne 7 ]; then
-  echo "Usage: $0 DEV_SSH_PRIVATE_KEY DEV_KNOWN_HOSTS DEV_RELEASE_SIGNING_KEY AUTH_APP_ENV ADMIN_APP_ENV [IDNEST_ENV] OUTPUT_DIR" >&2
+if [ "$#" -ne 5 ]; then
+  echo "Usage: $0 DEV_SSH_PRIVATE_KEY DEV_KNOWN_HOSTS DEV_RELEASE_SIGNING_KEY DEVELOPMENT_ENV OUTPUT_DIR" >&2
   exit 2
 fi
 
 SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)
 DEV_SSH_PRIVATE_KEY="$1"
 DEV_KNOWN_HOSTS="$2"
 DEV_RELEASE_SIGNING_PRIVATE_KEY="$3"
-AUTH_APP_ENV="$4"
-ADMIN_APP_ENV="$5"
-if [ "$#" -eq 7 ]; then
-  IDNEST_ENV="$6"
-  OUTPUT_DIR="$7"
-elif [ -f "$REPO_ROOT/tmp/vps.env" ] && [ ! -L "$REPO_ROOT/tmp/vps.env" ]; then
-  IDNEST_ENV="$REPO_ROOT/tmp/vps.env"
-  OUTPUT_DIR="$6"
-else
-  IDNEST_ENV="$REPO_ROOT/../idnest-secure/idnest.env"
-  OUTPUT_DIR="$6"
-fi
+DEVELOPMENT_ENV="$4"
+OUTPUT_DIR="$5"
 
-for file in "$DEV_SSH_PRIVATE_KEY" "$DEV_KNOWN_HOSTS" "$DEV_RELEASE_SIGNING_PRIVATE_KEY" "$AUTH_APP_ENV" "$ADMIN_APP_ENV" "$IDNEST_ENV"; do
+for file in "$DEV_SSH_PRIVATE_KEY" "$DEV_KNOWN_HOSTS" "$DEV_RELEASE_SIGNING_PRIVATE_KEY" "$DEVELOPMENT_ENV"; do
   [ -f "$file" ] && [ ! -L "$file" ] && [ -s "$file" ] || {
     echo "Expected a non-empty regular file: $file" >&2
     exit 1
@@ -57,15 +46,11 @@ file_mode() {
   fi
 }
 
-for app_env in "$AUTH_APP_ENV" "$ADMIN_APP_ENV" "$IDNEST_ENV"; do
-  [ "$(file_mode "$app_env")" = 600 ] || {
-    echo "Application environment file must have mode 600: $app_env" >&2
-    exit 1
-  }
-done
-"$SCRIPT_DIR/vps/validate-app-env.sh" "$AUTH_APP_ENV" auth >/dev/null
-"$SCRIPT_DIR/vps/validate-app-env.sh" "$ADMIN_APP_ENV" admin >/dev/null
-"$SCRIPT_DIR/vps/validate-app-env.sh" "$IDNEST_ENV" identity >/dev/null
+[ "$(file_mode "$DEVELOPMENT_ENV")" = 600 ] || {
+  echo "Development environment file must have mode 600: $DEVELOPMENT_ENV" >&2
+  exit 1
+}
+"$SCRIPT_DIR/vps/validate-app-env.sh" "$DEVELOPMENT_ENV" development-source >/dev/null
 
 dotenv_value() {
   source_file=$1
@@ -100,43 +85,35 @@ dotenv_apple_private_key_yaml() {
   ' "$source_file"
 }
 
-AUTH_AUTHZ_DATABASE_URL=$(dotenv_value "$AUTH_APP_ENV" AUTHZ_DATABASE_URL)
-AUTH_CONSENT_ACTION_SECRET=$(dotenv_value "$AUTH_APP_ENV" CONSENT_ACTION_SECRET)
-AUTH_TRANSACTION_SECRET_VALUE=$(dotenv_value "$AUTH_APP_ENV" AUTH_TRANSACTION_SECRET)
-AUTH_AUDIT_HASH_SECRET_VALUE=$(dotenv_value "$AUTH_APP_ENV" AUTH_AUDIT_HASH_SECRET)
-AUTH_ADMIN_BOOTSTRAP_EMAILS=$(dotenv_value "$AUTH_APP_ENV" ADMIN_BOOTSTRAP_EMAILS)
-ADMIN_AUTHZ_DATABASE_URL=$(dotenv_value "$ADMIN_APP_ENV" AUTHZ_DATABASE_URL)
-ADMIN_CSRF_SECRET_VALUE=$(dotenv_value "$ADMIN_APP_ENV" ADMIN_CSRF_SECRET)
-ADMIN_OIDC_CLIENT_SECRET_VALUE=$(dotenv_value "$ADMIN_APP_ENV" ADMIN_OIDC_CLIENT_SECRET)
-ADMIN_ADMIN_BOOTSTRAP_EMAILS=$(dotenv_value "$ADMIN_APP_ENV" ADMIN_BOOTSTRAP_EMAILS)
-IDENTITY_HYDRA_DSN=$(dotenv_value "$IDNEST_ENV" HYDRA_DSN)
-IDENTITY_HYDRA_SECRETS_SYSTEM=$(dotenv_value "$IDNEST_ENV" HYDRA_SECRETS_SYSTEM)
-IDENTITY_KRATOS_DSN=$(dotenv_value "$IDNEST_ENV" KRATOS_DSN)
-IDENTITY_KRATOS_CSRF_COOKIE_SECRET=$(dotenv_value "$IDNEST_ENV" KRATOS_CSRF_COOKIE_SECRET)
-IDENTITY_KRATOS_CIPHER_SECRET=$(dotenv_value "$IDNEST_ENV" KRATOS_CIPHER_SECRET)
-IDENTITY_GOOGLE_CLIENT_ID=$(dotenv_value "$IDNEST_ENV" GOOGLE_CLIENT_ID)
-IDENTITY_GOOGLE_CLIENT_SECRET=$(dotenv_value "$IDNEST_ENV" GOOGLE_CLIENT_SECRET)
-IDENTITY_APPLE_CLIENT_ID=$(dotenv_value "$IDNEST_ENV" APPLE_CLIENT_ID)
-IDENTITY_APPLE_TEAM_ID=$(dotenv_value "$IDNEST_ENV" APPLE_TEAM_ID)
-IDENTITY_APPLE_PRIVATE_KEY_ID=$(dotenv_value "$IDNEST_ENV" APPLE_PRIVATE_KEY_ID)
-IDENTITY_APPLE_PRIVATE_KEY_YAML=$(dotenv_apple_private_key_yaml "$IDNEST_ENV")
+AUTH_AUTHZ_DATABASE_URL=$(dotenv_value "$DEVELOPMENT_ENV" AUTHZ_DATABASE_URL)
+AUTH_CONSENT_ACTION_SECRET=$(dotenv_value "$DEVELOPMENT_ENV" CONSENT_ACTION_SECRET)
+AUTH_TRANSACTION_SECRET_VALUE=$(dotenv_value "$DEVELOPMENT_ENV" AUTH_TRANSACTION_SECRET)
+AUTH_AUDIT_HASH_SECRET_VALUE=$(dotenv_value "$DEVELOPMENT_ENV" AUTH_AUDIT_HASH_SECRET)
+AUTH_ADMIN_BOOTSTRAP_EMAILS=$(dotenv_value "$DEVELOPMENT_ENV" ADMIN_BOOTSTRAP_EMAILS)
+ADMIN_AUTHZ_DATABASE_URL=$AUTH_AUTHZ_DATABASE_URL
+ADMIN_CSRF_SECRET_VALUE=$(dotenv_value "$DEVELOPMENT_ENV" ADMIN_CSRF_SECRET)
+ADMIN_OIDC_CLIENT_SECRET_VALUE=$(dotenv_value "$DEVELOPMENT_ENV" ADMIN_OIDC_CLIENT_SECRET)
+ADMIN_ADMIN_BOOTSTRAP_EMAILS=$AUTH_ADMIN_BOOTSTRAP_EMAILS
+IDENTITY_HYDRA_DSN=$(dotenv_value "$DEVELOPMENT_ENV" HYDRA_DSN)
+IDENTITY_HYDRA_SECRETS_SYSTEM=$(dotenv_value "$DEVELOPMENT_ENV" HYDRA_SECRETS_SYSTEM)
+IDENTITY_KRATOS_DSN=$(dotenv_value "$DEVELOPMENT_ENV" KRATOS_DSN)
+IDENTITY_KRATOS_CSRF_COOKIE_SECRET=$(dotenv_value "$DEVELOPMENT_ENV" KRATOS_CSRF_COOKIE_SECRET)
+IDENTITY_KRATOS_CIPHER_SECRET=$(dotenv_value "$DEVELOPMENT_ENV" KRATOS_CIPHER_SECRET)
+IDENTITY_GOOGLE_CLIENT_ID=$(dotenv_value "$DEVELOPMENT_ENV" GOOGLE_CLIENT_ID)
+IDENTITY_GOOGLE_CLIENT_SECRET=$(dotenv_value "$DEVELOPMENT_ENV" GOOGLE_CLIENT_SECRET)
+IDENTITY_APPLE_CLIENT_ID=$(dotenv_value "$DEVELOPMENT_ENV" APPLE_CLIENT_ID)
+IDENTITY_APPLE_TEAM_ID=$(dotenv_value "$DEVELOPMENT_ENV" APPLE_TEAM_ID)
+IDENTITY_APPLE_PRIVATE_KEY_ID=$(dotenv_value "$DEVELOPMENT_ENV" APPLE_PRIVATE_KEY_ID)
+IDENTITY_APPLE_PRIVATE_KEY_YAML=$(dotenv_apple_private_key_yaml "$DEVELOPMENT_ENV")
 IDENTITY_APPLE_PRIVATE_KEY=
 IDENTITY_APPLE_ENABLED=false
 if [ -n "$IDENTITY_APPLE_PRIVATE_KEY_YAML" ]; then
   IDENTITY_APPLE_PRIVATE_KEY=$(printf '%s' "$IDENTITY_APPLE_PRIVATE_KEY_YAML" | jq -er 'select(type == "string" and length > 0)') \
-    || { echo "APPLE_PRIVATE_KEY in $IDNEST_ENV must be a JSON-compatible double-quoted YAML string." >&2; exit 1; }
+    || { echo "APPLE_PRIVATE_KEY in $DEVELOPMENT_ENV must be a JSON-compatible double-quoted YAML string." >&2; exit 1; }
   printf '%s' "$IDENTITY_APPLE_PRIVATE_KEY" | openssl pkey -noout >/dev/null 2>&1 \
-    || { echo "APPLE_PRIVATE_KEY in $IDNEST_ENV is not a valid PEM private key." >&2; exit 1; }
+    || { echo "APPLE_PRIVATE_KEY in $DEVELOPMENT_ENV is not a valid PEM private key." >&2; exit 1; }
   IDENTITY_APPLE_ENABLED=true
 fi
-[ "$AUTH_AUTHZ_DATABASE_URL" = "$ADMIN_AUTHZ_DATABASE_URL" ] || {
-  echo "AUTHZ_DATABASE_URL must be identical in auth and admin application inputs." >&2
-  exit 1
-}
-[ "$AUTH_ADMIN_BOOTSTRAP_EMAILS" = "$ADMIN_ADMIN_BOOTSTRAP_EMAILS" ] || {
-  echo "ADMIN_BOOTSTRAP_EMAILS must be identical in auth and admin application inputs." >&2
-  exit 1
-}
 
 if [ -e "$OUTPUT_DIR" ]; then
   [ -d "$OUTPUT_DIR" ] && [ ! -L "$OUTPUT_DIR" ] || {
