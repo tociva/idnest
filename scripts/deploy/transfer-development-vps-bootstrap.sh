@@ -13,8 +13,8 @@ Usage:
     VPS_ADMIN_USER VPS_ADMIN_SSH_KEY [VPS_HOST] [VPS_PORT]
 
 Packages the development VPS bootstrap payload, stores the archive under
-../idnest-secure, transfers it and the two required public keys to the VPS, and
-verifies the uploaded SHA-256 checksum.
+../idnest-secure, and transfers the archive, VPS bootstrap runner, checksum,
+and two required public keys. The uploaded checksums are verified on the VPS.
 
 Defaults: VPS_HOST=vps-dev.idnest.cloud, VPS_PORT=22.
 VPS_ADMIN_USER must be a non-root account with sudo access.
@@ -61,6 +61,8 @@ CHECKSUM_PATH=$ARCHIVE_PATH.sha256
 KNOWN_HOSTS=$DEPLOY_KEYS_DIR/vps-known-hosts
 SIGNING_PUBLIC_KEY=$DEPLOY_KEYS_DIR/host-release-signing-public.pem
 DEPLOY_SSH_PUBLIC_KEY=$DEPLOY_KEYS_DIR/github-deploy-ed25519.pub
+BOOTSTRAP_RUNNER_NAME=bootstrap-development-vps.sh
+BOOTSTRAP_RUNNER_PATH=$REPO_ROOT/scripts/deploy/vps/$BOOTSTRAP_RUNNER_NAME
 
 [ -d "$DEPLOY_KEYS_DIR" ] && [ ! -L "$DEPLOY_KEYS_DIR" ] \
   || fail "$DEPLOY_KEYS_DIR is missing or is not a regular directory; run create-development-credentials.sh first"
@@ -68,6 +70,9 @@ for required_file in "$KNOWN_HOSTS" "$SIGNING_PUBLIC_KEY" "$DEPLOY_SSH_PUBLIC_KE
   [ -f "$required_file" ] && [ ! -L "$required_file" ] && [ -s "$required_file" ] \
     || fail "missing required credential file: $required_file"
 done
+[ -f "$BOOTSTRAP_RUNNER_PATH" ] && [ ! -L "$BOOTSTRAP_RUNNER_PATH" ] \
+  && [ -s "$BOOTSTRAP_RUNNER_PATH" ] && [ -x "$BOOTSTRAP_RUNNER_PATH" ] \
+  || fail "missing or invalid VPS bootstrap runner: $BOOTSTRAP_RUNNER_PATH"
 for generated_file in "$ARCHIVE_PATH" "$CHECKSUM_PATH"; do
   [ ! -L "$generated_file" ] || fail "refusing to replace symbolic link: $generated_file"
 done
@@ -128,8 +133,11 @@ trap cleanup 0 1 2 15
 temporary_archive=$generation_dir/$ARCHIVE_NAME
 (cd "$REPO_ROOT" && tar -czf "$temporary_archive" "$@")
 archive_digest=$(shasum -a 256 "$temporary_archive" | awk '{print $1}')
-printf '%s  %s\n' "$archive_digest" "$ARCHIVE_NAME" \
-  > "$generation_dir/$ARCHIVE_NAME.sha256"
+runner_digest=$(shasum -a 256 "$BOOTSTRAP_RUNNER_PATH" | awk '{print $1}')
+{
+  printf '%s  %s\n' "$archive_digest" "$ARCHIVE_NAME"
+  printf '%s  %s\n' "$runner_digest" "$BOOTSTRAP_RUNNER_NAME"
+} > "$generation_dir/$ARCHIVE_NAME.sha256"
 
 install -m 600 "$temporary_archive" "$ARCHIVE_PATH"
 install -m 600 "$generation_dir/$ARCHIVE_NAME.sha256" "$CHECKSUM_PATH"
@@ -141,7 +149,11 @@ ssh \
   -o StrictHostKeyChecking=yes \
   -o "UserKnownHostsFile=$KNOWN_HOSTS" \
   "$VPS_ADMIN_USER@$VPS_HOST" \
-  'test ! -L "$HOME/idnest-bootstrap" && install -d -m 700 "$HOME/idnest-bootstrap"'
+  'staging="$HOME/idnest-bootstrap"
+   test ! -L "$staging" && install -d -m 700 "$staging" || exit 1
+   for file in idnest-development-vps-bootstrap.tar.gz idnest-development-vps-bootstrap.tar.gz.sha256 bootstrap-development-vps.sh host-release-signing-public.pem github-deploy-ed25519.pub; do
+     test ! -L "$staging/$file" || exit 1
+   done'
 
 scp \
   -i "$VPS_ADMIN_SSH_KEY" \
@@ -151,6 +163,7 @@ scp \
   -o "UserKnownHostsFile=$KNOWN_HOSTS" \
   "$ARCHIVE_PATH" \
   "$CHECKSUM_PATH" \
+  "$BOOTSTRAP_RUNNER_PATH" \
   "$SIGNING_PUBLIC_KEY" \
   "$DEPLOY_SSH_PUBLIC_KEY" \
   "$VPS_ADMIN_USER@$VPS_HOST:idnest-bootstrap/"
@@ -162,7 +175,7 @@ ssh \
   -o StrictHostKeyChecking=yes \
   -o "UserKnownHostsFile=$KNOWN_HOSTS" \
   "$VPS_ADMIN_USER@$VPS_HOST" \
-  'cd "$HOME/idnest-bootstrap" && sha256sum --check idnest-development-vps-bootstrap.tar.gz.sha256'
+  'cd "$HOME/idnest-bootstrap" && chmod 700 bootstrap-development-vps.sh && sha256sum --check idnest-development-vps-bootstrap.tar.gz.sha256'
 
 cleanup
 generation_dir=
@@ -170,4 +183,4 @@ trap - 0 1 2 15
 
 echo "Development bootstrap payload transferred and verified."
 echo "Remote staging directory: $VPS_ADMIN_USER@$VPS_HOST:~/idnest-bootstrap"
-echo "Continue with the VPS extraction and provisioning commands in README.md."
+echo "On the VPS, run: ~/idnest-bootstrap/bootstrap-development-vps.sh"

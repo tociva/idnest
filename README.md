@@ -430,68 +430,47 @@ management endpoint after the required arguments when necessary:
 ```
 
 The script creates the development-only archive and checksum under
-`../idnest-secure`, creates `~/idnest-bootstrap` on the VPS, transfers the
-archive, checksum, release-signing public key, and deployment SSH public key,
-then verifies the uploaded checksum. Its explicit archive manifest excludes
-production files and local secrets. It rejects `root` and `github-deploy` as
-the administrative account; use a separate non-root account that already has
-`sudo` access. The administrative key is not the generated `github-deploy` key.
+`../idnest-secure`, creates `~/idnest-bootstrap` on the VPS, and transfers the
+archive, checksum, VPS bootstrap runner, release-signing public key, and
+deployment SSH public key. It then verifies both the archive and runner on the
+VPS. Its explicit archive manifest excludes production files and local secrets.
+It rejects `root` and `github-deploy` as the administrative account; use a
+separate non-root account that already has `sudo` access. The administrative
+key is not the generated `github-deploy` key.
 
-On the VPS, verify and extract the archive before running anything from it:
-
-```bash
-BOOTSTRAP_DIR="$HOME/idnest-bootstrap"
-BOOTSTRAP_ARCHIVE="idnest-development-vps-bootstrap.tar.gz"
-REPOSITORY_DIR="$BOOTSTRAP_DIR/repository"
-
-cd "$BOOTSTRAP_DIR"
-sha256sum --check "$BOOTSTRAP_ARCHIVE.sha256"
-install -d -m 700 "$REPOSITORY_DIR"
-tar -xzf "$BOOTSTRAP_ARCHIVE" -C "$REPOSITORY_DIR"
-cd "$REPOSITORY_DIR"
-```
-
-Run the minimum host setup from that extracted repository tree:
+On the VPS, execute the transferred runner as that same non-root administrative
+account:
 
 ```bash
-sudo apt update
-sudo apt install -y ca-certificates curl openssl tar util-linux coreutils
-sudo adduser --disabled-password --gecos '' github-deploy
-
-sudo scripts/deploy/vps/provision-host.sh \
-  github-deploy \
-  ory-runtime-development \
-  "$BOOTSTRAP_DIR/host-release-signing-public.pem" \
-  "$BOOTSTRAP_DIR/github-deploy-ed25519.pub"
-
-sudo systemctl status ory-auth-release-queue.path --no-pager
-sudo test ! -e /etc/sudoers.d/ory-auth-deploy
+~/idnest-bootstrap/bootstrap-development-vps.sh
 ```
 
-Install the VPS-owned development environment files, replace every placeholder,
-and validate them. These runtime secrets stay on the VPS and are not transferred
-through GitHub Actions.
+The runner verifies both transferred checksums again before doing any
+privileged work. It extracts a fresh repository tree, installs the minimum host
+packages, checks Docker Engine and the Compose plugin, creates `github-deploy`
+when needed, provisions the release processor, and installs missing development
+configuration templates. It invokes `sudo` only for operations that require
+host privileges and refuses direct execution as `root`.
+
+Edit these VPS-owned files with your preferred editor; the repository does not
+select or launch an editor:
+
+- `/etc/idnest/auth-app.env`
+- `/etc/idnest/admin-app.env`
+- `/etc/idnest/ory.env`
+- `/etc/idnest/auth.conf`
+- `/etc/idnest/admin.conf`
+- `/etc/idnest/ory.conf`
+
+Replace every placeholder, then execute the same runner in validation mode:
 
 ```bash
-sudo install -o root -g root -m 600 \
-  scripts/deploy/env/auth-app.env.example /etc/idnest/auth-app.env
-sudo install -o root -g root -m 600 \
-  scripts/deploy/env/admin-app.env.example /etc/idnest/admin-app.env
-sudo install -o root -g root -m 600 \
-  scripts/deploy/env/ory.env.example /etc/idnest/ory.env
-
-sudoedit /etc/idnest/auth-app.env
-sudoedit /etc/idnest/admin-app.env
-sudoedit /etc/idnest/ory.env
-sudoedit /etc/idnest/auth.conf
-sudoedit /etc/idnest/admin.conf
-sudoedit /etc/idnest/ory.conf
-
-sudo /usr/local/sbin/validate-ory-app-env /etc/idnest/auth-app.env
-sudo /usr/local/sbin/validate-ory-app-env /etc/idnest/admin-app.env
-sudo /usr/local/sbin/validate-ory-app-env /etc/idnest/ory.env
-sudo stat -c '%U:%G %a %n' /etc/idnest/*.env /etc/idnest/*.conf
+~/idnest-bootstrap/bootstrap-development-vps.sh --validate-config
 ```
+
+These runtime secrets stay on the VPS and are not transferred through GitHub
+Actions. Existing configuration files are preserved when the bootstrap runner
+is executed again.
 
 Before the first workflow run, create the PostgreSQL roles, databases, and
 schemas referenced by `HYDRA_DSN`, `KRATOS_DSN`, and `AUTHZ_DATABASE_URL`.
