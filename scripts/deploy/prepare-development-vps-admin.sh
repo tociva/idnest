@@ -73,9 +73,10 @@ ssh-keygen -F "$known_host" -f "$KNOWN_HOSTS" >/dev/null \
 admin_public_key=$(ssh-keygen -y -f "$ROOT_SSH_PRIVATE_KEY") \
   || fail "could not derive the SSH public key"
 admin_key_type=${admin_public_key%% *}
-admin_key_data=${admin_public_key#* }
-[ "$admin_key_data" != "$admin_public_key" ] \
+admin_key_remainder=${admin_public_key#* }
+[ "$admin_key_remainder" != "$admin_public_key" ] \
   || fail "ssh-keygen returned an invalid public key"
+admin_key_data=${admin_key_remainder%% *}
 case "$admin_key_type" in
   ""|*[!A-Za-z0-9@._+-]*) fail "ssh-keygen returned an invalid public key type" ;;
 esac
