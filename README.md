@@ -402,6 +402,12 @@ chmod 600 \
 Verify the displayed VPS host-key fingerprint through a second trusted channel
 before uploading the known-hosts value to GitHub.
 
+Only the public halves are installed on the VPS: the deployment SSH public key
+becomes `github-deploy`'s `authorized_keys`, and the release-signing public key
+is installed as `/etc/idnest/host-release-signing-public.pem`. The two private
+keys remain in the protected GitHub environment secrets prepared in step 6;
+they are never installed on the VPS.
+
 ### 3. Bootstrap the development VPS
 
 Install Docker Engine with the Compose plugin using Docker's official packages.
@@ -432,23 +438,23 @@ through GitHub Actions.
 
 ```bash
 sudo install -o root -g root -m 600 \
-  scripts/deploy/env/auth-app.env.example /etc/ory-auth/auth-app.env
+  scripts/deploy/env/auth-app.env.example /etc/idnest/auth-app.env
 sudo install -o root -g root -m 600 \
-  scripts/deploy/env/admin-app.env.example /etc/ory-auth/admin-app.env
+  scripts/deploy/env/admin-app.env.example /etc/idnest/admin-app.env
 sudo install -o root -g root -m 600 \
-  scripts/deploy/env/ory.env.example /etc/ory-auth/ory.env
+  scripts/deploy/env/ory.env.example /etc/idnest/ory.env
 
-sudoedit /etc/ory-auth/auth-app.env
-sudoedit /etc/ory-auth/admin-app.env
-sudoedit /etc/ory-auth/ory.env
-sudoedit /etc/ory-auth/auth.conf
-sudoedit /etc/ory-auth/admin.conf
-sudoedit /etc/ory-auth/ory.conf
+sudoedit /etc/idnest/auth-app.env
+sudoedit /etc/idnest/admin-app.env
+sudoedit /etc/idnest/ory.env
+sudoedit /etc/idnest/auth.conf
+sudoedit /etc/idnest/admin.conf
+sudoedit /etc/idnest/ory.conf
 
-sudo /usr/local/sbin/validate-ory-app-env /etc/ory-auth/auth-app.env
-sudo /usr/local/sbin/validate-ory-app-env /etc/ory-auth/admin-app.env
-sudo /usr/local/sbin/validate-ory-app-env /etc/ory-auth/ory.env
-sudo stat -c '%U:%G %a %n' /etc/ory-auth/*.env /etc/ory-auth/*.conf
+sudo /usr/local/sbin/validate-ory-app-env /etc/idnest/auth-app.env
+sudo /usr/local/sbin/validate-ory-app-env /etc/idnest/admin-app.env
+sudo /usr/local/sbin/validate-ory-app-env /etc/idnest/ory.env
+sudo stat -c '%U:%G %a %n' /etc/idnest/*.env /etc/idnest/*.conf
 ```
 
 Before the first workflow run, create the PostgreSQL roles, databases, and
@@ -460,8 +466,9 @@ databases. A managed database should be prepared by its administrator.
 
 ### 4. Create and install a Cloudflare Origin CA certificate
 
-In Cloudflare, open **SSL/TLS → Origin Server → Create Certificate**. Create a
-PEM certificate for these four exact SANs:
+In the Cloudflare dashboard, open **SSL/TLS → Origin Server → Create
+Certificate**. Let Cloudflare generate the private key and CSR, select PEM
+format, and create one Origin CA certificate containing these four exact SANs:
 
 ```text
 auth-dev.idnest.cloud
@@ -470,37 +477,47 @@ hydra-dev.idnest.cloud
 kratos-dev.idnest.cloud
 ```
 
-Save the origin certificate and private key immediately; Cloudflare displays
-the generated private key only once. Download the Cloudflare Origin CA root
-matching the selected key type from the
+Save both values immediately: Cloudflare displays the generated private key
+only once. Use these filenames when transferring the files securely to the VPS:
+
+| File | Source | Secret? |
+| --- | --- | --- |
+| `origin-cert.pem` | Cloudflare-generated Origin CA certificate | No |
+| `origin-key.pem` | Cloudflare-generated matching private key | Yes |
+| `origin-ca.pem` | Cloudflare Origin CA root for the selected key type | No |
+
+Download the appropriate Origin CA root from Cloudflare's
 [Origin CA documentation](https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/).
-Copy the three files to the VPS and install them:
+Do not commit these files or store the origin private key in GitHub. Install the
+three transferred files on the VPS:
 
 ```bash
 sudo install -o root -g root -m 644 \
   /secure/idnest-development/origin-cert.pem \
-  /etc/ory-auth/tls/origin-cert.pem
-sudo install -o root -g ory-auth-tls -m 640 \
+  /etc/idnest/tls/origin-cert.pem
+sudo install -o root -g idnest-tls -m 640 \
   /secure/idnest-development/origin-key.pem \
-  /etc/ory-auth/tls/origin-key.pem
+  /etc/idnest/tls/origin-key.pem
 sudo install -o root -g root -m 644 \
   /secure/idnest-development/origin-ca.pem \
-  /etc/ory-auth/tls/origin-ca.pem
+  /etc/idnest/tls/origin-ca.pem
 
-sudo openssl x509 -in /etc/ory-auth/tls/origin-cert.pem -noout \
+sudo openssl x509 -in /etc/idnest/tls/origin-cert.pem -noout \
   -subject -issuer -dates -ext subjectAltName
+sudo openssl pkey -in /etc/idnest/tls/origin-key.pem -noout -check
 for hostname in auth-dev.idnest.cloud admin-dev.idnest.cloud \
   hydra-dev.idnest.cloud kratos-dev.idnest.cloud; do
-  sudo openssl x509 -in /etc/ory-auth/tls/origin-cert.pem \
+  sudo openssl x509 -in /etc/idnest/tls/origin-cert.pem \
     -noout -checkhost "$hostname"
 done
-sudo stat -c '%U:%G %a %n' /etc/ory-auth/tls/*
+sudo stat -c '%U:%G %a %n' /etc/idnest/tls/*
 ```
 
 Set the zone's SSL/TLS encryption mode to
 [**Full (strict)**](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/)
-after the certificate is installed. Origin CA certificates are intended for
-Cloudflare-to-origin traffic, so keep all four DNS records proxied.
+only after the certificate and matching private key are installed. Origin CA
+certificates authenticate Cloudflare-to-origin traffic and are not publicly
+trusted browser certificates, so keep all four DNS records proxied.
 
 ### 5. Configure Cloudflare DNS and origin port rewrites
 
@@ -583,9 +600,9 @@ the installed Origin CA root:
 ```bash
 sudo docker run --rm \
   --network ory-runtime-development \
-  --env-file /etc/ory-auth/admin-app.env \
+  --env-file /etc/idnest/admin-app.env \
   -e NODE_EXTRA_CA_CERTS=/run/ory-tls/origin-ca.pem \
-  --mount type=bind,src=/etc/ory-auth/tls/origin-ca.pem,dst=/run/ory-tls/origin-ca.pem,readonly \
+  --mount type=bind,src=/etc/idnest/tls/origin-ca.pem,dst=/run/ory-tls/origin-ca.pem,readonly \
   --mount type=bind,src="$PWD/scripts/setup/provision-admin-client.js",dst=/work/provision-admin-client.js,readonly \
   node:22.22.0 node /work/provision-admin-client.js
 ```

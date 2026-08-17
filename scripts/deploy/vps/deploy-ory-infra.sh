@@ -2,7 +2,7 @@
 set -eu
 
 readonly APP_ROOT=/opt/ory-auth
-readonly CONFIG_ROOT=/etc/ory-auth
+readonly CONFIG_ROOT=/etc/idnest
 readonly INCOMING_ROOT=/var/lib/ory-auth/incoming
 readonly LOCK_FILE=/var/lock/ory-auth-deploy.lock
 readonly COMPOSE_FILE=$APP_ROOT/ory/compose.yaml

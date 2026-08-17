@@ -2,7 +2,7 @@ services:
   admin:
     image: ${APP_IMAGE:?APP_IMAGE is required}
     env_file:
-      - ${APP_ENV_FILE:-/etc/ory-auth/admin-app.env}
+      - ${APP_ENV_FILE:-/etc/idnest/admin-app.env}
     environment:
       ADMIN_BACKEND_PORT: 3000
       ADMIN_HTTPS_ENABLED: 'true'

@@ -34,11 +34,11 @@ for file in compose.auth.yaml compose.admin.yaml compose.ory.yaml Dockerfile.kra
   [ -f "$SCRIPT_DIR/$file" ] && [ ! -L "$SCRIPT_DIR/$file" ] || fail "invalid provisioning source: $file"
 done
 
-TLS_GROUP=ory-auth-tls
+TLS_GROUP=idnest-tls
 getent group "$TLS_GROUP" >/dev/null 2>&1 || groupadd --system "$TLS_GROUP"
-install -d -o root -g root -m 755 /opt/ory-auth /opt/ory-auth/auth /opt/ory-auth/admin /opt/ory-auth/ory /opt/ory-auth/host-releases /opt/ory-auth/ory/kratos-build /opt/ory-auth/ory/kratos-build/config /opt/ory-auth/ory/kratos-build/config/kratos /opt/ory-auth/ory/config-history /etc/ory-auth
-install -d -o root -g "$TLS_GROUP" -m 750 /etc/ory-auth/tls
-install -o root -g root -m 644 "$RELEASE_SIGNING_PUBLIC_KEY" /etc/ory-auth/host-release-signing-public.pem
+install -d -o root -g root -m 755 /opt/ory-auth /opt/ory-auth/auth /opt/ory-auth/admin /opt/ory-auth/ory /opt/ory-auth/host-releases /opt/ory-auth/ory/kratos-build /opt/ory-auth/ory/kratos-build/config /opt/ory-auth/ory/kratos-build/config/kratos /opt/ory-auth/ory/config-history /etc/idnest
+install -d -o root -g "$TLS_GROUP" -m 750 /etc/idnest/tls
+install -o root -g root -m 644 "$RELEASE_SIGNING_PUBLIC_KEY" /etc/idnest/host-release-signing-public.pem
 install -d -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" -m 700 "$DEPLOY_HOME/.ssh"
 install -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" -m 600 "$DEPLOY_SSH_PUBLIC_KEY" "$DEPLOY_HOME/.ssh/authorized_keys"
 install -d -o root -g root -m 700 /opt/ory-auth/auth/deployment-history /opt/ory-auth/admin/deployment-history
@@ -69,9 +69,9 @@ install -o root -g root -m 755 "$SCRIPT_DIR/wait-ory-release.sh" /usr/local/bin/
 install -o root -g root -m 644 "$SCRIPT_DIR/ory-auth-release-queue.path" /etc/systemd/system/ory-auth-release-queue.path
 install -o root -g root -m 644 "$SCRIPT_DIR/ory-auth-release-queue.service" /etc/systemd/system/ory-auth-release-queue.service
 
-[ -e /etc/ory-auth/auth.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/auth.conf.example" /etc/ory-auth/auth.conf
-[ -e /etc/ory-auth/admin.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/admin.conf.example" /etc/ory-auth/admin.conf
-[ -e /etc/ory-auth/ory.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/ory.conf.example" /etc/ory-auth/ory.conf
+[ -e /etc/idnest/auth.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/auth.conf.example" /etc/idnest/auth.conf
+[ -e /etc/idnest/admin.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/admin.conf.example" /etc/idnest/admin.conf
+[ -e /etc/idnest/ory.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/ory.conf.example" /etc/idnest/ory.conf
 
 if ! docker network inspect "$RUNTIME_NETWORK" >/dev/null 2>&1; then
   docker network create --attachable "$RUNTIME_NETWORK" >/dev/null
@@ -87,5 +87,5 @@ systemctl is-active --quiet ory-auth-release-queue.path || fail "release queue w
 
 echo "One-time privileged host bootstrap complete."
 echo "GitHub Actions can now submit deployments as $DEPLOY_USER without sudo."
-echo "Review /etc/ory-auth/*.conf and install VPS-owned app.env, ory.env, and Origin CA files before the first deployment."
-echo "Install origin-cert.pem and origin-ca.pem as root-readable files and origin-key.pem as root:$TLS_GROUP mode 640 under /etc/ory-auth/tls."
+echo "Review /etc/idnest/*.conf and install VPS-owned app.env, ory.env, and Origin CA files before the first deployment."
+echo "Install origin-cert.pem and origin-ca.pem as root-readable files and origin-key.pem as root:$TLS_GROUP mode 640 under /etc/idnest/tls."

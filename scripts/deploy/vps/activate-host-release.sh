@@ -3,7 +3,7 @@ set -eu
 
 readonly RELEASE_ROOT=/opt/ory-auth/host-releases
 readonly CURRENT_RELEASE=/opt/ory-auth/host-release.env
-readonly SIGNING_PUBLIC_KEY=/etc/ory-auth/host-release-signing-public.pem
+readonly SIGNING_PUBLIC_KEY=/etc/idnest/host-release-signing-public.pem
 
 fail() {
   echo "Host release activation failed: $*" >&2

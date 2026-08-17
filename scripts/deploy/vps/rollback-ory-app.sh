@@ -2,7 +2,7 @@
 set -eu
 
 readonly APP_ROOT=/opt/ory-auth
-readonly CONFIG_ROOT=/etc/ory-auth
+readonly CONFIG_ROOT=/etc/idnest
 readonly LOCK_FILE=/var/lock/ory-auth-deploy.lock
 readonly TLS_CERT_FILE=$CONFIG_ROOT/tls/origin-cert.pem
 readonly TLS_KEY_FILE=$CONFIG_ROOT/tls/origin-key.pem

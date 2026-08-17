@@ -18,7 +18,7 @@ services:
     container_name: ory-hydra
     restart: unless-stopped
     env_file:
-      - ${ORY_ENV_FILE:-/etc/ory-auth/ory.env}
+      - ${ORY_ENV_FILE:-/etc/idnest/ory.env}
     extra_hosts:
       - host.docker.internal:host-gateway
     environment:
@@ -70,7 +70,7 @@ services:
     user: "10000"
     restart: unless-stopped
     env_file:
-      - ${ORY_ENV_FILE:-/etc/ory-auth/ory.env}
+      - ${ORY_ENV_FILE:-/etc/idnest/ory.env}
     extra_hosts:
       - host.docker.internal:host-gateway
     environment:

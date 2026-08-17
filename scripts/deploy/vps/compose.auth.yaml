@@ -2,7 +2,7 @@ services:
   auth:
     image: ${APP_IMAGE:?APP_IMAGE is required}
     env_file:
-      - ${APP_ENV_FILE:-/etc/ory-auth/auth-app.env}
+      - ${APP_ENV_FILE:-/etc/idnest/auth-app.env}
     environment:
       APP_REVISION: ${APP_REVISION:-unknown}
       AUTH_BACKEND_PORT: 3000
