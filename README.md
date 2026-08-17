@@ -732,43 +732,23 @@ admin `4434`, PostgreSQL `5432`, or Docker's socket to the public internet.
 
 ### 6. Configure GitHub environments
 
-Render Terraform's non-secret variables and prepare the three development
-secret files. The helpers create/update only `ecr-build`, `development-auth`,
-`development-admin`, and `development-identity`:
+Run the bulk updater from the repository root. It renders Terraform's
+non-secret output, prepares the named secrets and variables, creates or updates
+`ecr-build`, `development-auth`, `development-admin`, and
+`development-identity`, and securely deletes its temporary dotenv files:
 
 ```bash
-GITHUB_REPOSITORY="tociva/idnest"
-GITHUB_ENVIRONMENT_DIR="$(mktemp -d)"
-
-scripts/deploy/render-github-environment-vars.sh \
-  infrastructure/terraform/aws-development \
-  "$GITHUB_ENVIRONMENT_DIR"
-
-scripts/deploy/prepare-github-environments.sh \
-  "$DEPLOY_KEYS_DIR/github-deploy-ed25519" \
-  "$DEPLOY_KEYS_DIR/vps-known-hosts" \
-  "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" \
-  "$DEPLOY_KEYS_DIR/auth-app.env" \
-  "$DEPLOY_KEYS_DIR/admin-app.env" \
-  "$GITHUB_ENVIRONMENT_DIR"
-
-scripts/deploy/configure-github-environments.sh \
-  "$GITHUB_REPOSITORY" \
-  "$GITHUB_ENVIRONMENT_DIR"
-
-gh variable list --repo "$GITHUB_REPOSITORY" --env ecr-build
-gh variable list --repo "$GITHUB_REPOSITORY" --env development-auth
-gh variable list --repo "$GITHUB_REPOSITORY" --env development-admin
-gh variable list --repo "$GITHUB_REPOSITORY" --env development-identity
-gh secret list --repo "$GITHUB_REPOSITORY" --env development-auth
-gh secret list --repo "$GITHUB_REPOSITORY" --env development-admin
-gh secret list --repo "$GITHUB_REPOSITORY" --env development-identity
+./scripts/deploy/update-development-github-environments.sh
 ```
 
-`prepare-github-environments.sh` automatically selects `tmp/vps.env` when it
-exists; otherwise it selects `../idnest-secure/idnest.env`. To use a different
-protected identity source, pass it immediately before
-`"$GITHUB_ENVIRONMENT_DIR"`.
+The default repository is `tociva/idnest`. The updater automatically selects
+`tmp/vps.env` when it exists; otherwise it selects
+`../idnest-secure/idnest.env`. Override either value when necessary:
+
+```bash
+./scripts/deploy/update-development-github-environments.sh \
+  OWNER/REPOSITORY /absolute/secure/path/idnest.env
+```
 
 All three development deployment environments receive the transport secrets
 `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, and
@@ -790,18 +770,17 @@ The `_B64` values use base64 encoding, not encryption. Named runtime values are
 stored as separate GitHub secrets or variables; no full dotenv file is stored
 in GitHub. The helpers validate file modes, key formats, exact
 variable/secret names, and application environment contracts without printing
-secret values. During this migration, the configuration helper deletes obsolete
-whole-file application secrets and removes stale optional Apple settings when
-Apple login is disabled. After changing any protected local source file, rerun
-`prepare-github-environments.sh` and `configure-github-environments.sh`; the
-next matching deployment generates and installs the new root-owned file on the
-VPS.
+secret values. The bulk updater deletes its generated directory even when an
+intermediate command fails. During this migration, the configuration helper
+deletes obsolete whole-file application secrets and removes stale optional
+Apple settings when Apple login is disabled. After changing any protected local
+source file, rerun the single bulk updater; the next matching deployment
+generates and installs the new root-owned file on the VPS.
 
 In **GitHub → Settings → Environments**, restrict `ecr-build`,
 `development-auth`, `development-admin`, and `development-identity` to the
-`development` branch. Add required reviewers where appropriate. Remove the
-generated environment directory after confirming the upload; retain the source
-keys only in the approved secret store.
+`development` branch. Add required reviewers where appropriate, and retain the
+source keys only in the approved secret store.
 
 ### 7. Run and verify the first deployment
 
