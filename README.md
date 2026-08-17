@@ -261,6 +261,18 @@ above remain proxied through Cloudflare.
 Hydra admin `4445` and Kratos admin `4434` stay bound to loopback/private
 network interfaces. The application containers terminate origin TLS directly.
 
+Before starting, the development VPS must be running and reachable at
+`65.108.158.243:22`. Create a **DNS-only** Cloudflare `A` record for
+`vps-dev.idnest.cloud` pointing to `65.108.158.243`; never proxy this SSH
+hostname. Keep the four proxied application records for step 6. Confirm that
+the provider-created account can be reached with the workstation SSH key before
+continuing.
+
+The required order is: provision AWS, create deployment credentials, bootstrap
+the VPS, prepare runtime values and databases, install Origin CA TLS, configure
+public Cloudflare routing, upload GitHub settings, then deploy identity, auth,
+and admin in that order.
+
 ### 1. Provision AWS with Terraform
 
 Install Terraform, AWS CLI, GitHub CLI, `jq`, OpenSSL, and OpenSSH on a trusted
@@ -346,15 +358,17 @@ repositories. Each role's trust policy also restricts tokens to the
 Cloudflare. Auth, admin, and identity share this VPS but remain separate GitHub
 deployment environments. `development-identity` receives only the VPS values;
 it needs no AWS role because Hydra and Kratos use public upstream images.
-`vps_user` is intentionally `github-deploy`: Terraform exports it to GitHub
-Actions, which must not connect as `root`.
+`vps_user` is intentionally `github-deploy`: Terraform records it in the
+validated output, and step 7 synchronizes it through `tmp/development.env` to
+GitHub Actions, which must not connect as `root`.
 
 This Terraform directory manages development only. Production will use a
 separate Terraform directory, state, IAM roles, and GitHub environments. Only
 `development-auth`, `development-admin`, and `development-identity` are valid
 deployment targets here.
 
-After saving the file, run:
+For a shared environment, configure the Terraform directory to use an encrypted
+remote backend before initialization. After saving `terraform.tfvars`, run:
 
 ```bash
 terraform -chdir=infrastructure/terraform/aws-development init
@@ -371,8 +385,6 @@ terraform -chdir=infrastructure/terraform/aws-development output \
 Run the output command only after a successful apply. Terraform reads outputs
 from state, so `github_environment_variables` is unavailable when an apply
 fails before the new state and outputs are committed.
-
-Keep Terraform state in an encrypted remote backend for shared environments.
 
 ### 2. Create development deployment credentials
 
@@ -404,7 +416,7 @@ before uploading the known-hosts value to GitHub.
 Only the public halves are installed on the VPS: the deployment SSH public key
 becomes `github-deploy`'s `authorized_keys`, and the release-signing public key
 is installed as `/etc/idnest/host-release-signing-public.pem`. The two private
-keys remain in the protected GitHub environment secrets prepared in step 6;
+keys remain in the protected GitHub environment secrets prepared in step 7;
 they are never installed on the VPS.
 
 ### 3. Bootstrap the development VPS
@@ -469,7 +481,7 @@ separate non-root account that already has `sudo` access. The administrative
 key is not the generated `github-deploy` key.
 
 Runtime secrets are never included in the bootstrap archive or transferred by
-this script. The GitHub preparation helper in step 6 uses the ignored
+this script. The GitHub preparation helper in step 7 uses the ignored
 `tmp/development.env` as the single protected source for configurable auth,
 admin, Hydra, Kratos, Google, and optional Apple settings.
 
@@ -488,12 +500,11 @@ installs missing development configuration templates. It invokes `sudo` only
 for operations that require host privileges and refuses direct execution as
 `root`.
 
-Run the transfer command and this bootstrap runner once more when upgrading an
-already-provisioned VPS. That one-time refresh installs the queue protocol that
-accepts signed `auth`, `admin`, and `identity` releases before the new identity
-workflow is run. It preserves existing `/etc/idnest` configuration and TLS
-files. Later deployments update their host assets through signed release
-bundles as usual.
+### 4. Configure development runtime and databases
+
+Perform this step after the VPS bootstrap and before installing TLS or starting
+any workflow. The VPS owns deployment settings and TLS material, while the
+trusted Mac owns the protected source used to populate GitHub settings.
 
 #### Configure VPS-owned and GitHub-managed runtime files
 
@@ -512,8 +523,8 @@ processor verifies the file and installs it as `root:root` mode `0600`.
 The protected local source remains on the trusted Mac and only seeds individual
 GitHub settings; the complete dotenv file is not stored as a GitHub secret.
 `tmp/development.env` is the single source of truth for development key-value
-settings. The bulk updater creates it from the tracked example with mode `0600`
-when missing and stops before contacting GitHub. You can also create it directly:
+settings. Create it now from the tracked example with mode `0600`. The command
+refuses to overwrite an existing protected file:
 
 ```bash
 test ! -e tmp/development.env || {
@@ -584,11 +595,11 @@ unexpected, empty required, partial Apple, or placeholder values. Only
 configurable values are uploaded; each workflow regenerates current
 development defaults from tracked templates.
 
-##### Terraform-derived infrastructure properties
+#### Terraform-derived infrastructure properties
 
 These ten non-secret values are part of `tmp/development.env` so that it is the
 only key-value input to the GitHub bulk updater. Do not maintain them in two
-places. After applying Terraform, run the sync helper documented in section 6;
+places. After applying Terraform, run the sync helper documented in step 7;
 it validates all four Terraform environment objects, verifies their shared
 AWS/VPS values agree, and atomically replaces only these properties without
 printing any value.
@@ -606,7 +617,7 @@ printing any value.
 | `VPS_PORT` | SSH port used by all three deployment workflows. |
 | `VPS_USER` | Unprivileged deployment account, normally `github-deploy`. |
 
-##### Development URL and behavior properties
+#### Development URL and behavior properties
 
 These values come from the Idnest development domain layout. Keep the defaults
 unless the corresponding public hostname or flow route intentionally changes.
@@ -630,7 +641,7 @@ properties; update the matching renderer, validator, and example together.
 | `KRATOS_COOKIES_DOMAIN` | `.idnest.cloud` | Shared cookie domain covering the Idnest development subdomains. |
 | `KRATOS_LOG_LEVEL` | `info` | Kratos runtime log verbosity; use `debug` only temporarily because logs can become noisy. |
 
-##### Database and generated secret properties
+#### Database and generated secret properties
 
 Create three PostgreSQL roles and databases before deployment. Use a distinct,
 URL-safe password for each role, then place it in the matching DSN. When
@@ -658,7 +669,7 @@ Cloudflare Origin CA private key, or another application secret. Do not rotate
 Hydra/Kratos encryption secrets without first planning how existing encrypted
 data will be handled.
 
-##### Google social-login properties
+#### Google social-login properties
 
 In Google Cloud Console, configure the OAuth consent screen, then create an
 OAuth 2.0 client with application type **Web application**. Register this exact
@@ -674,7 +685,7 @@ secret only in `tmp/development.env` and the protected GitHub Environment.
 See Google's official
 [web-server OAuth credential instructions](https://developers.google.com/identity/protocols/oauth2/web-server#creatingcred).
 
-##### Optional Apple social-login properties
+#### Optional Apple social-login properties
 
 To enable Apple, use an Apple Developer account to enable **Sign in with Apple**
 for a primary App ID, create and configure a Services ID for the web integration,
@@ -771,7 +782,7 @@ and Kratos migrations, while the auth release runs the authorization migration;
 neither creates database roles or databases. A managed database should be
 prepared by its administrator.
 
-### 4. Create and install a Cloudflare Origin CA certificate
+### 5. Create and install a Cloudflare Origin CA certificate
 
 In the Cloudflare dashboard, open **SSL/TLS → Origin Server → Create
 Certificate**. Let Cloudflare generate the private key and CSR, select PEM
@@ -852,11 +863,14 @@ only after the certificate and matching private key are installed. Origin CA
 certificates authenticate Cloudflare-to-origin traffic and are not publicly
 trusted browser certificates, so keep all four DNS records proxied.
 
-### 5. Configure Cloudflare DNS and origin port rewrites
+### 6. Configure Cloudflare DNS and origin port rewrites
 
-Create proxied `A`/`AAAA` records for all four development hostnames pointing
-to the VPS. Then create four exact-hostname rules under **Rules → Origin
-Rules**. For each rule, set **Destination port → Rewrite to**:
+Confirm the DNS-only `vps-dev.idnest.cloud` management record created before
+step 1 still points directly to `65.108.158.243`. Create proxied `A` records for
+the four application hostnames pointing to `65.108.158.243`. Add `AAAA` records
+only when IPv6 is configured and reachable on the VPS. Then create four
+exact-hostname rules under **Rules → Origin Rules**. For each rule, set
+**Destination port → Rewrite to**:
 
 | Rule expression | Destination port |
 | --- | ---: |
@@ -875,14 +889,14 @@ Restrict VPS ports `8444`–`8447` to Cloudflare's current
 approved administration and CI sources. Never open Hydra admin `4445`, Kratos
 admin `4434`, PostgreSQL `5432`, or Docker's socket to the public internet.
 
-### 6. Configure GitHub environments
+### 7. Configure GitHub environments
 
-Apply the development Terraform configuration so its state contains the four
-current GitHub Environment objects. Then synchronize its ten non-secret AWS and
+The successful Terraform apply in step 1 records the
+`github_environment_variables` output, containing the four current environment
+variable maps, in state. Synchronize their ten normalized non-secret AWS and
 VPS values into the protected combined file:
 
 ```bash
-terraform -chdir=infrastructure/terraform/aws-development apply
 ./scripts/deploy/update-development-env-from-terraform.sh
 ```
 
@@ -898,9 +912,9 @@ order:
 The sync is the only command in this flow that reads Terraform output. It
 validates cross-environment consistency and atomically updates only the ten
 infrastructure properties in `tmp/development.env`; it preserves all
-application values and does not contact GitHub. If Terraform reports no
-resource changes and only updates `github_environment_variables`, applying is
-still necessary once so the new output is recorded in state.
+application values and does not contact GitHub. Whenever Terraform inputs or
+outputs change later, repeat the plan/apply commands in step 1 before running
+this sync; do not run an unplanned second apply here.
 
 Review the protected file with your preferred editor, then validate the full
 41-property contract:
@@ -967,7 +981,7 @@ In **GitHub → Settings → Environments**, restrict `ecr-build`,
 `development` branch. Add required reviewers where appropriate, and retain the
 source keys only in the approved secret store.
 
-### 7. Run and verify the first deployment
+### 8. Run and verify the first deployment
 
 Run identity first. It installs `idnest.env`, migrates both target databases
 from Docker, and starts Hydra and Kratos:
