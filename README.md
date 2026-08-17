@@ -465,6 +465,26 @@ It rejects `root` and `github-deploy` as the administrative account; use a
 separate non-root account that already has `sudo` access. The administrative
 key is not the generated `github-deploy` key.
 
+When the ignored local file `tmp/vps.env` exists, the transfer script also
+builds a protected Ory runtime import. The source file must be a regular file
+with mode `0600`, contain only keys supported by `ory.env.example`, and contain
+no duplicates, malformed lines, or placeholder values. It is never added to
+the bootstrap archive or Git. The following portable values are reused:
+
+- `HYDRA_DSN` and `KRATOS_DSN`
+- `HYDRA_SECRETS_SYSTEM`
+- `KRATOS_CSRF_COOKIE_SECRET` and `KRATOS_CIPHER_SECRET`
+- Google client ID and secret
+- Optional Apple client, team, key ID, and private-key values
+
+URLs, cookie domains, CORS values, log levels, and other non-secret settings
+come from the current development template, preventing legacy hostnames from
+being restored. The generated import and its checksum are transferred beside
+the archive over the pinned SSH connection. The VPS runner installs it only
+when `/etc/idnest/ory.env` is absent or still matches the untouched template;
+local VPS changes are never overwritten. After a successful installation, the
+staging copy is deleted.
+
 On the VPS, execute the transferred runner as that same non-root administrative
 account:
 
@@ -472,7 +492,7 @@ account:
 ~/idnest-bootstrap/bootstrap-development-vps.sh
 ```
 
-The runner verifies both transferred checksums again before doing any
+The runner verifies all transferred checksums again before doing any
 privileged work. It extracts a fresh repository tree, installs the minimum host
 packages and Docker when missing, checks Docker Engine and the Compose plugin,
 creates `github-deploy` when needed, provisions the release processor, and
@@ -480,8 +500,16 @@ installs missing development configuration templates. It invokes `sudo` only
 for operations that require host privileges and refuses direct execution as
 `root`.
 
-Edit these VPS-owned files with your preferred editor; the repository does not
-select or launch an editor:
+#### Configure the VPS runtime files
+
+GitHub Environments do not provide application runtime configuration. They
+contain AWS/ECR and deployment-transport values only. Docker Compose reads the
+root-owned files under `/etc/idnest` directly, so runtime secrets remain on the
+VPS and regular deployments cannot replace them.
+
+The bootstrap creates these files with owner `root:root` and mode `0600`. Edit
+them using your preferred editor; the repository does not select or launch an
+editor:
 
 - `/etc/idnest/auth-app.env`
 - `/etc/idnest/admin-app.env`
@@ -490,7 +518,43 @@ select or launch an editor:
 - `/etc/idnest/admin.conf`
 - `/etc/idnest/ory.conf`
 
-Replace every placeholder, then execute the same runner in validation mode:
+Configure the application environment files as follows:
+
+| File | Values requiring review | Development guidance |
+| --- | --- | --- |
+| `auth-app.env` | `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET`, `ADMIN_BOOTSTRAP_EMAILS` | Use the authorization database DSN shared with the admin app, three independent random secrets, and the real verified bootstrap-administrator email. Keep the supplied `auth-dev`, `hydra-dev`, and `kratos-dev` URLs. |
+| `admin-app.env` | `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, `ADMIN_OIDC_CLIENT_SECRET`, `ADMIN_BOOTSTRAP_EMAILS` | Reuse the exact authorization DSN and bootstrap email from `auth-app.env`. Generate independent CSRF and confidential-client secrets. The OAuth client is provisioned with this same client secret after the first auth deployment. |
+| `ory.env` | Hydra/Kratos DSNs and secrets, Google credentials, optional Apple credentials | Compatible secret values are imported automatically from `tmp/vps.env` when available. Confirm that both database DSNs are reachable from Docker. Google credentials are required for Google login; leave all Apple values empty to disable Apple login. |
+
+Use a separate randomly generated value for every secret. Hydra and Kratos
+system/CSRF secrets should be at least 32 random bytes. `KRATOS_CIPHER_SECRET`
+must be exactly 32 characters. Do not reuse the VPS sudo password, SSH-key
+passphrase, database passwords, or Cloudflare private key. For PostgreSQL on
+the VPS, the expected DSN shape is:
+
+```text
+postgres://ROLE:PASSWORD@host.docker.internal:5432/DATABASE?sslmode=disable
+```
+
+Use URL-safe passwords or percent-encode reserved URL characters. The expected
+roles and databases are `hydrau`/`hydra`, `kratosu`/`kratos`, and
+`authzu`/`authz`. The same `authzu` DSN must appear in both application files.
+
+The `.conf` defaults are already suitable for development:
+
+| File | Important defaults |
+| --- | --- |
+| `auth.conf` | `PUBLIC_HEALTH_URL=https://auth-dev.idnest.cloud/health`, origin port `8444`, network `ory-runtime-development` |
+| `admin.conf` | `PUBLIC_HEALTH_URL=https://admin-dev.idnest.cloud/health`, origin port `8445`, network `ory-runtime-development` |
+| `ory.conf` | Hydra origin `8446`, Hydra admin `4445`, Kratos origin `8447`, Kratos admin `4434` |
+
+The public health URLs intentionally use normal HTTPS port `443`; Cloudflare
+Origin Rules rewrite the origin connections to ports `8444` and `8445`. Change
+the resource limits or ports only when the VPS or Cloudflare configuration also
+changes.
+
+Replace every placeholder and confirm that imported DSNs and credentials are
+appropriate for this VPS. Then execute the runner in validation mode:
 
 ```bash
 ~/idnest-bootstrap/bootstrap-development-vps.sh --validate-config
@@ -498,7 +562,8 @@ Replace every placeholder, then execute the same runner in validation mode:
 
 These runtime secrets stay on the VPS and are not transferred through GitHub
 Actions. Existing configuration files are preserved when the bootstrap runner
-is executed again.
+is executed again, except for the guarded first-bootstrap `tmp/vps.env` import
+described above.
 
 Before the first workflow run, create the PostgreSQL roles, databases, and
 schemas referenced by `HYDRA_DSN`, `KRATOS_DSN`, and `AUTHZ_DATABASE_URL`.

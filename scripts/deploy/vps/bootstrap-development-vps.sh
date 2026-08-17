@@ -39,7 +39,7 @@ esac
 [ "$(id -un)" != github-deploy ] \
   || fail "github-deploy is deployment-only; use a separate non-root administrative account"
 
-for command in dirname id sha256sum sudo; do
+for command in dirname id sha256sum stat sudo; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
@@ -52,6 +52,9 @@ SIGNING_PUBLIC_KEY=$SCRIPT_DIR/host-release-signing-public.pem
 DEPLOY_SSH_PUBLIC_KEY=$SCRIPT_DIR/github-deploy-ed25519.pub
 REPOSITORY_DIR=$SCRIPT_DIR/repository
 SCRIPT_PATH=$SCRIPT_DIR/bootstrap-development-vps.sh
+RUNTIME_IMPORT_PATH=$SCRIPT_DIR/ory.env.import
+RUNTIME_IMPORT_CHECKSUM_PATH=$SCRIPT_DIR/ory.env.import.sha256
+RUNTIME_IMPORT_AVAILABLE=false
 
 [ -f "$SCRIPT_PATH" ] && [ ! -L "$SCRIPT_PATH" ] \
   || fail "the bootstrap script must be a regular file, not a symbolic link"
@@ -67,9 +70,26 @@ done
 cd "$SCRIPT_DIR"
 sha256sum --check "$CHECKSUM_NAME" \
   || fail "transferred bootstrap checksum verification failed"
+
+if [ -e "$RUNTIME_IMPORT_PATH" ] || [ -L "$RUNTIME_IMPORT_PATH" ] \
+  || [ -e "$RUNTIME_IMPORT_CHECKSUM_PATH" ] || [ -L "$RUNTIME_IMPORT_CHECKSUM_PATH" ]; then
+  [ -f "$RUNTIME_IMPORT_PATH" ] && [ ! -L "$RUNTIME_IMPORT_PATH" ] \
+    && [ -s "$RUNTIME_IMPORT_PATH" ] \
+    || fail "the transferred Ory runtime import is invalid"
+  [ -f "$RUNTIME_IMPORT_CHECKSUM_PATH" ] && [ ! -L "$RUNTIME_IMPORT_CHECKSUM_PATH" ] \
+    && [ -s "$RUNTIME_IMPORT_CHECKSUM_PATH" ] \
+    || fail "the transferred Ory runtime import checksum is invalid"
+  [ "$(stat -c '%a' "$RUNTIME_IMPORT_PATH")" = 600 ] \
+    || fail "the transferred Ory runtime import must have mode 600"
+  sha256sum --check "$RUNTIME_IMPORT_CHECKSUM_PATH" \
+    || fail "the transferred Ory runtime import checksum verification failed"
+  RUNTIME_IMPORT_AVAILABLE=true
+fi
 sudo -v
 
 if [ "$MODE" = validate-config ]; then
+  [ "$RUNTIME_IMPORT_AVAILABLE" = false ] \
+    || fail "run the bootstrap without --validate-config to install the staged Ory runtime import first"
   VALIDATOR=/usr/local/sbin/validate-ory-app-env
   [ -x "$VALIDATOR" ] || fail "host provisioning has not installed $VALIDATOR"
 
@@ -120,7 +140,7 @@ sudo apt-get update
 sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
   adduser ca-certificates coreutils curl grep openssl tar util-linux
 
-for command in cat curl grep systemctl; do
+for command in cat cmp curl grep systemctl; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command after package installation: $command"
 done
 
@@ -238,9 +258,26 @@ install_if_missing \
 install_if_missing \
   "$REPOSITORY_DIR/scripts/deploy/env/admin-app.env.example" \
   /etc/idnest/admin-app.env
-install_if_missing \
-  "$REPOSITORY_DIR/scripts/deploy/env/ory.env.example" \
-  /etc/idnest/ory.env
+
+if [ "$RUNTIME_IMPORT_AVAILABLE" = true ]; then
+  if sudo test -e /etc/idnest/ory.env || sudo test -L /etc/idnest/ory.env; then
+    sudo test -f /etc/idnest/ory.env && sudo test ! -L /etc/idnest/ory.env \
+      || fail "/etc/idnest/ory.env exists but is not a regular file"
+    sudo cmp -s \
+      /etc/idnest/ory.env \
+      "$REPOSITORY_DIR/scripts/deploy/env/ory.env.example" \
+      || fail "/etc/idnest/ory.env has local changes; staged tmp/vps.env values were not applied"
+  fi
+  sudo install -o root -g root -m 600 \
+    "$RUNTIME_IMPORT_PATH" /etc/idnest/ory.env
+  rm -f -- "$RUNTIME_IMPORT_PATH" "$RUNTIME_IMPORT_CHECKSUM_PATH"
+  RUNTIME_IMPORT_AVAILABLE=false
+  echo "Installed compatible tmp/vps.env values as /etc/idnest/ory.env."
+else
+  install_if_missing \
+    "$REPOSITORY_DIR/scripts/deploy/env/ory.env.example" \
+    /etc/idnest/ory.env
+fi
 
 sudo systemctl is-active --quiet ory-auth-release-queue.path \
   || fail "the development release queue watcher is not active"
