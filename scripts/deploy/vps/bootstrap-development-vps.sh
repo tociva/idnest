@@ -118,10 +118,92 @@ trap - 0 1 2 15
 
 sudo apt-get update
 sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  adduser ca-certificates coreutils curl openssl tar util-linux
+  adduser ca-certificates coreutils curl grep openssl tar util-linux
 
-command -v docker >/dev/null 2>&1 \
-  || fail "Docker Engine is not installed; install it from Docker's official packages and rerun this script"
+for command in cat curl grep systemctl; do
+  command -v "$command" >/dev/null 2>&1 || fail "missing required command after package installation: $command"
+done
+
+install_docker_engine() {
+  [ -r /etc/os-release ] || fail "cannot detect the VPS operating system"
+  # /etc/os-release is a root-owned operating-system interface on the VPS.
+  . /etc/os-release
+
+  case "${ID:-}" in
+    ubuntu)
+      docker_distribution=ubuntu
+      docker_codename=${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}
+      ;;
+    debian)
+      docker_distribution=debian
+      docker_codename=${VERSION_CODENAME:-}
+      ;;
+    *) fail "automatic Docker installation supports only Debian or Ubuntu" ;;
+  esac
+  case "$docker_codename" in
+    ""|*[!A-Za-z0-9._-]*) fail "invalid operating-system codename: $docker_codename" ;;
+  esac
+
+  command -v dpkg >/dev/null 2>&1 || fail "dpkg is required to install Docker Engine"
+  command -v dpkg-query >/dev/null 2>&1 || fail "dpkg-query is required to install Docker Engine"
+  docker_architecture=$(dpkg --print-architecture)
+  case "$docker_architecture" in
+    ""|*[!A-Za-z0-9._-]*) fail "invalid Debian architecture: $docker_architecture" ;;
+  esac
+
+  for conflicting_package in \
+    docker.io docker-compose docker-compose-v2 docker-doc podman-docker containerd runc; do
+    if dpkg-query -W -f='${db:Status-Status}' "$conflicting_package" 2>/dev/null \
+      | grep -qx installed; then
+      fail "conflicting package is installed: $conflicting_package"
+    fi
+  done
+
+  docker_setup_dir=$(mktemp -d "$SCRIPT_DIR/.docker-setup.XXXXXX")
+  cleanup_docker_setup() {
+    case "${docker_setup_dir:-}" in
+      "$SCRIPT_DIR"/.docker-setup.*) rm -rf -- "$docker_setup_dir" ;;
+    esac
+  }
+  trap cleanup_docker_setup 0 1 2 15
+
+  curl -fsSL \
+    "https://download.docker.com/linux/$docker_distribution/gpg" \
+    -o "$docker_setup_dir/docker.asc"
+  [ -s "$docker_setup_dir/docker.asc" ] || fail "Docker repository signing key download was empty"
+
+  cat > "$docker_setup_dir/docker.sources" <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/$docker_distribution
+Suites: $docker_codename
+Components: stable
+Architectures: $docker_architecture
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+  sudo install -d -o root -g root -m 755 /etc/apt/keyrings
+  sudo test ! -L /etc/apt/keyrings/docker.asc \
+    || fail "/etc/apt/keyrings/docker.asc must not be a symbolic link"
+  sudo test ! -L /etc/apt/sources.list.d/docker.sources \
+    || fail "/etc/apt/sources.list.d/docker.sources must not be a symbolic link"
+  sudo install -o root -g root -m 644 \
+    "$docker_setup_dir/docker.asc" /etc/apt/keyrings/docker.asc
+  sudo install -o root -g root -m 644 \
+    "$docker_setup_dir/docker.sources" /etc/apt/sources.list.d/docker.sources
+
+  sudo apt-get update
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    containerd.io docker-buildx-plugin docker-ce docker-ce-cli docker-compose-plugin
+  sudo systemctl enable --now docker
+
+  cleanup_docker_setup
+  docker_setup_dir=
+  trap - 0 1 2 15
+}
+
+if ! command -v docker >/dev/null 2>&1; then
+  install_docker_engine
+fi
 sudo docker compose version >/dev/null 2>&1 \
   || fail "the Docker Compose plugin is not available to the administrative account"
 

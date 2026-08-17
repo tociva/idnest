@@ -406,10 +406,37 @@ they are never installed on the VPS.
 
 ### 3. Bootstrap the development VPS
 
-Install Docker Engine with the Compose plugin using Docker's official packages.
-Connect using an approved administrative account with `sudo` access. SSH
-private-key paths are workstation-specific and must not be stored in Terraform,
-GitHub variables, or repository files.
+Use an approved administrative account with `sudo` access. SSH private-key
+paths are workstation-specific and must not be stored in Terraform, GitHub
+variables, or repository files. The VPS runner supports Debian and Ubuntu; when
+Docker is absent, it configures Docker's official Apt repository and installs
+Docker Engine with the Compose and Buildx plugins following the
+[official Docker installation method](https://docs.docker.com/engine/install/ubuntu/).
+
+When a new VPS has only the provider-created `root` account, run this one-time
+administrator preparation script from the trusted Mac:
+
+```bash
+./scripts/deploy/prepare-development-vps-admin.sh \
+  ~/.ssh/id_ed25519_hetzner_daybook_cloud
+```
+
+It defaults to creating `idnest-admin` on `vps-dev.idnest.cloud:22`, derives the
+public half of the supplied SSH key locally, installs only that public key for
+the new account, adds it to the standard `sudo` group, and verifies non-root SSH
+and sudo before succeeding. It securely prompts for the new sudo password over
+SSH; the password is not placed in command arguments or repository files. The
+private key never leaves the Mac. Pass alternative values when needed:
+
+```bash
+./scripts/deploy/prepare-development-vps-admin.sh \
+  ROOT_SSH_PRIVATE_KEY VPS_ADMIN_USER VPS_HOST VPS_PORT
+```
+
+This one-time preparation is the only repository script that logs in through
+the provider `root` account. It does not disable provider root access, allowing
+it to remain available for VPS recovery. Normal transfer, bootstrap, and GitHub
+Actions deployment paths continue to reject `root`.
 
 On the trusted Mac, run the transfer script from the repository root. Supply
 the existing non-root administrative account and its workstation SSH private
@@ -417,8 +444,8 @@ key:
 
 ```bash
 ./scripts/deploy/transfer-development-vps-bootstrap.sh \
-  replace-with-sudo-enabled-user \
-  /absolute/path/to/admin-ssh-private-key
+  idnest-admin \
+  ~/.ssh/id_ed25519_hetzner_daybook_cloud
 ```
 
 The defaults are `vps-dev.idnest.cloud` and SSH port `22`. Pass a different
@@ -447,10 +474,11 @@ account:
 
 The runner verifies both transferred checksums again before doing any
 privileged work. It extracts a fresh repository tree, installs the minimum host
-packages, checks Docker Engine and the Compose plugin, creates `github-deploy`
-when needed, provisions the release processor, and installs missing development
-configuration templates. It invokes `sudo` only for operations that require
-host privileges and refuses direct execution as `root`.
+packages and Docker when missing, checks Docker Engine and the Compose plugin,
+creates `github-deploy` when needed, provisions the release processor, and
+installs missing development configuration templates. It invokes `sudo` only
+for operations that require host privileges and refuses direct execution as
+`root`.
 
 Edit these VPS-owned files with your preferred editor; the repository does not
 select or launch an editor:
