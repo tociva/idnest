@@ -114,7 +114,7 @@ variable "github_deployment_targets" {
 variable "create_github_oidc_provider" {
   type        = bool
   description = "Create the account-wide GitHub OIDC provider; false references an existing provider."
-  default     = true
+  default     = false
 }
 
 variable "create_ecr_repositories" {

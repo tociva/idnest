@@ -18,9 +18,9 @@ deploy_role_names = {
   admin = "idnest-admin-development-deploy"
 }
 
-# Use false only when this AWS account already has the GitHub Actions OIDC
-# provider. Use false for ECR only when both named repositories already exist.
-create_github_oidc_provider   = true
+# GitHub's OIDC provider is account-wide and already exists in this AWS account.
+# Use true only in a new account where token.actions.githubusercontent.com is absent.
+create_github_oidc_provider   = false
 create_ecr_repositories       = true
 force_delete_ecr_repositories = false
 

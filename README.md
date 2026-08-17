@@ -296,7 +296,7 @@ deploy_role_names = {
   admin = "idnest-admin-development-deploy"
 }
 
-create_github_oidc_provider   = true
+create_github_oidc_provider   = false
 create_ecr_repositories       = true
 force_delete_ecr_repositories = false
 
@@ -322,11 +322,17 @@ Terraform also applies the provider-level tags `Application=idnest`,
 `Environment=development`, and `ManagedBy=terraform` to supported AWS
 resources. Values in `tags` are merged with those defaults.
 
-These defaults create both ECR repositories and the AWS GitHub OIDC provider.
-Change `create_github_oidc_provider` to `false` if the AWS account already has
-that provider. Change `create_ecr_repositories` to `false` only if both named
-repositories already exist. Keep `force_delete_ecr_repositories=false` for
-normal operation.
+These defaults reuse the account's existing GitHub OIDC provider and create the
+two Idnest ECR repositories. AWS permits only one provider for
+`https://token.actions.githubusercontent.com` in an account, so it is shared
+with other projects. Set `create_github_oidc_provider=true` only in a new AWS
+account where that provider does not exist. Change `create_ecr_repositories` to
+`false` only if both named repositories already exist. Keep
+`force_delete_ecr_repositories=false` for normal operation.
+
+Idnest remains isolated through its own `idnest-*` IAM roles and ECR
+repositories. Each role's trust policy also restricts tokens to the
+`tociva/idnest` repository and the exact GitHub environment used by that role.
 
 `vps-dev.idnest.cloud` is the direct SSH endpoint and is not routed through
 Cloudflare. Auth and admin share this VPS but remain separate GitHub deployment
@@ -357,6 +363,10 @@ terraform -chdir=infrastructure/terraform/aws-development apply \
 terraform -chdir=infrastructure/terraform/aws-development output \
   github_environment_variables
 ```
+
+Run the output command only after a successful apply. Terraform reads outputs
+from state, so `github_environment_variables` is unavailable when an apply
+fails before the new state and outputs are committed.
 
 Keep Terraform state in an encrypted remote backend for shared environments.
 

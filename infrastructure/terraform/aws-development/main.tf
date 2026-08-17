@@ -11,6 +11,13 @@ resource "aws_iam_openid_connect_provider" "github" {
 data "aws_iam_openid_connect_provider" "github" {
   count = var.create_github_oidc_provider ? 0 : 1
   url   = "https://token.actions.githubusercontent.com"
+
+  lifecycle {
+    postcondition {
+      condition     = contains(self.client_id_list, "sts.amazonaws.com")
+      error_message = "The existing GitHub OIDC provider must allow the sts.amazonaws.com audience."
+    }
+  }
 }
 
 resource "aws_ecr_repository" "app" {
