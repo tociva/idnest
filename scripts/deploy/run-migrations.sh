@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Run all schema migrations required by a deployed release. Database roles and
-# databases must already exist; use scripts/setup/setup-ory-db-<os>.sh for the
+# databases must already exist; use scripts/setup/setup-idnest-db-<os>.sh for the
 # one-time provisioning step.
 #
 set -euo pipefail

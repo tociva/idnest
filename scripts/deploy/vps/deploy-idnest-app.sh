@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 
-readonly APP_ROOT=/opt/ory-auth
+readonly APP_ROOT=/opt/idnest
 readonly CONFIG_ROOT=/etc/idnest
-readonly INCOMING_ROOT=/var/lib/ory-auth/incoming
-readonly LOCK_FILE=/var/lock/ory-auth-deploy.lock
-readonly ENV_VALIDATOR=/usr/local/sbin/validate-ory-app-env
+readonly INCOMING_ROOT=/var/lib/idnest/incoming
+readonly LOCK_FILE=/var/lock/idnest-deploy.lock
+readonly ENV_VALIDATOR=/usr/local/sbin/validate-idnest-app-env
 readonly TLS_CERT_FILE=$CONFIG_ROOT/tls/origin-cert.pem
 readonly TLS_KEY_FILE=$CONFIG_ROOT/tls/origin-key.pem
 readonly TLS_CA_FILE=$CONFIG_ROOT/tls/origin-ca.pem
@@ -143,7 +143,7 @@ cleanup() {
   [ -z "${REGISTRY:-}" ] || docker logout "$REGISTRY" >/dev/null 2>&1 || true
 }
 
-[ "$#" -eq 4 ] || fail "usage: deploy-ory-app KIND IMAGE@DIGEST GIT_REVISION GITHUB_RUN_ID"
+[ "$#" -eq 4 ] || fail "usage: deploy-idnest-app KIND IMAGE@DIGEST GIT_REVISION GITHUB_RUN_ID"
 KIND=$1
 IMAGE_REF=$2
 REVISION=$3

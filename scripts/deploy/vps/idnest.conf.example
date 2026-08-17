@@ -1,5 +1,5 @@
-COMPOSE_PROJECT_NAME=ory-infra-development
-ORY_RUNTIME_NETWORK=ory-runtime-development
+COMPOSE_PROJECT_NAME=idnest-infra-development
+IDNEST_RUNTIME_NETWORK=idnest-runtime-development
 HYDRA_TLS_SERVER_NAME=hydra-dev.idnest.cloud
 KRATOS_TLS_SERVER_NAME=kratos-dev.idnest.cloud
 HYDRA_ORIGIN_HTTPS_PORT=8446

@@ -1,15 +1,15 @@
 #!/bin/sh
 set -eu
 
-readonly RESULTS_ROOT=/var/lib/ory-auth/queue/results
-readonly LOG_ROOT=/var/log/ory-auth
+readonly RESULTS_ROOT=/var/lib/idnest/queue/results
+readonly LOG_ROOT=/var/log/idnest
 
 fail() {
   echo "Release wait failed: $*" >&2
   exit 1
 }
 
-[ "$#" -ge 2 ] && [ "$#" -le 3 ] || fail "usage: wait-ory-release KIND REQUEST_ID [TIMEOUT_SECONDS]"
+[ "$#" -ge 2 ] && [ "$#" -le 3 ] || fail "usage: wait-idnest-release KIND REQUEST_ID [TIMEOUT_SECONDS]"
 KIND=$1
 REQUEST_ID=$2
 TIMEOUT_SECONDS=${3:-1800}

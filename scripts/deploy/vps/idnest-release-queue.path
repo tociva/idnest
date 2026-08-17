@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for unprivileged Idnest release requests
+After=local-fs.target
+
+[Path]
+PathExistsGlob=/var/lib/idnest/queue/incoming/request.*.*
+Unit=idnest-release-queue.service
+
+[Install]
+WantedBy=multi-user.target

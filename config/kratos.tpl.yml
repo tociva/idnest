@@ -6,9 +6,9 @@ serve:
     # BEGIN optional public tls
     tls:
       cert:
-        path: /run/ory-tls/origin-cert.pem
+        path: /run/idnest-tls/origin-cert.pem
       key:
-        path: /run/ory-tls/origin-key.pem
+        path: /run/idnest-tls/origin-key.pem
     # END optional public tls
     cors:
       enabled: true

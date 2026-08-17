@@ -7,9 +7,9 @@ if [ "$#" -ne 1 ] || [[ -z "$1" || "$1" =~ [[:space:]] ]]; then
 fi
 
 image_ref="$1"
-container_name="ory-admin-smoke-${GITHUB_RUN_ID:-$$}"
+container_name="idnest-admin-smoke-${GITHUB_RUN_ID:-$$}"
 tls_hostname=admin-smoke.invalid
-tls_directory="$(mktemp -d "${TMPDIR:-/tmp}/ory-admin-smoke-tls.XXXXXX")"
+tls_directory="$(mktemp -d "${TMPDIR:-/tmp}/idnest-admin-smoke-tls.XXXXXX")"
 tls_certificate="$tls_directory/origin-cert.pem"
 tls_key="$tls_directory/origin-key.pem"
 
@@ -31,8 +31,8 @@ docker run --detach --name "$container_name" --publish-all \
   --tmpfs /tmp:rw,noexec,nosuid,size=32m \
   --cap-drop ALL \
   --security-opt no-new-privileges:true \
-  --volume "$tls_certificate:/run/ory-tls/origin-cert.pem:ro" \
-  --volume "$tls_key:/run/ory-tls/origin-key.pem:ro" \
+  --volume "$tls_certificate:/run/idnest-tls/origin-cert.pem:ro" \
+  --volume "$tls_key:/run/idnest-tls/origin-key.pem:ro" \
   --env ADMIN_HTTPS_ENABLED=true \
   --env TLS_SERVER_NAME="$tls_hostname" \
   --env ADMIN_FRONTEND_API_BASE_URL=/api \

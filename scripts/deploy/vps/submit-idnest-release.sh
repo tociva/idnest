@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-readonly QUEUE_ROOT=/var/lib/ory-auth/queue
+readonly QUEUE_ROOT=/var/lib/idnest/queue
 readonly INCOMING_ROOT=$QUEUE_ROOT/incoming
 readonly RESULTS_ROOT=$QUEUE_ROOT/results
 
@@ -34,7 +34,7 @@ valid_sha256() {
   printf '%s\n' "$1" | grep -Eq '^[a-f0-9]{64}$'
 }
 
-[ "$#" -eq 6 ] || fail "usage: submit-ory-release KIND REQUEST_ID GITHUB_RUN_ID GIT_REVISION IMAGE@DIGEST HOST_BUNDLE_SHA256"
+[ "$#" -eq 6 ] || fail "usage: submit-idnest-release KIND REQUEST_ID GITHUB_RUN_ID GIT_REVISION IMAGE@DIGEST HOST_BUNDLE_SHA256"
 KIND=$1
 REQUEST_ID=$2
 RUN_ID=$3
@@ -53,7 +53,7 @@ valid_sha256 "$HOST_BUNDLE_SHA256" || fail "invalid host bundle checksum"
 [ "$(stat -c '%u' "$INCOMING_ROOT")" -eq "$(id -u)" ] || fail "current user does not own the release queue"
 
 case "$KIND" in
-  auth) REQUIRED_UPLOADS="host-release.tar.gz host-release.sig ecr-password ory-config.tar.gz" ;;
+  auth) REQUIRED_UPLOADS="host-release.tar.gz host-release.sig ecr-password idnest-config.tar.gz" ;;
   admin) REQUIRED_UPLOADS="host-release.tar.gz host-release.sig ecr-password" ;;
 esac
 

@@ -1,7 +1,7 @@
 services:
   hydra:
     image: oryd/hydra:v26.2.0
-    container_name: ory-hydra
+    container_name: idnest-hydra
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -49,16 +49,16 @@ services:
       SERVE_COOKIES_DOMAIN=\"$$KRATOS_COOKIES_DOMAIN\";
       exec hydra serve all --dev"
     networks:
-      ory-network:
+      idnest-network:
         aliases:
-          - ory-hydra
+          - idnest-hydra
 
-  ory-kratos:
+  kratos:
     build:
       context: ../..
       dockerfile: scripts/docker/Dockerfile.kratos
-    image: ory-kratos-envsubst:v26.2.0
-    container_name: ory-kratos
+    image: idnest-kratos-envsubst:v26.2.0
+    container_name: idnest-kratos
     user: "10000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -74,12 +74,12 @@ services:
       sh -c "sh /usr/local/bin/render-kratos-config.sh
       && exec kratos serve -c /tmp/kratos.yml --watch-courier"
     networks:
-      ory-network:
+      idnest-network:
         aliases:
-          - ory-kratos
+          - idnest-kratos
 
 
 networks:
-  ory-network:
-    name: ${ORY_RUNTIME_NETWORK:-ory-network}
+  idnest-network:
+    name: ${IDNEST_RUNTIME_NETWORK:-idnest-network}
     external: true

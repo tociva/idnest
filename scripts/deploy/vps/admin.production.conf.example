@@ -1,5 +1,5 @@
-COMPOSE_PROJECT_NAME=ory-admin-production
-RUNTIME_NETWORK=ory-runtime-production
+COMPOSE_PROJECT_NAME=idnest-admin-production
+RUNTIME_NETWORK=idnest-runtime-production
 PUBLIC_HEALTH_URL=https://admin.idnest.cloud/health
 ORIGIN_HTTPS_PORT=8445
 APP_MEMORY_LIMIT=768m

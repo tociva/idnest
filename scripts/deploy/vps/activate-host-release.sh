@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-readonly RELEASE_ROOT=/opt/ory-auth/host-releases
-readonly CURRENT_RELEASE=/opt/ory-auth/host-release.env
+readonly RELEASE_ROOT=/opt/idnest/host-releases
+readonly CURRENT_RELEASE=/opt/idnest/host-release.env
 readonly SIGNING_PUBLIC_KEY=/etc/idnest/host-release-signing-public.pem
 
 fail() {
@@ -36,15 +36,15 @@ openssl dgst -sha256 -verify "$SIGNING_PUBLIC_KEY" -signature "$SIGNATURE" "$ARC
 
 REQUIRED_FILES='scripts/deploy/vps/compose.auth.yaml
 scripts/deploy/vps/compose.admin.yaml
-scripts/deploy/vps/compose.ory.yaml
+scripts/deploy/vps/compose.idnest.yaml
 scripts/deploy/vps/Dockerfile.kratos
-scripts/deploy/vps/deploy-ory-app.sh
-scripts/deploy/vps/deploy-ory-infra.sh
-scripts/deploy/vps/deploy-ory-auth.sh
-scripts/deploy/vps/deploy-ory-admin.sh
-scripts/deploy/vps/rollback-ory-app.sh
-scripts/deploy/vps/rollback-ory-auth.sh
-scripts/deploy/vps/rollback-ory-admin.sh
+scripts/deploy/vps/deploy-idnest-app.sh
+scripts/deploy/vps/deploy-idnest-infra.sh
+scripts/deploy/vps/deploy-idnest-auth.sh
+scripts/deploy/vps/deploy-idnest-admin.sh
+scripts/deploy/vps/rollback-idnest-app.sh
+scripts/deploy/vps/rollback-idnest-auth.sh
+scripts/deploy/vps/rollback-idnest-admin.sh
 scripts/deploy/vps/validate-app-env.sh
 scripts/docker/render-kratos-config.sh'
 
@@ -115,19 +115,19 @@ activation_cleanup() {
 trap activation_cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
-install_one "$RELEASE_DIR/scripts/deploy/vps/compose.auth.yaml" /opt/ory-auth/auth/compose.yaml 644 compose-auth
-install_one "$RELEASE_DIR/scripts/deploy/vps/compose.admin.yaml" /opt/ory-auth/admin/compose.yaml 644 compose-admin
-install_one "$RELEASE_DIR/scripts/deploy/vps/compose.ory.yaml" /opt/ory-auth/ory/compose.yaml 644 compose-ory
-install_one "$RELEASE_DIR/scripts/deploy/vps/Dockerfile.kratos" /opt/ory-auth/ory/kratos-build/Dockerfile 644 dockerfile-kratos
-install_one "$RELEASE_DIR/scripts/docker/render-kratos-config.sh" /opt/ory-auth/ory/kratos-build/render-kratos-config.sh 755 render-kratos-config
-install_one "$RELEASE_DIR/scripts/deploy/vps/deploy-ory-app.sh" /usr/local/sbin/deploy-ory-app 755 deploy-ory-app
-install_one "$RELEASE_DIR/scripts/deploy/vps/deploy-ory-infra.sh" /usr/local/sbin/deploy-ory-infra 755 deploy-ory-infra
-install_one "$RELEASE_DIR/scripts/deploy/vps/deploy-ory-auth.sh" /usr/local/sbin/deploy-ory-auth 755 deploy-ory-auth
-install_one "$RELEASE_DIR/scripts/deploy/vps/deploy-ory-admin.sh" /usr/local/sbin/deploy-ory-admin 755 deploy-ory-admin
-install_one "$RELEASE_DIR/scripts/deploy/vps/rollback-ory-app.sh" /usr/local/sbin/rollback-ory-app 755 rollback-ory-app
-install_one "$RELEASE_DIR/scripts/deploy/vps/rollback-ory-auth.sh" /usr/local/sbin/rollback-ory-auth 755 rollback-ory-auth
-install_one "$RELEASE_DIR/scripts/deploy/vps/rollback-ory-admin.sh" /usr/local/sbin/rollback-ory-admin 755 rollback-ory-admin
-install_one "$RELEASE_DIR/scripts/deploy/vps/validate-app-env.sh" /usr/local/sbin/validate-ory-app-env 755 validate-app-env
+install_one "$RELEASE_DIR/scripts/deploy/vps/compose.auth.yaml" /opt/idnest/auth/compose.yaml 644 compose-auth
+install_one "$RELEASE_DIR/scripts/deploy/vps/compose.admin.yaml" /opt/idnest/admin/compose.yaml 644 compose-admin
+install_one "$RELEASE_DIR/scripts/deploy/vps/compose.idnest.yaml" /opt/idnest/identity/compose.yaml 644 compose-idnest
+install_one "$RELEASE_DIR/scripts/deploy/vps/Dockerfile.kratos" /opt/idnest/identity/kratos-build/Dockerfile 644 dockerfile-kratos
+install_one "$RELEASE_DIR/scripts/docker/render-kratos-config.sh" /opt/idnest/identity/kratos-build/render-kratos-config.sh 755 render-kratos-config
+install_one "$RELEASE_DIR/scripts/deploy/vps/deploy-idnest-app.sh" /usr/local/sbin/deploy-idnest-app 755 deploy-idnest-app
+install_one "$RELEASE_DIR/scripts/deploy/vps/deploy-idnest-infra.sh" /usr/local/sbin/deploy-idnest-infra 755 deploy-idnest-infra
+install_one "$RELEASE_DIR/scripts/deploy/vps/deploy-idnest-auth.sh" /usr/local/sbin/deploy-idnest-auth 755 deploy-idnest-auth
+install_one "$RELEASE_DIR/scripts/deploy/vps/deploy-idnest-admin.sh" /usr/local/sbin/deploy-idnest-admin 755 deploy-idnest-admin
+install_one "$RELEASE_DIR/scripts/deploy/vps/rollback-idnest-app.sh" /usr/local/sbin/rollback-idnest-app 755 rollback-idnest-app
+install_one "$RELEASE_DIR/scripts/deploy/vps/rollback-idnest-auth.sh" /usr/local/sbin/rollback-idnest-auth 755 rollback-idnest-auth
+install_one "$RELEASE_DIR/scripts/deploy/vps/rollback-idnest-admin.sh" /usr/local/sbin/rollback-idnest-admin 755 rollback-idnest-admin
+install_one "$RELEASE_DIR/scripts/deploy/vps/validate-app-env.sh" /usr/local/sbin/validate-idnest-app-env 755 validate-app-env
 
 umask 077
 {

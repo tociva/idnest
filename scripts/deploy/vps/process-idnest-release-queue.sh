@@ -1,13 +1,13 @@
 #!/bin/sh
 set -eu
 
-readonly QUEUE_ROOT=/var/lib/ory-auth/queue
+readonly QUEUE_ROOT=/var/lib/idnest/queue
 readonly INCOMING_ROOT=$QUEUE_ROOT/incoming
 readonly PROCESSING_ROOT=$QUEUE_ROOT/processing
 readonly RESULTS_ROOT=$QUEUE_ROOT/results
-readonly LOG_ROOT=/var/log/ory-auth
-readonly DEPLOY_INCOMING=/var/lib/ory-auth/incoming
-readonly HOST_ACTIVATOR=/usr/local/sbin/activate-ory-host-release
+readonly LOG_ROOT=/var/log/idnest
+readonly DEPLOY_INCOMING=/var/lib/idnest/incoming
+readonly HOST_ACTIVATOR=/usr/local/sbin/activate-idnest-host-release
 
 fail() {
   echo "Release processing failed: $*" >&2
@@ -60,7 +60,7 @@ process_one() {
   [ "$(stat -c '%U' "$request_path")" = "$QUEUE_USER" ] || fail "request owner does not match queue owner"
 
   case "$KIND" in
-    auth) REQUIRED_INPUTS="host-release.tar.gz host-release.sig ecr-password ory-config.tar.gz" ;;
+    auth) REQUIRED_INPUTS="host-release.tar.gz host-release.sig ecr-password idnest-config.tar.gz" ;;
     admin) REQUIRED_INPUTS="host-release.tar.gz host-release.sig ecr-password" ;;
   esac
 
@@ -104,11 +104,11 @@ process_one() {
 
   case "$KIND" in
     auth)
-      install -o root -g root -m 600 "$WORK_ROOT/ory-config.tar.gz" "$DEPLOY_INCOMING/ory-config.tar.gz.$RUN_ID"
-      /usr/local/sbin/deploy-ory-auth "$IMAGE_REF" "$REVISION" "$RUN_ID"
+      install -o root -g root -m 600 "$WORK_ROOT/idnest-config.tar.gz" "$DEPLOY_INCOMING/idnest-config.tar.gz.$RUN_ID"
+      /usr/local/sbin/deploy-idnest-auth "$IMAGE_REF" "$REVISION" "$RUN_ID"
       ;;
     admin)
-      /usr/local/sbin/deploy-ory-admin "$IMAGE_REF" "$REVISION" "$RUN_ID"
+      /usr/local/sbin/deploy-idnest-admin "$IMAGE_REF" "$REVISION" "$RUN_ID"
       ;;
   esac
 
@@ -137,7 +137,7 @@ run_one() {
     if printf '%s\n' "${RUN_ID:-}" | grep -Eq '^[1-9][0-9]*$'; then
       rm -f -- \
         "$DEPLOY_INCOMING/ecr-password.$RUN_ID" \
-        "$DEPLOY_INCOMING/ory-config.tar.gz.$RUN_ID"
+        "$DEPLOY_INCOMING/idnest-config.tar.gz.$RUN_ID"
     fi
     return "$exit_code"
   }

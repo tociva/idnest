@@ -52,8 +52,8 @@ SIGNING_PUBLIC_KEY=$SCRIPT_DIR/host-release-signing-public.pem
 DEPLOY_SSH_PUBLIC_KEY=$SCRIPT_DIR/github-deploy-ed25519.pub
 REPOSITORY_DIR=$SCRIPT_DIR/repository
 SCRIPT_PATH=$SCRIPT_DIR/bootstrap-development-vps.sh
-RUNTIME_IMPORT_PATH=$SCRIPT_DIR/ory.env.import
-RUNTIME_IMPORT_CHECKSUM_PATH=$SCRIPT_DIR/ory.env.import.sha256
+RUNTIME_IMPORT_PATH=$SCRIPT_DIR/idnest.env.import
+RUNTIME_IMPORT_CHECKSUM_PATH=$SCRIPT_DIR/idnest.env.import.sha256
 RUNTIME_IMPORT_AVAILABLE=false
 
 [ -f "$SCRIPT_PATH" ] && [ ! -L "$SCRIPT_PATH" ] \
@@ -75,31 +75,31 @@ if [ -e "$RUNTIME_IMPORT_PATH" ] || [ -L "$RUNTIME_IMPORT_PATH" ] \
   || [ -e "$RUNTIME_IMPORT_CHECKSUM_PATH" ] || [ -L "$RUNTIME_IMPORT_CHECKSUM_PATH" ]; then
   [ -f "$RUNTIME_IMPORT_PATH" ] && [ ! -L "$RUNTIME_IMPORT_PATH" ] \
     && [ -s "$RUNTIME_IMPORT_PATH" ] \
-    || fail "the transferred Ory runtime import is invalid"
+    || fail "the transferred Idnest runtime import is invalid"
   [ -f "$RUNTIME_IMPORT_CHECKSUM_PATH" ] && [ ! -L "$RUNTIME_IMPORT_CHECKSUM_PATH" ] \
     && [ -s "$RUNTIME_IMPORT_CHECKSUM_PATH" ] \
-    || fail "the transferred Ory runtime import checksum is invalid"
+    || fail "the transferred Idnest runtime import checksum is invalid"
   [ "$(stat -c '%a' "$RUNTIME_IMPORT_PATH")" = 600 ] \
-    || fail "the transferred Ory runtime import must have mode 600"
+    || fail "the transferred Idnest runtime import must have mode 600"
   sha256sum --check "$RUNTIME_IMPORT_CHECKSUM_PATH" \
-    || fail "the transferred Ory runtime import checksum verification failed"
+    || fail "the transferred Idnest runtime import checksum verification failed"
   RUNTIME_IMPORT_AVAILABLE=true
 fi
 sudo -v
 
 if [ "$MODE" = validate-config ]; then
   [ "$RUNTIME_IMPORT_AVAILABLE" = false ] \
-    || fail "run the bootstrap without --validate-config to install the staged Ory runtime import first"
-  VALIDATOR=/usr/local/sbin/validate-ory-app-env
+    || fail "run the bootstrap without --validate-config to install the staged Idnest runtime import first"
+  VALIDATOR=/usr/local/sbin/validate-idnest-app-env
   [ -x "$VALIDATOR" ] || fail "host provisioning has not installed $VALIDATOR"
 
   for config_file in \
     /etc/idnest/auth-app.env \
     /etc/idnest/admin-app.env \
-    /etc/idnest/ory.env \
+    /etc/idnest/idnest.env \
     /etc/idnest/auth.conf \
     /etc/idnest/admin.conf \
-    /etc/idnest/ory.conf; do
+    /etc/idnest/idnest.conf; do
     sudo "$VALIDATOR" "$config_file"
   done
 
@@ -235,7 +235,7 @@ fi
 
 sudo "$REPOSITORY_DIR/scripts/deploy/vps/provision-host.sh" \
   github-deploy \
-  ory-runtime-development \
+  idnest-runtime-development \
   "$SIGNING_PUBLIC_KEY" \
   "$DEPLOY_SSH_PUBLIC_KEY"
 
@@ -260,29 +260,27 @@ install_if_missing \
   /etc/idnest/admin-app.env
 
 if [ "$RUNTIME_IMPORT_AVAILABLE" = true ]; then
-  if sudo test -e /etc/idnest/ory.env || sudo test -L /etc/idnest/ory.env; then
-    sudo test -f /etc/idnest/ory.env && sudo test ! -L /etc/idnest/ory.env \
-      || fail "/etc/idnest/ory.env exists but is not a regular file"
+  if sudo test -e /etc/idnest/idnest.env || sudo test -L /etc/idnest/idnest.env; then
+    sudo test -f /etc/idnest/idnest.env && sudo test ! -L /etc/idnest/idnest.env \
+      || fail "/etc/idnest/idnest.env exists but is not a regular file"
     sudo cmp -s \
-      /etc/idnest/ory.env \
-      "$REPOSITORY_DIR/scripts/deploy/env/ory.env.example" \
-      || fail "/etc/idnest/ory.env has local changes; staged tmp/vps.env values were not applied"
+      /etc/idnest/idnest.env \
+      "$REPOSITORY_DIR/scripts/deploy/env/idnest.env.example" \
+      || fail "/etc/idnest/idnest.env has local changes; staged tmp/vps.env values were not applied"
   fi
   sudo install -o root -g root -m 600 \
-    "$RUNTIME_IMPORT_PATH" /etc/idnest/ory.env
+    "$RUNTIME_IMPORT_PATH" /etc/idnest/idnest.env
   rm -f -- "$RUNTIME_IMPORT_PATH" "$RUNTIME_IMPORT_CHECKSUM_PATH"
   RUNTIME_IMPORT_AVAILABLE=false
-  echo "Installed compatible tmp/vps.env values as /etc/idnest/ory.env."
+  echo "Installed compatible tmp/vps.env values as /etc/idnest/idnest.env."
 else
   install_if_missing \
-    "$REPOSITORY_DIR/scripts/deploy/env/ory.env.example" \
-    /etc/idnest/ory.env
+    "$REPOSITORY_DIR/scripts/deploy/env/idnest.env.example" \
+    /etc/idnest/idnest.env
 fi
 
-sudo systemctl is-active --quiet ory-auth-release-queue.path \
+sudo systemctl is-active --quiet idnest-release-queue.path \
   || fail "the development release queue watcher is not active"
-sudo test ! -e /etc/sudoers.d/ory-auth-deploy \
-  || fail "the obsolete deployment sudo policy is still present"
 
 echo "Development VPS host bootstrap complete."
 echo "Edit the six VPS-owned configuration files under /etc/idnest with your preferred editor."

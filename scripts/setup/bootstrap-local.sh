@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Local one-shot bootstrap for Idnest auth development.
-# Creates local Postgres roles/databases/schemas, runs migrations, starts ORY
+# Creates local Postgres roles/databases/schemas, runs migrations, starts Idnest
 # containers, and provisions the Idnest Admin console's infrastructure client.
 #
 set -eu
@@ -9,7 +9,7 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COMPOSE_FILE="$REPO_ROOT/scripts/docker/docker-compose.yml"
-ORY_RUNTIME_NETWORK="${ORY_RUNTIME_NETWORK:-ory-network}"
+IDNEST_RUNTIME_NETWORK="${IDNEST_RUNTIME_NETWORK:-idnest-network}"
 ENV_HELPER="$SCRIPT_DIR/load-project-env.sh"
 ADMIN_CLIENT_PROVISIONER="$SCRIPT_DIR/provision-admin-client.js"
 
@@ -57,18 +57,18 @@ require_cmd docker
 require_cmd curl
 require_cmd pnpm
 
-if ! docker network inspect "$ORY_RUNTIME_NETWORK" >/dev/null 2>&1; then
-  docker network create --attachable "$ORY_RUNTIME_NETWORK" >/dev/null
+if ! docker network inspect "$IDNEST_RUNTIME_NETWORK" >/dev/null 2>&1; then
+  docker network create --attachable "$IDNEST_RUNTIME_NETWORK" >/dev/null
 fi
-export ORY_RUNTIME_NETWORK
+export IDNEST_RUNTIME_NETWORK
 
 # shellcheck source=scripts/setup/load-project-env.sh
 . "$ENV_HELPER"
 load_project_env "$REPO_ROOT"
 
 case "$(uname -s)" in
-  Darwin) SETUP_SCRIPT="$REPO_ROOT/scripts/setup/setup-ory-db-macos.sh" ;;
-  Linux) SETUP_SCRIPT="$REPO_ROOT/scripts/setup/setup-ory-db-linux.sh" ;;
+  Darwin) SETUP_SCRIPT="$REPO_ROOT/scripts/setup/setup-idnest-db-macos.sh" ;;
+  Linux) SETUP_SCRIPT="$REPO_ROOT/scripts/setup/setup-idnest-db-linux.sh" ;;
   *) echo "Error: unsupported OS '$(uname -s)'." >&2; exit 1 ;;
 esac
 

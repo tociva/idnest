@@ -1,28 +1,6 @@
 name: Build and deploy admin (development)
 
 on:
-  push:
-    branches: [development]
-    paths:
-      - '.github/workflows/deploy-admin-development.yml'
-      - 'monorepo/apps/admin-backend/**'
-      - 'monorepo/apps/admin-frontend/**'
-      - 'monorepo/libs/authz-store/**'
-      - 'monorepo/libs/server-runtime/**'
-      - 'monorepo/libs/shared-types/**'
-      - 'scripts/authz/**'
-      - 'scripts/docker/Dockerfile.admin-app'
-      - 'scripts/docker/smoke-test-admin-image.sh'
-      - 'scripts/deploy/env/admin-app.env.example'
-      - 'scripts/deploy/vps/**'
-      - 'scripts/docker/render-kratos-config.sh'
-      - 'package.json'
-      - 'monorepo/package.json'
-      - 'monorepo/pnpm-lock.yaml'
-      - 'monorepo/pnpm-workspace.yaml'
-      - 'monorepo/nx.json'
-      - 'monorepo/tsconfig.base.json'
-      - '.dockerignore'
   workflow_dispatch:
 
 permissions:
@@ -231,29 +209,29 @@ jobs:
           VPS_SSH_KNOWN_HOSTS_B64: ${{ secrets.VPS_SSH_KNOWN_HOSTS_B64 }}
         run: |
           set -euo pipefail
-          install -d -m 700 "${RUNNER_TEMP}/ory-ssh"
-          printf '%s' "${VPS_SSH_PRIVATE_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/ory-ssh/id_ed25519"
-          printf '%s' "${VPS_SSH_KNOWN_HOSTS_B64}" | base64 --decode > "${RUNNER_TEMP}/ory-ssh/known_hosts"
+          install -d -m 700 "${RUNNER_TEMP}/idnest-ssh"
+          printf '%s' "${VPS_SSH_PRIVATE_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/idnest-ssh/id_ed25519"
+          printf '%s' "${VPS_SSH_KNOWN_HOSTS_B64}" | base64 --decode > "${RUNNER_TEMP}/idnest-ssh/known_hosts"
           printf '%s' "${HOST_RELEASE_SIGNING_PRIVATE_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/host-release-signing-private.pem"
           tar --create --gzip --file "${RUNNER_TEMP}/host-release.tar.gz" \
             scripts/deploy/vps/compose.auth.yaml \
             scripts/deploy/vps/compose.admin.yaml \
-            scripts/deploy/vps/compose.ory.yaml \
+            scripts/deploy/vps/compose.idnest.yaml \
             scripts/deploy/vps/Dockerfile.kratos \
-            scripts/deploy/vps/deploy-ory-app.sh \
-            scripts/deploy/vps/deploy-ory-infra.sh \
-            scripts/deploy/vps/deploy-ory-auth.sh \
-            scripts/deploy/vps/deploy-ory-admin.sh \
-            scripts/deploy/vps/rollback-ory-app.sh \
-            scripts/deploy/vps/rollback-ory-auth.sh \
-            scripts/deploy/vps/rollback-ory-admin.sh \
+            scripts/deploy/vps/deploy-idnest-app.sh \
+            scripts/deploy/vps/deploy-idnest-infra.sh \
+            scripts/deploy/vps/deploy-idnest-auth.sh \
+            scripts/deploy/vps/deploy-idnest-admin.sh \
+            scripts/deploy/vps/rollback-idnest-app.sh \
+            scripts/deploy/vps/rollback-idnest-auth.sh \
+            scripts/deploy/vps/rollback-idnest-admin.sh \
             scripts/deploy/vps/validate-app-env.sh \
             scripts/docker/render-kratos-config.sh
           openssl pkey -in "${RUNNER_TEMP}/host-release-signing-private.pem" -noout
           openssl dgst -sha256 -sign "${RUNNER_TEMP}/host-release-signing-private.pem" \
             -out "${RUNNER_TEMP}/host-release.sig" "${RUNNER_TEMP}/host-release.tar.gz"
           aws ecr get-login-password --region "${AWS_REGION}" > "${RUNNER_TEMP}/ecr-password"
-          chmod 600 "${RUNNER_TEMP}/ory-ssh/id_ed25519" "${RUNNER_TEMP}/ory-ssh/known_hosts" \
+          chmod 600 "${RUNNER_TEMP}/idnest-ssh/id_ed25519" "${RUNNER_TEMP}/idnest-ssh/known_hosts" \
             "${RUNNER_TEMP}/host-release.tar.gz" \
             "${RUNNER_TEMP}/host-release.sig" "${RUNNER_TEMP}/host-release-signing-private.pem" \
             "${RUNNER_TEMP}/ecr-password"
@@ -267,17 +245,17 @@ jobs:
           set -euo pipefail
           port="${VPS_PORT:-22}"
           scp_args=(
-            -i "${RUNNER_TEMP}/ory-ssh/id_ed25519"
+            -i "${RUNNER_TEMP}/idnest-ssh/id_ed25519"
             -P "${port}"
             -o BatchMode=yes
             -o IdentitiesOnly=yes
             -o StrictHostKeyChecking=yes
-            -o "UserKnownHostsFile=${RUNNER_TEMP}/ory-ssh/known_hosts"
+            -o "UserKnownHostsFile=${RUNNER_TEMP}/idnest-ssh/known_hosts"
           )
           request_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           for name in host-release.tar.gz host-release.sig ecr-password; do
             scp "${scp_args[@]}" "${RUNNER_TEMP}/${name}" \
-              "${VPS_USER}@${VPS_HOST}:/var/lib/ory-auth/queue/incoming/${name}.${request_id}.upload"
+              "${VPS_USER}@${VPS_HOST}:/var/lib/idnest/queue/incoming/${name}.${request_id}.upload"
           done
 
       - name: Submit release and wait for root processor
@@ -297,22 +275,22 @@ jobs:
           image_ref="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@${IMAGE_DIGEST}"
           host_bundle_sha256=$(sha256sum "${RUNNER_TEMP}/host-release.tar.gz" | awk '{print $1}')
           ssh_args=(
-            -i "${RUNNER_TEMP}/ory-ssh/id_ed25519"
+            -i "${RUNNER_TEMP}/idnest-ssh/id_ed25519"
             -p "${port}"
             -o BatchMode=yes
             -o IdentitiesOnly=yes
             -o StrictHostKeyChecking=yes
-            -o "UserKnownHostsFile=${RUNNER_TEMP}/ory-ssh/known_hosts"
+            -o "UserKnownHostsFile=${RUNNER_TEMP}/idnest-ssh/known_hosts"
           )
           ssh "${ssh_args[@]}" "${VPS_USER}@${VPS_HOST}" \
-            /usr/local/bin/submit-ory-release admin "${request_id}" "${GITHUB_RUN_ID}" \
+            /usr/local/bin/submit-idnest-release admin "${request_id}" "${GITHUB_RUN_ID}" \
             "${REVISION}" "${image_ref}" "${host_bundle_sha256}"
           ssh "${ssh_args[@]}" "${VPS_USER}@${VPS_HOST}" \
-            /usr/local/bin/wait-ory-release admin "${request_id}" 2200
+            /usr/local/bin/wait-idnest-release admin "${request_id}" 2200
 
       - name: Remove runner-side sensitive files
         if: ${{ always() }}
         run: |
           rm -f "${RUNNER_TEMP}/host-release.tar.gz" "${RUNNER_TEMP}/host-release.sig"
           rm -f "${RUNNER_TEMP}/host-release-signing-private.pem" "${RUNNER_TEMP}/ecr-password"
-          rm -f "${RUNNER_TEMP}/ory-ssh/id_ed25519" "${RUNNER_TEMP}/ory-ssh/known_hosts"
+          rm -f "${RUNNER_TEMP}/idnest-ssh/id_ed25519" "${RUNNER_TEMP}/idnest-ssh/known_hosts"

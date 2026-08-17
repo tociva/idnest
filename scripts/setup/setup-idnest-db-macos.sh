@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# ORY bootstrap for Linux (apt/yum Postgres with a `postgres` OS user).
-# Creates Hydra/Kratos/Authz roles, databases and schemas, then runs ORY
+# Idnest identity bootstrap for macOS (Homebrew Postgres: current user is the superuser).
+# Creates Hydra/Kratos/Authz roles, databases and schemas, then runs identity
 # migrations. Database credentials are derived from the project DSNs.
 #
-# Usage: ./scripts/setup/setup-ory-db-linux.sh
+# Usage: ./scripts/setup/setup-idnest-db-macos.sh
 #
 set -eu
 
@@ -19,22 +19,22 @@ load_project_env "$REPO_ROOT"
 HYDRA_IMAGE="${HYDRA_IMAGE:-oryd/hydra:v26.2.0}"
 KRATOS_IMAGE="${KRATOS_IMAGE:-oryd/kratos:v26.2.0}"
 KRATOS_CONFIG_DIR="${KRATOS_CONFIG_DIR:-$REPO_ROOT/config}"
+PG_SUPERDB="${PG_SUPERDB:-postgres}"
 
 require_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "Error: '$1' not found." >&2; exit 1; }; }
 require_cmd psql
 require_cmd docker
-require_cmd sudo
 require_cmd node
 
 derive_database_env
 
-psql_super() { sudo -u postgres psql -v ON_ERROR_STOP=1 "$@"; }
+psql_super() { psql -v ON_ERROR_STOP=1 "$@"; }
 
 ensure_role_db_schema() {
   local user="$1" pass="$2" db="$3" schema="$4"
   echo "==> Ensuring role '$user', database '$db' and schema '$schema'..."
 
-  psql_super -d postgres -v role="$user" -v pass="$pass" -v db="$db" <<'SQL'
+  psql_super -d "$PG_SUPERDB" -v role="$user" -v pass="$pass" -v db="$db" <<'SQL'
 SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'role', :'pass')
 WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'role')\gexec
 SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'role', :'pass')\gexec
@@ -69,4 +69,4 @@ docker run --rm \
   -v "${KRATOS_CONFIG_DIR}:/etc/config" \
   "$KRATOS_IMAGE" migrate sql -e --yes
 
-echo "==> ORY Hydra & Kratos setup complete."
+echo "==> Idnest Hydra and Kratos setup complete."

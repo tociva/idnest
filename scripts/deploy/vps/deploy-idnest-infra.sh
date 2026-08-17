@@ -1,22 +1,22 @@
 #!/bin/sh
 set -eu
 
-readonly APP_ROOT=/opt/ory-auth
+readonly APP_ROOT=/opt/idnest
 readonly CONFIG_ROOT=/etc/idnest
-readonly INCOMING_ROOT=/var/lib/ory-auth/incoming
-readonly LOCK_FILE=/var/lock/ory-auth-deploy.lock
-readonly COMPOSE_FILE=$APP_ROOT/ory/compose.yaml
-readonly BUILD_CONTEXT=$APP_ROOT/ory/kratos-build
-readonly CONFIG_HISTORY=$APP_ROOT/ory/config-history
-readonly ORY_ENV=$CONFIG_ROOT/ory.env
-readonly ORY_CONFIG=$CONFIG_ROOT/ory.conf
+readonly INCOMING_ROOT=/var/lib/idnest/incoming
+readonly LOCK_FILE=/var/lock/idnest-deploy.lock
+readonly COMPOSE_FILE=$APP_ROOT/identity/compose.yaml
+readonly BUILD_CONTEXT=$APP_ROOT/identity/kratos-build
+readonly CONFIG_HISTORY=$APP_ROOT/identity/config-history
+readonly IDNEST_ENV=$CONFIG_ROOT/idnest.env
+readonly IDNEST_CONFIG=$CONFIG_ROOT/idnest.conf
 readonly TLS_CERT_FILE=$CONFIG_ROOT/tls/origin-cert.pem
 readonly TLS_KEY_FILE=$CONFIG_ROOT/tls/origin-key.pem
 readonly TLS_CA_FILE=$CONFIG_ROOT/tls/origin-ca.pem
-readonly VALIDATOR=/usr/local/sbin/validate-ory-app-env
+readonly VALIDATOR=/usr/local/sbin/validate-idnest-app-env
 
 fail() {
-  echo "Ory deployment failed: $*" >&2
+  echo "Idnest identity deployment failed: $*" >&2
   exit 1
 }
 
@@ -36,7 +36,7 @@ valid_hostname() {
   printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$'
 }
 
-[ "$#" -eq 1 ] || fail "usage: deploy-ory-infra GITHUB_RUN_ID"
+[ "$#" -eq 1 ] || fail "usage: deploy-idnest-infra GITHUB_RUN_ID"
 RUN_ID=$1
 printf '%s\n' "$RUN_ID" | grep -Eq '^[1-9][0-9]*$' || fail "invalid GitHub run ID"
 [ "$(id -u)" -eq 0 ] || fail "deployment must run as root through the release queue processor"
@@ -44,21 +44,21 @@ printf '%s\n' "$RUN_ID" | grep -Eq '^[1-9][0-9]*$' || fail "invalid GitHub run I
 for command in awk chmod chown curl diff docker find flock grep id install mv openssl rm rmdir sleep stat tar; do
   require_command "$command"
 done
-for file in "$COMPOSE_FILE" "$VALIDATOR" "$ORY_ENV" "$ORY_CONFIG" "$TLS_CERT_FILE" "$TLS_KEY_FILE" "$TLS_CA_FILE"; do
+for file in "$COMPOSE_FILE" "$VALIDATOR" "$IDNEST_ENV" "$IDNEST_CONFIG" "$TLS_CERT_FILE" "$TLS_KEY_FILE" "$TLS_CA_FILE"; do
   root_regular_file "$file" || fail "invalid root-owned required file: $file"
 done
 [ -x "$VALIDATOR" ] || fail "invalid environment validator"
 [ -d "$BUILD_CONTEXT/config" ] && [ ! -L "$BUILD_CONTEXT/config" ] || fail "invalid Kratos build configuration"
 [ -d "$CONFIG_HISTORY" ] && [ ! -L "$CONFIG_HISTORY" ] || fail "invalid configuration history directory"
-case "$(stat -c '%a' "$ORY_ENV")" in 600) ;; *) fail "Ory environment mode must be 600" ;; esac
-case "$(stat -c '%a' "$ORY_CONFIG")" in 600) ;; *) fail "Ory deployment config mode must be 600" ;; esac
+case "$(stat -c '%a' "$IDNEST_ENV")" in 600) ;; *) fail "Idnest environment mode must be 600" ;; esac
+case "$(stat -c '%a' "$IDNEST_CONFIG")" in 600) ;; *) fail "Idnest deployment config mode must be 600" ;; esac
 case "$(stat -c '%a' "$TLS_KEY_FILE")" in 440|640) ;; *) fail "TLS private key mode must be 440 or 640" ;; esac
-"$VALIDATOR" "$ORY_ENV"
+"$VALIDATOR" "$IDNEST_ENV"
 
 # shellcheck source=/dev/null
-. "$ORY_CONFIG"
+. "$IDNEST_CONFIG"
 : "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}"
-: "${ORY_RUNTIME_NETWORK:?ORY_RUNTIME_NETWORK is required}"
+: "${IDNEST_RUNTIME_NETWORK:?IDNEST_RUNTIME_NETWORK is required}"
 : "${HYDRA_TLS_SERVER_NAME:?HYDRA_TLS_SERVER_NAME is required}"
 : "${KRATOS_TLS_SERVER_NAME:?KRATOS_TLS_SERVER_NAME is required}"
 HYDRA_ORIGIN_HTTPS_PORT=${HYDRA_ORIGIN_HTTPS_PORT:-8446}
@@ -68,7 +68,7 @@ KRATOS_ADMIN_HTTP_PORT=${KRATOS_ADMIN_HTTP_PORT:-4434}
 valid_hostname "$HYDRA_TLS_SERVER_NAME" || fail "invalid Hydra TLS server name"
 valid_hostname "$KRATOS_TLS_SERVER_NAME" || fail "invalid Kratos TLS server name"
 for port in "$HYDRA_ORIGIN_HTTPS_PORT" "$HYDRA_ADMIN_HTTPS_PORT" "$KRATOS_ORIGIN_HTTPS_PORT" "$KRATOS_ADMIN_HTTP_PORT"; do
-  valid_port "$port" || fail "invalid Ory port: $port"
+  valid_port "$port" || fail "invalid identity service port: $port"
 done
 
 openssl x509 -in "$TLS_CERT_FILE" -noout -checkend 86400 >/dev/null \
@@ -84,7 +84,7 @@ TLS_READ_GID=$(stat -c '%g' "$TLS_KEY_FILE")
 printf '%s\n' "$TLS_READ_GID" | grep -Eq '^[1-9][0-9]*$' \
   || fail "TLS private key must use a dedicated non-root group"
 
-CONFIG_ARCHIVE=$INCOMING_ROOT/ory-config.tar.gz.$RUN_ID
+CONFIG_ARCHIVE=$INCOMING_ROOT/idnest-config.tar.gz.$RUN_ID
 [ -f "$CONFIG_ARCHIVE" ] && [ ! -L "$CONFIG_ARCHIVE" ] && [ -s "$CONFIG_ARCHIVE" ] \
   || fail "invalid staged Kratos configuration archive"
 
@@ -101,13 +101,13 @@ printf '%s\n' "$entries" | grep -Fx 'config/kratos/identity.schema.json' >/dev/n
 exec 8>"$LOCK_FILE"
 flock -n 8 || fail "another auth/admin deployment is running"
 
-STAGE_ROOT=$APP_ROOT/ory/config-stage.$RUN_ID
+STAGE_ROOT=$APP_ROOT/identity/config-stage.$RUN_ID
 BACKUP_ROOT=$CONFIG_HISTORY/$RUN_ID
 CONFIG_SWAPPED=false
 DEPLOYMENT_SUCCEEDED=false
 
-ORY_ENV_FILE=$ORY_ENV
-export COMPOSE_PROJECT_NAME ORY_RUNTIME_NETWORK HYDRA_TLS_SERVER_NAME KRATOS_TLS_SERVER_NAME ORY_ENV_FILE
+IDNEST_ENV_FILE=$IDNEST_ENV
+export COMPOSE_PROJECT_NAME IDNEST_RUNTIME_NETWORK HYDRA_TLS_SERVER_NAME KRATOS_TLS_SERVER_NAME IDNEST_ENV_FILE
 export HYDRA_ORIGIN_HTTPS_PORT HYDRA_ADMIN_HTTPS_PORT KRATOS_ORIGIN_HTTPS_PORT KRATOS_ADMIN_HTTP_PORT
 export TLS_CERT_FILE TLS_KEY_FILE TLS_READ_GID
 
@@ -118,11 +118,11 @@ compose() {
 restore_on_failure() {
   rm -f -- "$CONFIG_ARCHIVE"
   if [ "$DEPLOYMENT_SUCCEEDED" != true ] && [ "$CONFIG_SWAPPED" = true ]; then
-    failed_root=$APP_ROOT/ory/config-failed.$RUN_ID.$$
+    failed_root=$APP_ROOT/identity/config-failed.$RUN_ID.$$
     mv "$BUILD_CONTEXT/config" "$failed_root" 2>/dev/null || true
     mv "$BACKUP_ROOT" "$BUILD_CONTEXT/config" 2>/dev/null || true
     compose up --detach --build --force-recreate >/dev/null 2>&1 || true
-    echo "Ory configuration was restored after a failed deployment." >&2
+    echo "Idnest identity configuration was restored after a failed deployment." >&2
   fi
   [ ! -e "$STAGE_ROOT" ] || rm -rf -- "$STAGE_ROOT"
 }
@@ -143,14 +143,14 @@ mv "$STAGE_ROOT/config" "$BUILD_CONTEXT/config"
 rmdir "$STAGE_ROOT"
 CONFIG_SWAPPED=true
 
-docker run --rm --env-file "$ORY_ENV" --add-host host.docker.internal:host-gateway \
+docker run --rm --env-file "$IDNEST_ENV" --add-host host.docker.internal:host-gateway \
   --entrypoint sh oryd/hydra:v26.2.0 -c \
   'export DSN="$HYDRA_DSN"; exec hydra migrate sql up -e --yes'
-docker run --rm --env-file "$ORY_ENV" --add-host host.docker.internal:host-gateway \
+docker run --rm --env-file "$IDNEST_ENV" --add-host host.docker.internal:host-gateway \
   --entrypoint sh oryd/kratos:v26.2.0 -c \
   'export DSN="$KRATOS_DSN"; exec kratos migrate sql -e --yes'
 
-compose config --quiet || fail "Ory Compose configuration is invalid"
+compose config --quiet || fail "Idnest identity Compose configuration is invalid"
 compose build --pull kratos
 compose up --detach --force-recreate
 

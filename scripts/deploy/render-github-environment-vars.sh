@@ -28,7 +28,7 @@ else
 fi
 chmod 700 "$output_directory"
 
-json_file=$(mktemp "${TMPDIR:-/tmp}/ory-github-vars.XXXXXX")
+json_file=$(mktemp "${TMPDIR:-/tmp}/idnest-github-vars.XXXXXX")
 current_output=
 cleanup() {
   rm -f -- "$json_file"

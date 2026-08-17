@@ -1,8 +1,8 @@
 # Idnest Authentication Platform
 
 Idnest is the authentication and identity platform used by `daybook.cloud`.
-It combines Ory Hydra and Ory Kratos with Express backends, Angular frontends,
-PostgreSQL, and a shared authorization store in an Nx workspace.
+It is built upon Ory Hydra and Ory Kratos, with Express backends, Angular
+frontends, PostgreSQL, and a shared authorization store in an Nx workspace.
 
 This README is the single project guide. It covers the architecture, local
 development, development deployment, common workflows, and security boundaries.
@@ -189,8 +189,8 @@ The two environment files have different owners:
 
 | File | Used by | Contains |
 | --- | --- | --- |
-| `.env` | Docker Compose, Hydra, and Kratos | Ory URLs, DSNs, secrets, cookie settings, and social OIDC credentials |
-| `monorepo/.env` | Express applications and workspace scripts | Internal Ory URLs, authorization database, BFF secrets, browser origins, and admin bootstrap settings |
+| `.env` | Docker Compose, Hydra, and Kratos | Hydra/Kratos URLs, DSNs, secrets, cookie settings, and social OIDC credentials |
+| `monorepo/.env` | Express applications and workspace scripts | Internal Hydra/Kratos URLs, authorization database, BFF secrets, browser origins, and admin bootstrap settings |
 
 Keep these values aligned:
 
@@ -222,7 +222,7 @@ Run commands from the repository root.
 | `pnpm authz:migrate` | Run authorization-store migrations |
 | `pnpm nx -- graph` | Open the Nx project graph |
 
-Manage the local Ory services directly when needed:
+Manage the local Hydra and Kratos services directly when needed:
 
 ```bash
 docker compose -f scripts/docker/docker-compose.yml up -d
@@ -235,7 +235,7 @@ After changing `.env` or `config/kratos.tpl.yml`, recreate Kratos so the
 generated configuration is refreshed:
 
 ```bash
-docker compose -f scripts/docker/docker-compose.yml up -d --force-recreate ory-kratos
+docker compose -f scripts/docker/docker-compose.yml up -d --force-recreate kratos
 ```
 
 ## GitHub Actions development deployments
@@ -466,8 +466,8 @@ separate non-root account that already has `sudo` access. The administrative
 key is not the generated `github-deploy` key.
 
 When the ignored local file `tmp/vps.env` exists, the transfer script also
-builds a protected Ory runtime import. The source file must be a regular file
-with mode `0600`, contain only keys supported by `ory.env.example`, and contain
+builds a protected Idnest runtime import. The source file must be a regular file
+with mode `0600`, contain only keys supported by `idnest.env.example`, and contain
 no duplicates, malformed lines, or placeholder values. It is never added to
 the bootstrap archive or Git. The following portable values are reused:
 
@@ -478,10 +478,10 @@ the bootstrap archive or Git. The following portable values are reused:
 - Optional Apple client, team, key ID, and private-key values
 
 URLs, cookie domains, CORS values, log levels, and other non-secret settings
-come from the current development template, preventing legacy hostnames from
+come from the current development template, preventing outdated hostnames from
 being restored. The generated import and its checksum are transferred beside
 the archive over the pinned SSH connection. The VPS runner installs it only
-when `/etc/idnest/ory.env` is absent or still matches the untouched template;
+when `/etc/idnest/idnest.env` is absent or still matches the untouched template;
 local VPS changes are never overwritten. After a successful installation, the
 staging copy is deleted.
 
@@ -513,10 +513,10 @@ editor:
 
 - `/etc/idnest/auth-app.env`
 - `/etc/idnest/admin-app.env`
-- `/etc/idnest/ory.env`
+- `/etc/idnest/idnest.env`
 - `/etc/idnest/auth.conf`
 - `/etc/idnest/admin.conf`
-- `/etc/idnest/ory.conf`
+- `/etc/idnest/idnest.conf`
 
 Configure the application environment files as follows:
 
@@ -524,7 +524,7 @@ Configure the application environment files as follows:
 | --- | --- | --- |
 | `auth-app.env` | `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET`, `ADMIN_BOOTSTRAP_EMAILS` | Use the authorization database DSN shared with the admin app, three independent random secrets, and the real verified bootstrap-administrator email. Keep the supplied `auth-dev`, `hydra-dev`, and `kratos-dev` URLs. |
 | `admin-app.env` | `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, `ADMIN_OIDC_CLIENT_SECRET`, `ADMIN_BOOTSTRAP_EMAILS` | Reuse the exact authorization DSN and bootstrap email from `auth-app.env`. Generate independent CSRF and confidential-client secrets. The OAuth client is provisioned with this same client secret after the first auth deployment. |
-| `ory.env` | Hydra/Kratos DSNs and secrets, Google credentials, optional Apple credentials | Compatible secret values are imported automatically from `tmp/vps.env` when available. Confirm that both database DSNs are reachable from Docker. Google credentials are required for Google login; leave all Apple values empty to disable Apple login. |
+| `idnest.env` | Hydra/Kratos DSNs and secrets, Google credentials, optional Apple credentials | Compatible secret values are imported automatically from `tmp/vps.env` when available. Confirm that both database DSNs are reachable from Docker. Google credentials are required for Google login; leave all Apple values empty to disable Apple login. |
 
 Use a separate randomly generated value for every secret. Hydra and Kratos
 system/CSRF secrets should be at least 32 random bytes. `KRATOS_CIPHER_SECRET`
@@ -544,9 +544,9 @@ The `.conf` defaults are already suitable for development:
 
 | File | Important defaults |
 | --- | --- |
-| `auth.conf` | `PUBLIC_HEALTH_URL=https://auth-dev.idnest.cloud/health`, origin port `8444`, network `ory-runtime-development` |
-| `admin.conf` | `PUBLIC_HEALTH_URL=https://admin-dev.idnest.cloud/health`, origin port `8445`, network `ory-runtime-development` |
-| `ory.conf` | Hydra origin `8446`, Hydra admin `4445`, Kratos origin `8447`, Kratos admin `4434` |
+| `auth.conf` | Compose project `idnest-auth-development`, `PUBLIC_HEALTH_URL=https://auth-dev.idnest.cloud/health`, origin port `8444`, network `idnest-runtime-development` |
+| `admin.conf` | Compose project `idnest-admin-development`, `PUBLIC_HEALTH_URL=https://admin-dev.idnest.cloud/health`, origin port `8445`, network `idnest-runtime-development` |
+| `idnest.conf` | Compose project `idnest-infra-development`, network `idnest-runtime-development`, Hydra origin `8446`, Hydra admin `4445`, Kratos origin `8447`, Kratos admin `4434` |
 
 The public health URLs intentionally use normal HTTPS port `443`; Cloudflare
 Origin Rules rewrite the origin connections to ports `8444` and `8445`. Change
@@ -728,15 +728,15 @@ gh run watch --repo tociva/idnest --exit-status
 
 After auth succeeds, provision the confidential admin OAuth client once from
 the trusted checkout on the VPS. The secret comes from the already-installed
-`admin-app.env`, the container joins the private Ory network, and Node trusts
+`admin-app.env`, the container joins the private Idnest network, and Node trusts
 the installed Origin CA root:
 
 ```bash
 sudo docker run --rm \
-  --network ory-runtime-development \
+  --network idnest-runtime-development \
   --env-file /etc/idnest/admin-app.env \
-  -e NODE_EXTRA_CA_CERTS=/run/ory-tls/origin-ca.pem \
-  --mount type=bind,src=/etc/idnest/tls/origin-ca.pem,dst=/run/ory-tls/origin-ca.pem,readonly \
+  -e NODE_EXTRA_CA_CERTS=/run/idnest-tls/origin-ca.pem \
+  --mount type=bind,src=/etc/idnest/tls/origin-ca.pem,dst=/run/idnest-tls/origin-ca.pem,readonly \
   --mount type=bind,src="$PWD/scripts/setup/provision-admin-client.js",dst=/work/provision-admin-client.js,readonly \
   node:22.22.0 node /work/provision-admin-client.js
 ```
@@ -764,11 +764,11 @@ both workflows use the `idnest-vps-development` concurrency group. For VPS
 diagnostics or rollback:
 
 ```bash
-sudo systemctl status ory-auth-release-queue.path --no-pager
-sudo journalctl -u ory-auth-release-queue.service -n 200 --no-pager
+sudo systemctl status idnest-release-queue.path --no-pager
+sudo journalctl -u idnest-release-queue.service -n 200 --no-pager
 sudo ss -ltnp
-sudo /usr/local/sbin/rollback-ory-auth
-sudo /usr/local/sbin/rollback-ory-admin
+sudo /usr/local/sbin/rollback-idnest-auth
+sudo /usr/local/sbin/rollback-idnest-admin
 ```
 
 Rollback restores the previous image digest but does not reverse database
@@ -821,11 +821,11 @@ curl http://localhost:4433/health/ready
 curl http://localhost:4000/health
 curl http://localhost:4100/health
 docker compose -f scripts/docker/docker-compose.yml ps
-docker compose -f scripts/docker/docker-compose.yml logs ory-hydra ory-kratos
+docker compose -f scripts/docker/docker-compose.yml logs hydra kratos
 ```
 
 If a Kratos configuration change is not visible, force-recreate the
-`ory-kratos` container and inspect its logs.
+`idnest-kratos` container and inspect its logs.
 
 For local certificate or gateway failures, verify the four `/etc/hosts`
 entries, confirm the wildcard certificate is trusted, and check each route

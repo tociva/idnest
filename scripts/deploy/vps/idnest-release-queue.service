@@ -1,5 +1,5 @@
 [Unit]
-Description=Process queued Ory application releases as root
+Description=Process queued Idnest application releases as root
 After=docker.service network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=oneshot
 User=root
 Group=root
-ExecStart=/usr/local/sbin/process-ory-release-queue
+ExecStart=/usr/local/sbin/process-idnest-release-queue
 PrivateTmp=true
 UMask=0027
 TimeoutStartSec=35min
