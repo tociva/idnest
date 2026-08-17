@@ -42,7 +42,7 @@ duplicates=$(
 )
 [ -z "$duplicates" ] || fail "duplicate keys: $duplicates"
 
-if grep -Eiq 'replace-with-|=[[:space:]]*(change-?me|todo)|@example\.com([,[:space:]]|$)|https?://[^,[:space:]]*\.example\.com([,[:space:]]|$)' "$env_file"; then
+if grep -Eiq 'replace-with-|=[[:space:]]*(change-?me|todo)|=[[:space:]]*[xX]{3,}[[:space:]]*$|@example\.com([,[:space:]]|$)|https?://[^,[:space:]]*\.example\.com([,[:space:]]|$)' "$env_file"; then
   fail "environment file contains placeholder values"
 fi
 
