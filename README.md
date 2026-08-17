@@ -434,7 +434,7 @@ administrator preparation script from the trusted Mac:
 
 ```bash
 ./scripts/deploy/prepare-development-vps-admin.sh \
-  ~/.ssh/id_ed25519_hetzner_daybook_cloud
+  /absolute/path/to/vps-admin-ssh-private-key
 ```
 
 It defaults to creating `idnest-admin` on `vps-dev.idnest.cloud:22`, derives the
@@ -461,7 +461,7 @@ key:
 ```bash
 ./scripts/deploy/transfer-development-vps-bootstrap.sh \
   idnest-admin \
-  ~/.ssh/id_ed25519_hetzner_daybook_cloud
+  /absolute/path/to/vps-admin-ssh-private-key
 ```
 
 The defaults are `vps-dev.idnest.cloud` and SSH port `22`. Pass a different
