@@ -19,7 +19,7 @@ for file in "$DEV_SSH_PRIVATE_KEY" "$DEV_KNOWN_HOSTS" "$DEV_RELEASE_SIGNING_PRIV
     exit 1
   }
 done
-for command in awk base64 chmod dirname grep install jq mktemp mv openssl ssh-keygen stat tr uname; do
+for command in awk base64 chmod dirname install jq mktemp mv openssl ssh-keygen stat tr uname; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "Missing required command: $command" >&2
     exit 1
@@ -105,6 +105,16 @@ IDENTITY_APPLE_CLIENT_ID=$(dotenv_value "$DEVELOPMENT_ENV" APPLE_CLIENT_ID)
 IDENTITY_APPLE_TEAM_ID=$(dotenv_value "$DEVELOPMENT_ENV" APPLE_TEAM_ID)
 IDENTITY_APPLE_PRIVATE_KEY_ID=$(dotenv_value "$DEVELOPMENT_ENV" APPLE_PRIVATE_KEY_ID)
 IDENTITY_APPLE_PRIVATE_KEY_YAML=$(dotenv_apple_private_key_yaml "$DEVELOPMENT_ENV")
+AWS_ACCOUNT_ID=$(dotenv_value "$DEVELOPMENT_ENV" AWS_ACCOUNT_ID)
+AWS_REGION=$(dotenv_value "$DEVELOPMENT_ENV" AWS_REGION)
+AWS_BUILD_ROLE_ARN=$(dotenv_value "$DEVELOPMENT_ENV" AWS_BUILD_ROLE_ARN)
+AUTH_AWS_DEPLOY_ROLE_ARN=$(dotenv_value "$DEVELOPMENT_ENV" AUTH_AWS_DEPLOY_ROLE_ARN)
+ADMIN_AWS_DEPLOY_ROLE_ARN=$(dotenv_value "$DEVELOPMENT_ENV" ADMIN_AWS_DEPLOY_ROLE_ARN)
+AUTH_ECR_REPOSITORY=$(dotenv_value "$DEVELOPMENT_ENV" AUTH_ECR_REPOSITORY)
+ADMIN_ECR_REPOSITORY=$(dotenv_value "$DEVELOPMENT_ENV" ADMIN_ECR_REPOSITORY)
+VPS_HOST=$(dotenv_value "$DEVELOPMENT_ENV" VPS_HOST)
+VPS_PORT=$(dotenv_value "$DEVELOPMENT_ENV" VPS_PORT)
+VPS_USER=$(dotenv_value "$DEVELOPMENT_ENV" VPS_USER)
 IDENTITY_APPLE_PRIVATE_KEY=
 IDENTITY_APPLE_ENABLED=false
 if [ -n "$IDENTITY_APPLE_PRIVATE_KEY_YAML" ]; then
@@ -125,39 +135,75 @@ else
 fi
 chmod 700 "$OUTPUT_DIR"
 
-write_variable() {
+write_variables() {
   destination=$1
-  key=$2
-  value=$3
-  [ -f "$destination" ] && [ ! -L "$destination" ] && [ -s "$destination" ] || {
-    echo "Render GitHub variables before preparing secrets: $destination" >&2
+  environment=$2
+  [ ! -L "$destination" ] || {
+    echo "Refusing to replace symbolic link: $destination" >&2
     exit 1
   }
-  [ "$(file_mode "$destination")" = 600 ] || {
-    echo "Variable file must have mode 600: $destination" >&2
-    exit 1
-  }
+  umask 077
   temporary=$(mktemp "$OUTPUT_DIR/.vars.env.XXXXXX")
-  grep -v "^${key}=" "$destination" >"$temporary"
-  printf '%s=%s\n' "$key" "$value" >>"$temporary"
+  case "$environment" in
+    ecr-build)
+      {
+        printf 'AWS_ACCOUNT_ID=%s\n' "$AWS_ACCOUNT_ID"
+        printf 'AWS_REGION=%s\n' "$AWS_REGION"
+        printf 'AWS_BUILD_ROLE_ARN=%s\n' "$AWS_BUILD_ROLE_ARN"
+        printf 'AUTH_ECR_REPOSITORY=%s\n' "$AUTH_ECR_REPOSITORY"
+        printf 'ADMIN_ECR_REPOSITORY=%s\n' "$ADMIN_ECR_REPOSITORY"
+      } >"$temporary"
+      ;;
+    development-auth)
+      {
+        printf 'AWS_ACCOUNT_ID=%s\n' "$AWS_ACCOUNT_ID"
+        printf 'AWS_REGION=%s\n' "$AWS_REGION"
+        printf 'AWS_DEPLOY_ROLE_ARN=%s\n' "$AUTH_AWS_DEPLOY_ROLE_ARN"
+        printf 'ECR_REPOSITORY=%s\n' "$AUTH_ECR_REPOSITORY"
+        printf 'VPS_HOST=%s\n' "$VPS_HOST"
+        printf 'VPS_PORT=%s\n' "$VPS_PORT"
+        printf 'VPS_USER=%s\n' "$VPS_USER"
+        printf 'ADMIN_BOOTSTRAP_EMAILS=%s\n' "$AUTH_ADMIN_BOOTSTRAP_EMAILS"
+      } >"$temporary"
+      ;;
+    development-admin)
+      {
+        printf 'AWS_ACCOUNT_ID=%s\n' "$AWS_ACCOUNT_ID"
+        printf 'AWS_REGION=%s\n' "$AWS_REGION"
+        printf 'AWS_DEPLOY_ROLE_ARN=%s\n' "$ADMIN_AWS_DEPLOY_ROLE_ARN"
+        printf 'ECR_REPOSITORY=%s\n' "$ADMIN_ECR_REPOSITORY"
+        printf 'VPS_HOST=%s\n' "$VPS_HOST"
+        printf 'VPS_PORT=%s\n' "$VPS_PORT"
+        printf 'VPS_USER=%s\n' "$VPS_USER"
+        printf 'ADMIN_BOOTSTRAP_EMAILS=%s\n' "$ADMIN_ADMIN_BOOTSTRAP_EMAILS"
+      } >"$temporary"
+      ;;
+    development-identity)
+      {
+        printf 'VPS_HOST=%s\n' "$VPS_HOST"
+        printf 'VPS_PORT=%s\n' "$VPS_PORT"
+        printf 'VPS_USER=%s\n' "$VPS_USER"
+        printf 'GOOGLE_CLIENT_ID=%s\n' "$IDENTITY_GOOGLE_CLIENT_ID"
+        if [ "$IDENTITY_APPLE_ENABLED" = true ]; then
+          printf 'APPLE_CLIENT_ID=%s\n' "$IDENTITY_APPLE_CLIENT_ID"
+          printf 'APPLE_TEAM_ID=%s\n' "$IDENTITY_APPLE_TEAM_ID"
+          printf 'APPLE_PRIVATE_KEY_ID=%s\n' "$IDENTITY_APPLE_PRIVATE_KEY_ID"
+        fi
+      } >"$temporary"
+      ;;
+    *)
+      echo "Unsupported GitHub variable environment: $environment" >&2
+      exit 1
+      ;;
+  esac
   chmod 600 "$temporary"
   mv "$temporary" "$destination"
 }
 
-write_variable \
-  "$OUTPUT_DIR/development-auth.vars.env" \
-  ADMIN_BOOTSTRAP_EMAILS "$AUTH_ADMIN_BOOTSTRAP_EMAILS"
-write_variable \
-  "$OUTPUT_DIR/development-admin.vars.env" \
-  ADMIN_BOOTSTRAP_EMAILS "$ADMIN_ADMIN_BOOTSTRAP_EMAILS"
-write_variable \
-  "$OUTPUT_DIR/development-identity.vars.env" \
-  GOOGLE_CLIENT_ID "$IDENTITY_GOOGLE_CLIENT_ID"
-if [ "$IDENTITY_APPLE_ENABLED" = true ]; then
-  write_variable "$OUTPUT_DIR/development-identity.vars.env" APPLE_CLIENT_ID "$IDENTITY_APPLE_CLIENT_ID"
-  write_variable "$OUTPUT_DIR/development-identity.vars.env" APPLE_TEAM_ID "$IDENTITY_APPLE_TEAM_ID"
-  write_variable "$OUTPUT_DIR/development-identity.vars.env" APPLE_PRIVATE_KEY_ID "$IDENTITY_APPLE_PRIVATE_KEY_ID"
-fi
+write_variables "$OUTPUT_DIR/ecr-build.vars.env" ecr-build
+write_variables "$OUTPUT_DIR/development-auth.vars.env" development-auth
+write_variables "$OUTPUT_DIR/development-admin.vars.env" development-admin
+write_variables "$OUTPUT_DIR/development-identity.vars.env" development-identity
 
 write_secrets() {
   destination=$1
@@ -211,4 +257,4 @@ write_secrets() {
 write_secrets "$OUTPUT_DIR/development-auth.secrets.env" auth "$DEV_SSH_PRIVATE_KEY" "$DEV_KNOWN_HOSTS" "$DEV_RELEASE_SIGNING_PRIVATE_KEY"
 write_secrets "$OUTPUT_DIR/development-admin.secrets.env" admin "$DEV_SSH_PRIVATE_KEY" "$DEV_KNOWN_HOSTS" "$DEV_RELEASE_SIGNING_PRIVATE_KEY"
 write_secrets "$OUTPUT_DIR/development-identity.secrets.env" identity "$DEV_SSH_PRIVATE_KEY" "$DEV_KNOWN_HOSTS" "$DEV_RELEASE_SIGNING_PRIVATE_KEY"
-echo "Prepared development GitHub secret dotenv files in $OUTPUT_DIR. Values were not printed."
+echo "Prepared development GitHub variable and secret dotenv files in $OUTPUT_DIR. Values were not printed."

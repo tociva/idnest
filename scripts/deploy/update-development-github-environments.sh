@@ -17,9 +17,11 @@ Defaults:
   OWNER/REPOSITORY=tociva/idnest
   DEVELOPMENT_ENV=tmp/development.env
 
-All configurable auth, admin, Hydra, Kratos, Google, and optional Apple values
-are read from that single protected development environment file. Deployment
-SSH and release-signing keys remain separate files under ../idnest-secure.
+All infrastructure, auth, admin, Hydra, Kratos, Google, and optional Apple
+key-value settings are read from that single protected development environment
+file. Run update-development-env-from-terraform.sh first whenever Terraform
+state changes. Deployment SSH and release-signing keys remain separate files
+under ../idnest-secure.
 Prepared dotenv files are kept in a mode-0700 temporary directory and removed
 after success or failure.
 EOF
@@ -45,7 +47,6 @@ SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)
 REPO_PARENT=$(CDPATH= cd "$REPO_ROOT/.." && pwd)
 DEPLOY_KEYS_DIR=$REPO_PARENT/idnest-secure
-TERRAFORM_DIRECTORY=$REPO_ROOT/infrastructure/terraform/aws-development
 [ -d "$DEPLOY_KEYS_DIR" ] && [ ! -L "$DEPLOY_KEYS_DIR" ] \
   || fail "protected directory is missing or invalid: $DEPLOY_KEYS_DIR (run create-development-credentials.sh first)"
 
@@ -71,7 +72,7 @@ if [ "$DEVELOPMENT_ENV" = "$REPO_ROOT/tmp/development.env" ] \
     || fail "missing or invalid tracked template: $template"
   install -m 600 "$template" "$DEVELOPMENT_ENV" \
     || fail "could not create protected source: $DEVELOPMENT_ENV"
-  fail "created $DEVELOPMENT_ENV; replace its placeholders and rerun this updater"
+  fail "created $DEVELOPMENT_ENV; replace its application placeholders, run update-development-env-from-terraform.sh, then rerun this updater"
 fi
 
 for required_file in \
@@ -84,7 +85,6 @@ for required_file in \
 done
 
 for helper in \
-  "$SCRIPT_DIR/render-github-environment-vars.sh" \
   "$SCRIPT_DIR/prepare-github-environments.sh" \
   "$SCRIPT_DIR/configure-github-environments.sh" \
   "$SCRIPT_DIR/vps/validate-app-env.sh"; do
@@ -107,10 +107,6 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 chmod 700 "$PREPARED_DIRECTORY"
-
-"$SCRIPT_DIR/render-github-environment-vars.sh" \
-  "$TERRAFORM_DIRECTORY" \
-  "$PREPARED_DIRECTORY"
 
 "$SCRIPT_DIR/prepare-github-environments.sh" \
   "$DEPLOY_KEYS_DIR/github-deploy-ed25519" \

@@ -42,7 +42,7 @@ jq -e 'type == "object"' "$json_file" >/dev/null \
 actual_environments=$(jq -r 'keys | sort | join(" ")' "$json_file")
 expected_environments="development-admin development-auth development-identity ecr-build"
 [ "$actual_environments" = "$expected_environments" ] \
-  || fail "Terraform output must contain exactly the four development GitHub environments"
+  || fail "Terraform state must contain exactly the four development GitHub environments (actual: ${actual_environments:-none}). Run terraform apply in $terraform_directory, then retry"
 
 expected_keys() {
   case "$1" in

@@ -24,7 +24,7 @@ case "$kind" in
     expected_keys='AUTH_URL CORS_ALLOWED_ORIGINS HYDRA_DSN HYDRA_URLS_SELF_ISSUER HYDRA_URLS_CONSENT HYDRA_URLS_LOGIN HYDRA_URLS_LOGOUT HYDRA_URLS_POST_LOGOUT_REDIRECT HYDRA_URLS_ERROR HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_SERVE_PUBLIC_BASE_URL KRATOS_ADMIN_URL KRATOS_URLS_LOGOUT KRATOS_COOKIES_DOMAIN KRATOS_LOG_LEVEL KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY'
     ;;
   development-source)
-    expected_keys='AUTH_URL CORS_ALLOWED_ORIGINS HYDRA_DSN HYDRA_URLS_SELF_ISSUER HYDRA_URLS_CONSENT HYDRA_URLS_LOGIN HYDRA_URLS_LOGOUT HYDRA_URLS_POST_LOGOUT_REDIRECT HYDRA_URLS_ERROR HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_SERVE_PUBLIC_BASE_URL KRATOS_ADMIN_URL KRATOS_URLS_LOGOUT KRATOS_COOKIES_DOMAIN KRATOS_LOG_LEVEL KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET ADMIN_BOOTSTRAP_EMAILS ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET'
+    expected_keys='AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_AWS_DEPLOY_ROLE_ARN ADMIN_AWS_DEPLOY_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER AUTH_URL CORS_ALLOWED_ORIGINS HYDRA_DSN HYDRA_URLS_SELF_ISSUER HYDRA_URLS_CONSENT HYDRA_URLS_LOGIN HYDRA_URLS_LOGOUT HYDRA_URLS_POST_LOGOUT_REDIRECT HYDRA_URLS_ERROR HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_SERVE_PUBLIC_BASE_URL KRATOS_ADMIN_URL KRATOS_URLS_LOGOUT KRATOS_COOKIES_DOMAIN KRATOS_LOG_LEVEL KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET ADMIN_BOOTSTRAP_EMAILS ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET'
     ;;
   *) fail "environment kind must be auth, admin, identity, or development-source" ;;
 esac
@@ -140,6 +140,48 @@ if [ "$kind" = identity ] || [ "$kind" = development-source ]; then
 fi
 
 if [ "$kind" = development-source ]; then
+  aws_account_id=$(dotenv_value AWS_ACCOUNT_ID)
+  aws_region=$(dotenv_value AWS_REGION)
+  aws_build_role_arn=$(dotenv_value AWS_BUILD_ROLE_ARN)
+  auth_aws_deploy_role_arn=$(dotenv_value AUTH_AWS_DEPLOY_ROLE_ARN)
+  admin_aws_deploy_role_arn=$(dotenv_value ADMIN_AWS_DEPLOY_ROLE_ARN)
+  auth_ecr_repository=$(dotenv_value AUTH_ECR_REPOSITORY)
+  admin_ecr_repository=$(dotenv_value ADMIN_ECR_REPOSITORY)
+  vps_host=$(dotenv_value VPS_HOST)
+  vps_port=$(dotenv_value VPS_PORT)
+  vps_user=$(dotenv_value VPS_USER)
+
+  printf '%s\n' "$aws_account_id" | grep -Eq '^[0-9]{12}$' \
+    || fail "AWS_ACCOUNT_ID must be a 12-digit AWS account ID"
+  printf '%s\n' "$aws_region" | grep -Eq '^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$' \
+    || fail "AWS_REGION is not a valid AWS region"
+  for role_entry in \
+    "AWS_BUILD_ROLE_ARN=$aws_build_role_arn" \
+    "AUTH_AWS_DEPLOY_ROLE_ARN=$auth_aws_deploy_role_arn" \
+    "ADMIN_AWS_DEPLOY_ROLE_ARN=$admin_aws_deploy_role_arn"; do
+    role_key=${role_entry%%=*}
+    role_value=${role_entry#*=}
+    printf '%s\n' "$role_value" \
+      | grep -Eq "^arn:aws:iam::${aws_account_id}:role/[A-Za-z0-9+=,.@_/-]+$" \
+      || fail "$role_key is not a valid IAM role ARN for AWS_ACCOUNT_ID"
+  done
+  for repository_entry in \
+    "AUTH_ECR_REPOSITORY=$auth_ecr_repository" \
+    "ADMIN_ECR_REPOSITORY=$admin_ecr_repository"; do
+    repository_key=${repository_entry%%=*}
+    repository_value=${repository_entry#*=}
+    printf '%s\n' "$repository_value" | grep -Eq '^[a-z0-9][a-z0-9._/-]*$' \
+      || fail "$repository_key is not a valid ECR repository name"
+  done
+  printf '%s\n' "$vps_host" | grep -Eq '^[A-Za-z0-9.-]+$' \
+    || fail "VPS_HOST is not a valid hostname or IP address"
+  printf '%s\n' "$vps_port" | grep -Eq '^[0-9]{1,5}$' \
+    || fail "VPS_PORT is not a valid TCP port"
+  [ "$vps_port" -ge 1 ] && [ "$vps_port" -le 65535 ] \
+    || fail "VPS_PORT is not a valid TCP port"
+  printf '%s\n' "$vps_user" | grep -Eq '^[A-Za-z_][A-Za-z0-9._-]*$' \
+    || fail "VPS_USER is not a valid SSH user"
+
   authz_dsn=$(dotenv_value AUTHZ_DATABASE_URL)
   case "$authz_dsn" in postgres://*|postgresql://*) ;; *) fail "AUTHZ_DATABASE_URL must be a PostgreSQL DSN" ;; esac
 

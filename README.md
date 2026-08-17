@@ -350,15 +350,9 @@ it needs no AWS role because Hydra and Kratos use public upstream images.
 Actions, which must not connect as `root`.
 
 This Terraform directory manages development only. Production will use a
-separate Terraform directory, state, IAM roles, and GitHub environments. If an
-older state already contains production IAM resources from this directory, do
-not apply this configuration until those resources are migrated to the future
-production state; otherwise Terraform may propose destroying them.
-
-When upgrading an older local `terraform.tfvars`, remove
-`production_deploy_role_names`, `production-auth`, and `production-admin`.
-Only `development-auth`, `development-admin`, and `development-identity` are
-valid deployment targets in this directory.
+separate Terraform directory, state, IAM roles, and GitHub environments. Only
+`development-auth`, `development-admin`, and `development-identity` are valid
+deployment targets here.
 
 After saving the file, run:
 
@@ -537,6 +531,16 @@ preserving its current secrets. Values beginning with `replace-with-` are
 placeholders and must be changed:
 
 ```dotenv
+AWS_ACCOUNT_ID=replace-with-terraform-output
+AWS_REGION=replace-with-terraform-output
+AWS_BUILD_ROLE_ARN=replace-with-terraform-output
+AUTH_AWS_DEPLOY_ROLE_ARN=replace-with-terraform-output
+ADMIN_AWS_DEPLOY_ROLE_ARN=replace-with-terraform-output
+AUTH_ECR_REPOSITORY=replace-with-terraform-output
+ADMIN_ECR_REPOSITORY=replace-with-terraform-output
+VPS_HOST=replace-with-terraform-output
+VPS_PORT=replace-with-terraform-output
+VPS_USER=replace-with-terraform-output
 AUTH_URL=https://auth-dev.idnest.cloud
 CORS_ALLOWED_ORIGINS=https://*.idnest.cloud,https://*.daybook.cloud
 HYDRA_DSN=postgres://hydrau:replace-with-hydra-password@host.docker.internal:5432/hydra?sslmode=disable
@@ -570,12 +574,37 @@ ADMIN_CSRF_SECRET=replace-with-a-long-random-secret
 ADMIN_OIDC_CLIENT_SECRET=replace-with-admin-client-secret
 ```
 
-Keep all 31 properties and replace every placeholder; do not copy placeholder
-values literally. Leave all four `APPLE_*` values empty to disable Apple login,
-or configure all four together. The helper validates the exact contract and
-rejects missing, duplicate, unexpected, empty required, partial Apple, or
-placeholder values. Only configurable values are uploaded; each workflow
-regenerates current development defaults from tracked templates.
+Keep all 41 properties. Do not enter the first ten infrastructure values by
+hand: `update-development-env-from-terraform.sh` replaces their
+`replace-with-terraform-output` placeholders from validated Terraform state.
+Replace every remaining placeholder with its real value. Leave all four
+`APPLE_*` values empty to disable Apple login, or configure all four together.
+The helper validates the exact contract and rejects missing, duplicate,
+unexpected, empty required, partial Apple, or placeholder values. Only
+configurable values are uploaded; each workflow regenerates current
+development defaults from tracked templates.
+
+##### Terraform-derived infrastructure properties
+
+These ten non-secret values are part of `tmp/development.env` so that it is the
+only key-value input to the GitHub bulk updater. Do not maintain them in two
+places. After applying Terraform, run the sync helper documented in section 6;
+it validates all four Terraform environment objects, verifies their shared
+AWS/VPS values agree, and atomically replaces only these properties without
+printing any value.
+
+| Property | Terraform source |
+| --- | --- |
+| `AWS_ACCOUNT_ID` | Active AWS account used by the development Terraform state. |
+| `AWS_REGION` | Development `aws_region`. |
+| `AWS_BUILD_ROLE_ARN` | GitHub OIDC build role for the `ecr-build` environment. |
+| `AUTH_AWS_DEPLOY_ROLE_ARN` | Pull-only auth deployment role. |
+| `ADMIN_AWS_DEPLOY_ROLE_ARN` | Pull-only admin deployment role. |
+| `AUTH_ECR_REPOSITORY` | Auth image repository name. |
+| `ADMIN_ECR_REPOSITORY` | Admin image repository name. |
+| `VPS_HOST` | Shared development deployment hostname. |
+| `VPS_PORT` | SSH port used by all three deployment workflows. |
+| `VPS_USER` | Unprivileged deployment account, normally `github-deploy`. |
 
 ##### Development URL and behavior properties
 
@@ -670,14 +699,15 @@ and [creating a private key](https://developer.apple.com/help/account/capabiliti
 
 | GitHub Environment | GitHub secrets | GitHub variables |
 | --- | --- | --- |
-| `development-auth` | `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET` | `ADMIN_BOOTSTRAP_EMAILS` |
-| `development-admin` | `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, `ADMIN_OIDC_CLIENT_SECRET` | `ADMIN_BOOTSTRAP_EMAILS` |
-| `development-identity` | `HYDRA_DSN`, `HYDRA_SECRETS_SYSTEM`, `KRATOS_DSN`, `KRATOS_CSRF_COOKIE_SECRET`, `KRATOS_CIPHER_SECRET`, `GOOGLE_CLIENT_SECRET`, optional `APPLE_PRIVATE_KEY_B64` | `GOOGLE_CLIENT_ID`, optional `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, and `APPLE_PRIVATE_KEY_ID` |
+| `ecr-build` | None | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_BUILD_ROLE_ARN`, `AUTH_ECR_REPOSITORY`, `ADMIN_ECR_REPOSITORY` |
+| `development-auth` | `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS` |
+| `development-admin` | `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, `ADMIN_OIDC_CLIENT_SECRET` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS` |
+| `development-identity` | `HYDRA_DSN`, `HYDRA_SECRETS_SYSTEM`, `KRATOS_DSN`, `KRATOS_CSRF_COOKIE_SECRET`, `KRATOS_CIPHER_SECRET`, `GOOGLE_CLIENT_SECRET`, optional `APPLE_PRIVATE_KEY_B64` | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `GOOGLE_CLIENT_ID`, optional `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, and `APPLE_PRIVATE_KEY_ID` |
 
 All three deployment environments also receive the SSH private key, pinned
 known-hosts file, and release-signing private key as separate base64 transport
-secrets. Terraform supplies only `VPS_HOST`, `VPS_PORT`, and `VPS_USER` to
-`development-identity`; no AWS role is created for it.
+secrets. Identity receives the shared VPS target but no AWS role because it
+does not pull application images from ECR.
 
 The single `AUTHZ_DATABASE_URL` and `ADMIN_BOOTSTRAP_EMAILS` values are uploaded
 to both application environments. Generate independent random values for every
@@ -847,9 +877,42 @@ admin `4434`, PostgreSQL `5432`, or Docker's socket to the public internet.
 
 ### 6. Configure GitHub environments
 
-Run the bulk updater from the repository root. It renders Terraform's
-non-secret output, prepares the named secrets and variables, creates or updates
-`ecr-build`, `development-auth`, `development-admin`, and
+Apply the development Terraform configuration so its state contains the four
+current GitHub Environment objects. Then synchronize its ten non-secret AWS and
+VPS values into the protected combined file:
+
+```bash
+terraform -chdir=infrastructure/terraform/aws-development apply
+./scripts/deploy/update-development-env-from-terraform.sh
+```
+
+To use non-default protected-file or Terraform locations, pass both in that
+order:
+
+```bash
+./scripts/deploy/update-development-env-from-terraform.sh \
+  /absolute/secure/path/development.env \
+  /absolute/path/to/aws-development
+```
+
+The sync is the only command in this flow that reads Terraform output. It
+validates cross-environment consistency and atomically updates only the ten
+infrastructure properties in `tmp/development.env`; it preserves all
+application values and does not contact GitHub. If Terraform reports no
+resource changes and only updates `github_environment_variables`, applying is
+still necessary once so the new output is recorded in state.
+
+Review the protected file with your preferred editor, then validate the full
+41-property contract:
+
+```bash
+./scripts/deploy/vps/validate-app-env.sh \
+  tmp/development.env development-source
+```
+
+Finally run the bulk updater. It reads every key-value setting only from
+`tmp/development.env`, prepares the named secrets and variables, creates or
+updates `ecr-build`, `development-auth`, `development-admin`, and
 `development-identity`, and securely deletes its temporary dotenv files:
 
 ```bash
@@ -867,9 +930,10 @@ The default repository is `tociva/idnest`, and the default protected source is
 The selected mode-`0600` file is the only key-value input to the bulk updater.
 When the default protected file is absent, the first run creates it from the
 tracked combined template and exits before contacting GitHub. Fill its
-placeholders, then run the same command again. SSH private keys, known hosts,
-and the release-signing key remain separate protected files because they are
-not dotenv properties.
+application placeholders, run the Terraform sync helper, validate the file,
+then run the bulk updater again. SSH private keys, known hosts, and the
+release-signing key remain separate protected files because they are not
+dotenv properties.
 
 All three development deployment environments receive the transport secrets
 `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, and
@@ -892,11 +956,11 @@ stored as separate GitHub secrets or variables; no full dotenv file is stored
 in GitHub. The helpers validate file modes, key formats, exact
 variable/secret names, and application environment contracts without printing
 secret values. The bulk updater deletes its generated directory even when an
-intermediate command fails. During this migration, the configuration helper
-deletes obsolete whole-file application secrets and removes stale optional
-Apple settings when Apple login is disabled. After changing any protected local
-source file, rerun the single bulk updater; the next matching deployment
-generates and installs the new root-owned file on the VPS.
+intermediate command fails. The configuration helper deletes obsolete
+whole-file application secrets and removes stale optional Apple settings when
+Apple login is disabled. After changing any protected local source file, rerun
+the single bulk updater; the next matching deployment generates and installs
+the new root-owned file on the VPS.
 
 In **GitHub → Settings → Environments**, restrict `ecr-build`,
 `development-auth`, `development-admin`, and `development-identity` to the
