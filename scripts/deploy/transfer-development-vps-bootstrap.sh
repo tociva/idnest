@@ -1,0 +1,173 @@
+#!/bin/sh
+set -eu
+
+fail() {
+  echo "Development VPS bootstrap transfer failed: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/deploy/transfer-development-vps-bootstrap.sh \
+    VPS_ADMIN_USER VPS_ADMIN_SSH_KEY [VPS_HOST] [VPS_PORT]
+
+Packages the development VPS bootstrap payload, stores the archive under
+../idnest-secure, transfers it and the two required public keys to the VPS, and
+verifies the uploaded SHA-256 checksum.
+
+Defaults: VPS_HOST=vps-dev.idnest.cloud, VPS_PORT=22.
+VPS_ADMIN_USER must be a non-root account with sudo access.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+[ "$#" -ge 2 ] && [ "$#" -le 4 ] || { usage >&2; exit 2; }
+
+VPS_ADMIN_USER=$1
+VPS_ADMIN_SSH_KEY=$2
+VPS_HOST=${3:-vps-dev.idnest.cloud}
+VPS_PORT=${4:-22}
+
+case "$VPS_ADMIN_USER" in
+  root|github-deploy) fail "VPS_ADMIN_USER must be a separate non-root administrative account" ;;
+  ""|*[!a-z0-9_-]*|[!a-z_]*) fail "VPS_ADMIN_USER is not a valid Linux account name" ;;
+esac
+case "$VPS_HOST" in
+  ""|-*|*[!A-Za-z0-9.-]*) fail "VPS_HOST must be a hostname or IP address" ;;
+esac
+printf '%s\n' "$VPS_PORT" | grep -Eq '^[1-9][0-9]{0,4}$' \
+  || fail "VPS_PORT must be an integer from 1 to 65535"
+[ "$VPS_PORT" -le 65535 ] || fail "VPS_PORT must be an integer from 1 to 65535"
+[ -f "$VPS_ADMIN_SSH_KEY" ] && [ ! -L "$VPS_ADMIN_SSH_KEY" ] && [ -s "$VPS_ADMIN_SSH_KEY" ] \
+  || fail "VPS_ADMIN_SSH_KEY must be a non-empty regular file"
+
+for command in awk dirname grep install mktemp rm scp shasum ssh ssh-keygen tar; do
+  command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
+done
+
+SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)
+REPO_PARENT=$(CDPATH= cd "$REPO_ROOT/.." && pwd)
+DEPLOY_KEYS_DIR=$REPO_PARENT/idnest-secure
+ARCHIVE_NAME=idnest-development-vps-bootstrap.tar.gz
+ARCHIVE_PATH=$DEPLOY_KEYS_DIR/$ARCHIVE_NAME
+CHECKSUM_PATH=$ARCHIVE_PATH.sha256
+KNOWN_HOSTS=$DEPLOY_KEYS_DIR/vps-known-hosts
+SIGNING_PUBLIC_KEY=$DEPLOY_KEYS_DIR/host-release-signing-public.pem
+DEPLOY_SSH_PUBLIC_KEY=$DEPLOY_KEYS_DIR/github-deploy-ed25519.pub
+
+[ -d "$DEPLOY_KEYS_DIR" ] && [ ! -L "$DEPLOY_KEYS_DIR" ] \
+  || fail "$DEPLOY_KEYS_DIR is missing or is not a regular directory; run create-development-credentials.sh first"
+for required_file in "$KNOWN_HOSTS" "$SIGNING_PUBLIC_KEY" "$DEPLOY_SSH_PUBLIC_KEY"; do
+  [ -f "$required_file" ] && [ ! -L "$required_file" ] && [ -s "$required_file" ] \
+    || fail "missing required credential file: $required_file"
+done
+for generated_file in "$ARCHIVE_PATH" "$CHECKSUM_PATH"; do
+  [ ! -L "$generated_file" ] || fail "refusing to replace symbolic link: $generated_file"
+done
+
+known_host=$VPS_HOST
+if [ "$VPS_PORT" -ne 22 ]; then
+  known_host=[$VPS_HOST]:$VPS_PORT
+fi
+ssh-keygen -F "$known_host" -f "$KNOWN_HOSTS" >/dev/null \
+  || fail "$KNOWN_HOSTS has no entry for $known_host; regenerate credentials for this endpoint"
+
+set -- \
+  scripts/deploy/vps/provision-host.sh \
+  scripts/deploy/vps/compose.auth.yaml \
+  scripts/deploy/vps/compose.admin.yaml \
+  scripts/deploy/vps/compose.ory.yaml \
+  scripts/deploy/vps/Dockerfile.kratos \
+  scripts/deploy/vps/deploy-ory-app.sh \
+  scripts/deploy/vps/deploy-ory-infra.sh \
+  scripts/deploy/vps/deploy-ory-auth.sh \
+  scripts/deploy/vps/deploy-ory-admin.sh \
+  scripts/deploy/vps/rollback-ory-app.sh \
+  scripts/deploy/vps/rollback-ory-auth.sh \
+  scripts/deploy/vps/rollback-ory-admin.sh \
+  scripts/deploy/vps/validate-app-env.sh \
+  scripts/deploy/vps/activate-host-release.sh \
+  scripts/deploy/vps/process-ory-release-queue.sh \
+  scripts/deploy/vps/submit-ory-release.sh \
+  scripts/deploy/vps/wait-ory-release.sh \
+  scripts/deploy/vps/ory-auth-release-queue.path \
+  scripts/deploy/vps/ory-auth-release-queue.service \
+  scripts/deploy/vps/auth.conf.example \
+  scripts/deploy/vps/admin.conf.example \
+  scripts/deploy/vps/ory.conf.example \
+  scripts/deploy/env/auth-app.env.example \
+  scripts/deploy/env/admin-app.env.example \
+  scripts/deploy/env/ory.env.example \
+  scripts/docker/render-kratos-config.sh \
+  config/kratos.tpl.yml \
+  config/kratos/identity.schema.json \
+  config/kratos/oidc.apple.mapper.jsonnet \
+  config/kratos/oidc.google.mapper.jsonnet
+
+for payload_file in "$@"; do
+  [ -f "$REPO_ROOT/$payload_file" ] && [ ! -L "$REPO_ROOT/$payload_file" ] \
+    || fail "invalid bootstrap payload file: $payload_file"
+done
+
+umask 077
+generation_dir=$(mktemp -d "$DEPLOY_KEYS_DIR/.bootstrap.XXXXXX")
+cleanup() {
+  case "${generation_dir:-}" in
+    "$DEPLOY_KEYS_DIR"/.bootstrap.*) rm -rf -- "$generation_dir" ;;
+  esac
+}
+trap cleanup 0 1 2 15
+
+temporary_archive=$generation_dir/$ARCHIVE_NAME
+(cd "$REPO_ROOT" && tar -czf "$temporary_archive" "$@")
+archive_digest=$(shasum -a 256 "$temporary_archive" | awk '{print $1}')
+printf '%s  %s\n' "$archive_digest" "$ARCHIVE_NAME" \
+  > "$generation_dir/$ARCHIVE_NAME.sha256"
+
+install -m 600 "$temporary_archive" "$ARCHIVE_PATH"
+install -m 600 "$generation_dir/$ARCHIVE_NAME.sha256" "$CHECKSUM_PATH"
+
+ssh \
+  -i "$VPS_ADMIN_SSH_KEY" \
+  -p "$VPS_PORT" \
+  -o IdentitiesOnly=yes \
+  -o StrictHostKeyChecking=yes \
+  -o "UserKnownHostsFile=$KNOWN_HOSTS" \
+  "$VPS_ADMIN_USER@$VPS_HOST" \
+  'test ! -L "$HOME/idnest-bootstrap" && install -d -m 700 "$HOME/idnest-bootstrap"'
+
+scp \
+  -i "$VPS_ADMIN_SSH_KEY" \
+  -P "$VPS_PORT" \
+  -o IdentitiesOnly=yes \
+  -o StrictHostKeyChecking=yes \
+  -o "UserKnownHostsFile=$KNOWN_HOSTS" \
+  "$ARCHIVE_PATH" \
+  "$CHECKSUM_PATH" \
+  "$SIGNING_PUBLIC_KEY" \
+  "$DEPLOY_SSH_PUBLIC_KEY" \
+  "$VPS_ADMIN_USER@$VPS_HOST:idnest-bootstrap/"
+
+ssh \
+  -i "$VPS_ADMIN_SSH_KEY" \
+  -p "$VPS_PORT" \
+  -o IdentitiesOnly=yes \
+  -o StrictHostKeyChecking=yes \
+  -o "UserKnownHostsFile=$KNOWN_HOSTS" \
+  "$VPS_ADMIN_USER@$VPS_HOST" \
+  'cd "$HOME/idnest-bootstrap" && sha256sum --check idnest-development-vps-bootstrap.tar.gz.sha256'
+
+cleanup
+generation_dir=
+trap - 0 1 2 15
+
+echo "Development bootstrap payload transferred and verified."
+echo "Remote staging directory: $VPS_ADMIN_USER@$VPS_HOST:~/idnest-bootstrap"
+echo "Continue with the VPS extraction and provisioning commands in README.md."

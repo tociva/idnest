@@ -53,6 +53,7 @@ browser-accessible.
 │   └── libs/                       # Shared authorization, runtime, and types
 ├── scripts/
 │   ├── authz/                      # Authorization database migrations
+│   ├── deploy/                     # Development deployment and VPS bootstrap tooling
 │   ├── docker/                     # Local Hydra and Kratos stack
 │   └── setup/                      # Local bootstrap and database setup
 ├── .env.example                    # Hydra and Kratos configuration template
@@ -410,77 +411,31 @@ Connect using an approved administrative account with `sudo` access. SSH
 private-key paths are workstation-specific and must not be stored in Terraform,
 GitHub variables, or repository files.
 
-On the trusted Mac, create the development-only bootstrap archive from the
-repository root. The explicit file list excludes production examples and local
-secrets:
+On the trusted Mac, run the transfer script from the repository root. Supply
+the existing non-root administrative account and its workstation SSH private
+key:
 
 ```bash
-BOOTSTRAP_ARCHIVE="idnest-development-vps-bootstrap.tar.gz"
-
-tar -czf "$BOOTSTRAP_ARCHIVE" \
-  scripts/deploy/vps/provision-host.sh \
-  scripts/deploy/vps/compose.auth.yaml \
-  scripts/deploy/vps/compose.admin.yaml \
-  scripts/deploy/vps/compose.ory.yaml \
-  scripts/deploy/vps/Dockerfile.kratos \
-  scripts/deploy/vps/deploy-ory-app.sh \
-  scripts/deploy/vps/deploy-ory-infra.sh \
-  scripts/deploy/vps/deploy-ory-auth.sh \
-  scripts/deploy/vps/deploy-ory-admin.sh \
-  scripts/deploy/vps/rollback-ory-app.sh \
-  scripts/deploy/vps/rollback-ory-auth.sh \
-  scripts/deploy/vps/rollback-ory-admin.sh \
-  scripts/deploy/vps/validate-app-env.sh \
-  scripts/deploy/vps/activate-host-release.sh \
-  scripts/deploy/vps/process-ory-release-queue.sh \
-  scripts/deploy/vps/submit-ory-release.sh \
-  scripts/deploy/vps/wait-ory-release.sh \
-  scripts/deploy/vps/ory-auth-release-queue.path \
-  scripts/deploy/vps/ory-auth-release-queue.service \
-  scripts/deploy/vps/auth.conf.example \
-  scripts/deploy/vps/admin.conf.example \
-  scripts/deploy/vps/ory.conf.example \
-  scripts/deploy/env/auth-app.env.example \
-  scripts/deploy/env/admin-app.env.example \
-  scripts/deploy/env/ory.env.example \
-  scripts/docker/render-kratos-config.sh \
-  config/kratos.tpl.yml \
-  config/kratos/identity.schema.json \
-  config/kratos/oidc.apple.mapper.jsonnet \
-  config/kratos/oidc.google.mapper.jsonnet
-
-shasum -a 256 "$BOOTSTRAP_ARCHIVE" > "$BOOTSTRAP_ARCHIVE.sha256"
+./scripts/deploy/transfer-development-vps-bootstrap.sh \
+  replace-with-sudo-enabled-user \
+  /absolute/path/to/admin-ssh-private-key
 ```
 
-Set the administrative SSH values. `VPS_ADMIN_USER` must be a non-root account
-that already has `sudo` access; its SSH key is separate from the newly generated
-`github-deploy` key:
+The defaults are `vps-dev.idnest.cloud` and SSH port `22`. Pass a different
+management endpoint after the required arguments when necessary:
 
 ```bash
-DEPLOY_KEYS_DIR="../idnest-secure"
-DEVELOPMENT_VPS_HOST="vps-dev.idnest.cloud"
-VPS_SSH_PORT=22
-VPS_ADMIN_USER="replace-with-sudo-enabled-user"
-VPS_ADMIN_SSH_KEY="/absolute/path/to/admin-ssh-private-key"
-
-SSH_COMMON_OPTIONS=(
-  -i "$VPS_ADMIN_SSH_KEY"
-  -o IdentitiesOnly=yes
-  -o StrictHostKeyChecking=yes
-  -o "UserKnownHostsFile=$DEPLOY_KEYS_DIR/vps-known-hosts"
-)
-
-ssh "${SSH_COMMON_OPTIONS[@]}" -p "$VPS_SSH_PORT" \
-  "$VPS_ADMIN_USER@$DEVELOPMENT_VPS_HOST" \
-  'install -d -m 700 "$HOME/idnest-bootstrap"'
-
-scp "${SSH_COMMON_OPTIONS[@]}" -P "$VPS_SSH_PORT" \
-  "$BOOTSTRAP_ARCHIVE" \
-  "$BOOTSTRAP_ARCHIVE.sha256" \
-  "$DEPLOY_KEYS_DIR/host-release-signing-public.pem" \
-  "$DEPLOY_KEYS_DIR/github-deploy-ed25519.pub" \
-  "$VPS_ADMIN_USER@$DEVELOPMENT_VPS_HOST:idnest-bootstrap/"
+./scripts/deploy/transfer-development-vps-bootstrap.sh \
+  VPS_ADMIN_USER VPS_ADMIN_SSH_KEY VPS_HOST VPS_PORT
 ```
+
+The script creates the development-only archive and checksum under
+`../idnest-secure`, creates `~/idnest-bootstrap` on the VPS, transfers the
+archive, checksum, release-signing public key, and deployment SSH public key,
+then verifies the uploaded checksum. Its explicit archive manifest excludes
+production files and local secrets. It rejects `root` and `github-deploy` as
+the administrative account; use a separate non-root account that already has
+`sudo` access. The administrative key is not the generated `github-deploy` key.
 
 On the VPS, verify and extract the archive before running anything from it:
 
@@ -571,12 +526,22 @@ Download the appropriate Origin CA root from Cloudflare's
 [Origin CA documentation](https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/).
 Do not commit these files or store the origin private key in GitHub. Install the
 three files by transferring them from the trusted Mac to the existing staging
-directory. Use the same Mac shell and SSH variables configured in step 3:
+directory. Set the same endpoint and administrative account used in step 3:
 
 ```bash
+DEPLOY_KEYS_DIR="../idnest-secure"
 CLOUDFLARE_FILES_DIR="/absolute/path/to/cloudflare-downloads"
+DEVELOPMENT_VPS_HOST="vps-dev.idnest.cloud"
+VPS_SSH_PORT=22
+VPS_ADMIN_USER="replace-with-sudo-enabled-user"
+VPS_ADMIN_SSH_KEY="/absolute/path/to/admin-ssh-private-key"
 
-scp "${SSH_COMMON_OPTIONS[@]}" -P "$VPS_SSH_PORT" \
+scp \
+  -i "$VPS_ADMIN_SSH_KEY" \
+  -P "$VPS_SSH_PORT" \
+  -o IdentitiesOnly=yes \
+  -o StrictHostKeyChecking=yes \
+  -o "UserKnownHostsFile=$DEPLOY_KEYS_DIR/vps-known-hosts" \
   "$CLOUDFLARE_FILES_DIR/origin-cert.pem" \
   "$CLOUDFLARE_FILES_DIR/origin-key.pem" \
   "$CLOUDFLARE_FILES_DIR/origin-ca.pem" \
