@@ -252,7 +252,7 @@ does not receive Docker or sudo access.
 | Kratos public API | `kratos-dev.idnest.cloud` | `8447` |
 
 All public development services use the `idnest.cloud` zone. The development
-VPS SSH endpoint is `65.108.158.243`, while the four public service records
+VPS SSH endpoint is `vps-dev.idnest.cloud`, while the four public service records
 above remain proxied through Cloudflare.
 
 Hydra admin `4445` and Kratos admin `4434` stay bound to loopback/private
@@ -302,12 +302,12 @@ force_delete_ecr_repositories = false
 
 github_deployment_targets = {
   development-auth = {
-    vps_host = "65.108.158.243"
+    vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
     vps_user = "github-deploy"
   }
   development-admin = {
-    vps_host = "65.108.158.243"
+    vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
     vps_user = "github-deploy"
   }
@@ -328,7 +328,7 @@ that provider. Change `create_ecr_repositories` to `false` only if both named
 repositories already exist. Keep `force_delete_ecr_repositories=false` for
 normal operation.
 
-`65.108.158.243` is the direct SSH endpoint and is not routed through
+`vps-dev.idnest.cloud` is the direct SSH endpoint and is not routed through
 Cloudflare. Auth and admin share this VPS but remain separate GitHub deployment
 environments. `vps_user` is intentionally `github-deploy`: Terraform exports it
 to GitHub Actions, which must not connect as `root`.
@@ -368,7 +368,7 @@ root processor to activate checked-in host scripts.
 
 ```bash
 DEPLOY_KEYS_DIR="/absolute/secure/path/idnest-development"
-DEVELOPMENT_VPS_HOST="65.108.158.243"
+DEVELOPMENT_VPS_HOST="vps-dev.idnest.cloud"
 
 install -d -m 700 "$DEPLOY_KEYS_DIR"
 ssh-keygen -t ed25519 -a 64 -N '' \
