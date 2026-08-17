@@ -13,7 +13,7 @@ fail() {
 KIND=$1
 REQUEST_ID=$2
 TIMEOUT_SECONDS=${3:-1800}
-case "$KIND" in auth|admin) ;; *) fail "kind must be auth or admin" ;; esac
+case "$KIND" in auth|admin|identity) ;; *) fail "kind must be auth, admin, or identity" ;; esac
 printf '%s\n' "$REQUEST_ID" | grep -Eq '^[1-9][0-9]*-[1-9][0-9]*$' || fail "invalid request ID"
 printf '%s\n' "$TIMEOUT_SECONDS" | grep -Eq '^[1-9][0-9]*$' || fail "timeout must be a positive integer"
 

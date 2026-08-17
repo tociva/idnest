@@ -240,8 +240,10 @@ docker compose -f scripts/docker/docker-compose.yml up -d --force-recreate krato
 
 ## GitHub Actions development deployments
 
-The development workflows build multi-architecture auth and admin images, push
-immutable digests to Amazon ECR, and submit signed release requests to the VPS.
+The development workflows submit signed auth, admin, and identity release
+requests to the VPS. Auth and admin build multi-architecture images and publish
+immutable digests to Amazon ECR. The separate identity workflow renders
+`idnest.env`, migrates and starts Hydra and Kratos, and does not use AWS or ECR.
 The VPS runs the root-owned release processor; the `github-deploy` SSH account
 does not receive Docker or sudo access.
 
@@ -312,6 +314,11 @@ github_deployment_targets = {
     vps_port = 22
     vps_user = "github-deploy"
   }
+  development-identity = {
+    vps_host = "vps-dev.idnest.cloud"
+    vps_port = 22
+    vps_user = "github-deploy"
+  }
 }
 
 tags = {
@@ -336,9 +343,11 @@ repositories. Each role's trust policy also restricts tokens to the
 `tociva/idnest` repository and the exact GitHub environment used by that role.
 
 `vps-dev.idnest.cloud` is the direct SSH endpoint and is not routed through
-Cloudflare. Auth and admin share this VPS but remain separate GitHub deployment
-environments. `vps_user` is intentionally `github-deploy`: Terraform exports it
-to GitHub Actions, which must not connect as `root`.
+Cloudflare. Auth, admin, and identity share this VPS but remain separate GitHub
+deployment environments. `development-identity` receives only the VPS values;
+it needs no AWS role because Hydra and Kratos use public upstream images.
+`vps_user` is intentionally `github-deploy`: Terraform exports it to GitHub
+Actions, which must not connect as `root`.
 
 This Terraform directory manages development only. Production will use a
 separate Terraform directory, state, IAM roles, and GitHub environments. If an
@@ -348,8 +357,8 @@ production state; otherwise Terraform may propose destroying them.
 
 When upgrading an older local `terraform.tfvars`, remove
 `production_deploy_role_names`, `production-auth`, and `production-admin`.
-Only `development-auth` and `development-admin` are valid deployment targets in
-this directory.
+Only `development-auth`, `development-admin`, and `development-identity` are
+valid deployment targets in this directory.
 
 After saving the file, run:
 
@@ -465,25 +474,11 @@ It rejects `root` and `github-deploy` as the administrative account; use a
 separate non-root account that already has `sudo` access. The administrative
 key is not the generated `github-deploy` key.
 
-When the ignored local file `tmp/vps.env` exists, the transfer script also
-builds a protected Idnest runtime import. The source file must be a regular file
-with mode `0600`, contain only keys supported by `idnest.env.example`, and contain
-no duplicates, malformed lines, or placeholder values. It is never added to
-the bootstrap archive or Git. The following portable values are reused:
-
-- `HYDRA_DSN` and `KRATOS_DSN`
-- `HYDRA_SECRETS_SYSTEM`
-- `KRATOS_CSRF_COOKIE_SECRET` and `KRATOS_CIPHER_SECRET`
-- Google client ID and secret
-- Optional Apple client, team, key ID, and private-key values
-
-URLs, cookie domains, CORS values, log levels, and other non-secret settings
-come from the current development template, preventing outdated hostnames from
-being restored. The generated import and its checksum are transferred beside
-the archive over the pinned SSH connection. The VPS runner installs it only
-when `/etc/idnest/idnest.env` is absent or still matches the untouched template;
-local VPS changes are never overwritten. After a successful installation, the
-staging copy is deleted.
+Identity secrets are never included in the bootstrap archive or transferred by
+this script. If the ignored `tmp/vps.env` file exists, the GitHub preparation
+helper in step 6 uses it as the protected source for the individual Hydra,
+Kratos, Google, and optional Apple settings. Otherwise it uses
+`../idnest-secure/idnest.env`.
 
 On the VPS, execute the transferred runner as that same non-root administrative
 account:
@@ -501,34 +496,29 @@ for operations that require host privileges and refuses direct execution as
 `root`.
 
 Run the transfer command and this bootstrap runner once more when upgrading an
-already-provisioned VPS to the GitHub-managed app-environment flow. That refresh
-installs the new seven-field queue submitter and processor before either updated
-workflow is run; it preserves existing `/etc/idnest` configuration and TLS
-files. Later application deployments update their own host assets through the
-signed release bundle as usual.
+already-provisioned VPS. That one-time refresh installs the queue protocol that
+accepts signed `auth`, `admin`, and `identity` releases before the new identity
+workflow is run. It preserves existing `/etc/idnest` configuration and TLS
+files. Later deployments update their host assets through signed release
+bundles as usual.
 
 #### Configure VPS-owned and GitHub-managed runtime files
 
-The VPS owns only the identity-service environment, deployment settings, and
-TLS material. Review these four root-owned files after bootstrap:
+The VPS owns deployment settings and TLS material. Review these three
+root-owned configuration files after bootstrap:
 
-- `/etc/idnest/idnest.env`
 - `/etc/idnest/auth.conf`
 - `/etc/idnest/admin.conf`
 - `/etc/idnest/idnest.conf`
 
-`idnest.env` contains the Hydra and Kratos DSNs and secrets. Compatible values
-are imported automatically from `tmp/vps.env` during the first bootstrap when
-that protected local file exists. Confirm that both database DSNs are reachable
-from Docker. Google credentials are required for Google login; leave every
-Apple value empty to disable Apple login.
+Do not create or edit `/etc/idnest/idnest.env`, `/etc/idnest/auth-app.env`, or
+`/etc/idnest/admin-app.env` manually. Each signed workflow generates its own
+file from individual protected GitHub Environment settings. The root release
+processor verifies the file and installs it as `root:root` mode `0600`.
 
-The application files are different: do not create or edit
-`/etc/idnest/auth-app.env` or `/etc/idnest/admin-app.env` manually. Their source
-files remain on the trusted Mac and are used only to seed individual values in
-the corresponding `development-auth` or `development-admin` GitHub Environment.
-The complete files are never stored as GitHub secrets. Create the protected
-local copies once if they do not already exist:
+Protected local source files remain on the trusted Mac and only seed individual
+GitHub settings; complete dotenv files are not stored as GitHub secrets. Create
+the sources once if they do not already exist:
 
 ```bash
 test -e ../idnest-secure/auth-app.env || \
@@ -537,28 +527,40 @@ test -e ../idnest-secure/auth-app.env || \
 test -e ../idnest-secure/admin-app.env || \
   install -m 600 scripts/deploy/env/admin-app.env.example \
   ../idnest-secure/admin-app.env
+test -e ../idnest-secure/idnest.env || test -e tmp/vps.env || \
+  install -m 600 scripts/deploy/env/idnest.env.example \
+  ../idnest-secure/idnest.env
 ```
 
-Open those two files in any editor you choose and replace the documented
-placeholders. The helper requires mode `0600`, validates the exact allowed key
-set, and rejects missing, duplicate, unexpected, or placeholder values. It
-uploads only the configurable values listed below; stable development defaults
-are generated from `render-development-app-env.sh` during every workflow run.
+Open the files in any editor you choose and replace the documented placeholders.
+If `tmp/vps.env` exists, the helper automatically uses it as the identity source;
+otherwise it uses `../idnest-secure/idnest.env`. The identity source must contain
+the exact keys in `idnest.env.example` and use mode `0600`. The helper validates
+all three exact contracts and rejects missing, duplicate, unexpected, empty
+required, or placeholder values. Only configurable values are uploaded; the
+identity workflow regenerates current development URLs from tracked defaults.
 
-| GitHub Environment | GitHub secrets | GitHub variable |
+| GitHub Environment | GitHub secrets | GitHub variables |
 | --- | --- | --- |
 | `development-auth` | `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET` | `ADMIN_BOOTSTRAP_EMAILS` |
 | `development-admin` | `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, `ADMIN_OIDC_CLIENT_SECRET` | `ADMIN_BOOTSTRAP_EMAILS` |
+| `development-identity` | `HYDRA_DSN`, `HYDRA_SECRETS_SYSTEM`, `KRATOS_DSN`, `KRATOS_CSRF_COOKIE_SECRET`, `KRATOS_CIPHER_SECRET`, `GOOGLE_CLIENT_SECRET`, optional `APPLE_PRIVATE_KEY_B64` | `GOOGLE_CLIENT_ID`, optional `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, and `APPLE_PRIVATE_KEY_ID` |
+
+All three deployment environments also receive the SSH private key, pinned
+known-hosts file, and release-signing private key as separate base64 transport
+secrets. Terraform supplies only `VPS_HOST`, `VPS_PORT`, and `VPS_USER` to
+`development-identity`; no AWS role is created for it.
 
 Use the same authorization DSN and bootstrap email in both environments.
 Generate independent random values for every other secret. Provision the OAuth
 client with the same `ADMIN_OIDC_CLIENT_SECRET` after the first admin workflow
 installs the generated file.
 
-The renderer hardcodes development-only hostnames, internal service URLs, CORS
-origins, frontend paths, consent/branding modes, transaction TTL, and boolean
-defaults from the tracked examples. Change the renderer and examples together
-when one of those defaults intentionally changes; they are not GitHub settings.
+The renderers hardcode development-only hostnames, internal service URLs, CORS
+origins, cookie domain, log level, frontend paths, consent/branding modes,
+transaction TTL, and boolean defaults from the tracked examples. Change the
+renderer and examples together when one of those defaults intentionally
+changes; these defaults are not GitHub settings.
 
 Use a separate randomly generated value for every secret. Hydra and Kratos
 system/CSRF secrets should be at least 32 random bytes. `KRATOS_CIPHER_SECRET`
@@ -573,6 +575,11 @@ postgres://ROLE:PASSWORD@host.docker.internal:5432/DATABASE?sslmode=disable
 Use URL-safe passwords or percent-encode reserved URL characters. The expected
 roles and databases are `hydrau`/`hydra`, `kratosu`/`kratos`, and
 `authzu`/`authz`. The same `authzu` DSN must appear in both application files.
+Google client ID and secret are required. To disable Apple login, leave all four
+Apple values empty. To enable it, configure all four; the local
+`APPLE_PRIVATE_KEY` must be a JSON-compatible double-quoted YAML string with
+`\n` escapes. The helper validates the PEM and stores its raw bytes as the
+individual `APPLE_PRIVATE_KEY_B64` GitHub secret.
 
 The `.conf` defaults are already suitable for development:
 
@@ -587,29 +594,37 @@ Origin Rules rewrite the origin connections to ports `8444` and `8445`. Change
 the resource limits or ports only when the VPS or Cloudflare configuration also
 changes.
 
-Replace every placeholder and confirm that the VPS-owned DSNs and credentials
-are appropriate for this VPS. Then validate the four VPS-owned files:
+Confirm the three VPS-owned `.conf` files are appropriate for this VPS, then
+validate them:
 
 ```bash
 ~/idnest-bootstrap/bootstrap-development-vps.sh --validate-config
 ```
 
-The signed auth and admin workflows render their dotenv file from individual
-GitHub Environment secrets, the bootstrap-email variable, and tracked defaults
-on the ephemeral runner. They validate and sign the exact generated file, then
-submit it through the protected release queue. The root processor verifies the
-signature and checksum, installs the file as `root:root` mode `0600`, and rolls
-it back with the previous image if deployment health checks fail. The decoded
-file and signature are deleted from the runner and VPS queue after the run.
-Existing VPS-owned configuration is preserved when bootstrap runs again,
-except for the guarded first-bootstrap `tmp/vps.env` import described above.
+The signed identity workflow renders `idnest.env`, packages the tracked Kratos
+configuration, signs both artifacts, and submits an `identity` request through
+the protected queue. The root processor verifies every checksum and Ed25519
+signature before installing anything. It atomically replaces the environment
+and configuration, runs both migrations in one-off containers on
+`idnest-runtime-development`, starts Hydra and Kratos, and checks their local
+TLS readiness endpoints. Migration connectivity therefore confirms both DSNs
+are reachable from Docker. If migration, build, or readiness fails, the prior
+environment and Kratos configuration are restored together. A successful
+database migration is not automatically reversed.
+
+Auth and admin use the same signed environment-file mechanism for their own
+settings. Auth no longer changes or starts Hydra or Kratos; it fails with a
+clear instruction to run the identity workflow if either dependency is not
+ready. Runner and queue copies of decoded secrets are deleted after each run.
+Bootstrap preserves any existing pipeline-installed environment files.
 
 Before the first workflow run, create the PostgreSQL roles, databases, and
 schemas referenced by `HYDRA_DSN`, `KRATOS_DSN`, and `AUTHZ_DATABASE_URL`.
 When PostgreSQL runs on the VPS, it must accept traffic from the Docker bridge
-without exposing port `5432` publicly. The first auth release runs Hydra,
-Kratos, and authorization migrations; it does not create the database roles or
-databases. A managed database should be prepared by its administrator.
+without exposing port `5432` publicly. The first identity release runs Hydra
+and Kratos migrations, while the auth release runs the authorization migration;
+neither creates database roles or databases. A managed database should be
+prepared by its administrator.
 
 ### 4. Create and install a Cloudflare Origin CA certificate
 
@@ -717,9 +732,9 @@ admin `4434`, PostgreSQL `5432`, or Docker's socket to the public internet.
 
 ### 6. Configure GitHub environments
 
-Render Terraform's non-secret variables and prepare the two development secret
-files. The helpers create/update only `ecr-build`, `development-auth`, and
-`development-admin`:
+Render Terraform's non-secret variables and prepare the three development
+secret files. The helpers create/update only `ecr-build`, `development-auth`,
+`development-admin`, and `development-identity`:
 
 ```bash
 GITHUB_REPOSITORY="tociva/idnest"
@@ -744,11 +759,18 @@ scripts/deploy/configure-github-environments.sh \
 gh variable list --repo "$GITHUB_REPOSITORY" --env ecr-build
 gh variable list --repo "$GITHUB_REPOSITORY" --env development-auth
 gh variable list --repo "$GITHUB_REPOSITORY" --env development-admin
+gh variable list --repo "$GITHUB_REPOSITORY" --env development-identity
 gh secret list --repo "$GITHUB_REPOSITORY" --env development-auth
 gh secret list --repo "$GITHUB_REPOSITORY" --env development-admin
+gh secret list --repo "$GITHUB_REPOSITORY" --env development-identity
 ```
 
-Both development environments receive the three deployment-transport secrets
+`prepare-github-environments.sh` automatically selects `tmp/vps.env` when it
+exists; otherwise it selects `../idnest-secure/idnest.env`. To use a different
+protected identity source, pass it immediately before
+`"$GITHUB_ENVIRONMENT_DIR"`.
+
+All three development deployment environments receive the transport secrets
 `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, and
 `HOST_RELEASE_SIGNING_PRIVATE_KEY_B64`. In addition:
 
@@ -758,28 +780,41 @@ Both development environments receive the three deployment-transport secrets
 - `development-admin` receives three named application secrets:
   `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, and
   `ADMIN_OIDC_CLIENT_SECRET`.
-- Both receive `ADMIN_BOOTSTRAP_EMAILS` as a non-secret GitHub Environment
+- `development-identity` receives the five required Hydra/Kratos secrets, the
+  Google client secret and ID variable, and the optional Apple group shown in
+  the runtime table above.
+- Auth and admin receive `ADMIN_BOOTSTRAP_EMAILS` as a non-secret GitHub Environment
   variable.
 
-The `_B64` transport values use base64 encoding, not encryption. Application
-values are stored directly as separate GitHub secrets; no full dotenv file is
-stored in GitHub. The helpers validate file modes, key formats, exact
+The `_B64` values use base64 encoding, not encryption. Named runtime values are
+stored as separate GitHub secrets or variables; no full dotenv file is stored
+in GitHub. The helpers validate file modes, key formats, exact
 variable/secret names, and application environment contracts without printing
-secret values. During this migration, the configuration helper deletes the
-obsolete `APP_ENV_B64` secret after uploading the named replacements. After
-changing either protected local source file, rerun
+secret values. During this migration, the configuration helper deletes obsolete
+whole-file application secrets and removes stale optional Apple settings when
+Apple login is disabled. After changing any protected local source file, rerun
 `prepare-github-environments.sh` and `configure-github-environments.sh`; the
 next matching deployment generates and installs the new root-owned file on the
 VPS.
 
 In **GitHub → Settings → Environments**, restrict `ecr-build`,
-`development-auth`, and `development-admin` to the `development` branch. Remove
-the generated environment directory after confirming the upload; retain the
-source keys only in the approved secret store.
+`development-auth`, `development-admin`, and `development-identity` to the
+`development` branch. Add required reviewers where appropriate. Remove the
+generated environment directory after confirming the upload; retain the source
+keys only in the approved secret store.
 
 ### 7. Run and verify the first deployment
 
-Run auth first because it also starts and migrates Hydra and Kratos:
+Run identity first. It installs `idnest.env`, migrates both target databases
+from Docker, and starts Hydra and Kratos:
+
+```bash
+gh workflow run deploy-identity-development.yml \
+  --repo tociva/idnest --ref development
+gh run watch --repo tociva/idnest --exit-status
+```
+
+After identity succeeds, run auth:
 
 ```bash
 gh workflow run deploy-auth-development.yml \
@@ -787,7 +822,7 @@ gh workflow run deploy-auth-development.yml \
 gh run watch --repo tociva/idnest --exit-status
 ```
 
-After auth succeeds, run the admin workflow. This installs the GitHub-managed
+After auth succeeds, run admin. This installs the GitHub-managed
 `admin-app.env` and starts the admin service:
 
 ```bash
@@ -826,8 +861,10 @@ curl --fail https://hydra-dev.idnest.cloud/health/ready
 curl --fail https://kratos-dev.idnest.cloud/health/ready
 ```
 
-Run the matching workflow explicitly when a development release is ready. Both
-workflows use the `idnest-vps-development` concurrency group. For VPS
+Run the matching workflow explicitly when a development release is ready. All
+three workflows use the `idnest-vps-development` concurrency group. A DSN,
+Hydra/Kratos secret, social-provider credential, or tracked Kratos configuration
+change requires only the identity workflow. For VPS
 diagnostics or rollback:
 
 ```bash
@@ -838,8 +875,10 @@ sudo /usr/local/sbin/rollback-idnest-auth
 sudo /usr/local/sbin/rollback-idnest-admin
 ```
 
-Rollback restores the previous image digest but does not reverse database
-migrations.
+Application rollback restores the previous image digest but does not reverse
+database migrations. To restore a successful identity configuration, restore
+the approved previous individual GitHub settings and rerun the identity
+workflow; old plaintext identity environments are not retained on the VPS.
 
 ## OAuth clients and access
 

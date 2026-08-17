@@ -25,8 +25,8 @@ create_ecr_repositories       = true
 force_delete_ecr_repositories = false
 
 # This must be an SSH-reachable DNS-only hostname or IP address. Do not use one
-# of the Cloudflare-proxied application hostnames for SSH. Auth and admin share
-# the development VPS by default but remain explicit deployment targets.
+# of the Cloudflare-proxied application hostnames for SSH. All three workflows
+# share the development VPS but remain explicit deployment targets.
 github_deployment_targets = {
   development-auth = {
     vps_host = "vps-dev.idnest.cloud"
@@ -34,6 +34,11 @@ github_deployment_targets = {
     vps_user = "github-deploy"
   }
   development-admin = {
+    vps_host = "vps-dev.idnest.cloud"
+    vps_port = 22
+    vps_user = "github-deploy"
+  }
+  development-identity = {
     vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
     vps_user = "github-deploy"

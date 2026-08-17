@@ -53,7 +53,8 @@ include_apple=false
 if has_apple_provider_config; then
   include_apple=true
 elif has_any_apple_provider_config; then
-  echo "Skipping Apple OIDC provider because one or more APPLE_* env vars are missing." >&2
+  echo "Apple OIDC provider configuration is incomplete." >&2
+  exit 1
 fi
 
 include_public_tls=false

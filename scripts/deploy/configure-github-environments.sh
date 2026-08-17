@@ -16,7 +16,7 @@ prepared_directory="$2"
   echo "Prepared directory must be a regular directory." >&2
   exit 1
 }
-for command in awk gh openssl stat uname; do
+for command in awk gh grep openssl stat uname; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "Missing required command: $command" >&2
     exit 1
@@ -98,7 +98,7 @@ validate_env_contract() {
   ' "$file"
 }
 
-for environment in ecr-build development-auth development-admin; do
+for environment in ecr-build development-auth development-admin development-identity; do
   variables="$prepared_directory/$environment.vars.env"
   [ -f "$variables" ] && [ ! -L "$variables" ] && [ -s "$variables" ] || {
     echo "Missing non-empty variables file: $variables" >&2
@@ -112,13 +112,19 @@ for environment in ecr-build development-auth development-admin; do
     ecr-build)
       expected="AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY"
       ;;
-    *)
+    development-auth|development-admin)
       expected="AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS"
+      ;;
+    development-identity)
+      expected="VPS_HOST VPS_PORT VPS_USER GOOGLE_CLIENT_ID"
+      if grep -Eq '^APPLE_(CLIENT_ID|TEAM_ID|PRIVATE_KEY_ID)=' "$variables"; then
+        expected="$expected APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID"
+      fi
       ;;
   esac
   validate_env_contract "$variables" "$expected" true
 done
-for environment in development-auth development-admin; do
+for environment in development-auth development-admin development-identity; do
   secrets="$prepared_directory/$environment.secrets.env"
   [ -f "$secrets" ] && [ ! -L "$secrets" ] && [ -s "$secrets" ] || {
     echo "Missing non-empty secrets file: $secrets" >&2
@@ -136,6 +142,12 @@ for environment in development-auth development-admin; do
     development-admin)
       expected_secrets="VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 AUTHZ_DATABASE_URL ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET"
       ;;
+    development-identity)
+      expected_secrets="VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 HYDRA_DSN HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_SECRET"
+      if grep -q '^APPLE_PRIVATE_KEY_B64=' "$secrets"; then
+        expected_secrets="$expected_secrets APPLE_PRIVATE_KEY_B64"
+      fi
+      ;;
   esac
   validate_env_contract "$secrets" "$expected_secrets" false
   while IFS='=' read -r key value; do
@@ -145,12 +157,29 @@ for environment in development-auth development-admin; do
           echo "Invalid base64 value for $key in $secrets" >&2
           exit 1
         }
+        if [ "$key" = APPLE_PRIVATE_KEY_B64 ]; then
+          printf '%s' "$value" | openssl base64 -d -A | openssl pkey -noout >/dev/null 2>&1 || {
+            echo "APPLE_PRIVATE_KEY_B64 does not contain a valid PEM private key in $secrets" >&2
+            exit 1
+          }
+        fi
         ;;
     esac
   done <"$secrets"
 done
 
-for environment in ecr-build development-auth development-admin; do
+identity_apple_variables=false
+identity_apple_secret=false
+grep -q '^APPLE_CLIENT_ID=' "$prepared_directory/development-identity.vars.env" \
+  && identity_apple_variables=true
+grep -q '^APPLE_PRIVATE_KEY_B64=' "$prepared_directory/development-identity.secrets.env" \
+  && identity_apple_secret=true
+[ "$identity_apple_variables" = "$identity_apple_secret" ] || {
+  echo "Apple identity variables and APPLE_PRIVATE_KEY_B64 must be configured together." >&2
+  exit 1
+}
+
+for environment in ecr-build development-auth development-admin development-identity; do
   if ! gh api "repos/$repository/environments/$environment" >/dev/null 2>&1; then
     gh api --method PUT "repos/$repository/environments/$environment" >/dev/null
     echo "Created GitHub environment $environment."
@@ -160,16 +189,36 @@ for environment in ecr-build development-auth development-admin; do
   echo "Updated variables for $environment."
 done
 
-for environment in development-auth development-admin; do
+for environment in development-auth development-admin development-identity; do
   gh secret set --repo "$repository" --env "$environment" \
     --env-file "$prepared_directory/$environment.secrets.env"
   echo "Updated secrets for $environment."
   existing_secrets=$(gh secret list --repo "$repository" --env "$environment")
-  if printf '%s\n' "$existing_secrets" \
-    | awk '$1 == "APP_ENV_B64" { found = 1 } END { exit !found }'; then
-    gh secret delete APP_ENV_B64 --repo "$repository" --env "$environment"
-    echo "Removed obsolete whole-file secret APP_ENV_B64 from $environment."
+  if [ "$environment" != development-identity ]; then
+    if printf '%s\n' "$existing_secrets" \
+      | awk '$1 == "APP_ENV_B64" { found = 1 } END { exit !found }'; then
+      gh secret delete APP_ENV_B64 --repo "$repository" --env "$environment"
+      echo "Removed obsolete whole-file secret APP_ENV_B64 from $environment."
+    fi
   fi
 done
+
+identity_variables="$prepared_directory/development-identity.vars.env"
+existing_identity_variables=$(gh variable list --repo "$repository" --env development-identity)
+for key in APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID; do
+  if ! grep -q "^${key}=" "$identity_variables" && printf '%s\n' "$existing_identity_variables" \
+    | awk -v wanted="$key" '$1 == wanted { found = 1 } END { exit !found }'; then
+    gh variable delete "$key" --repo "$repository" --env development-identity
+    echo "Removed disabled Apple variable $key from development-identity."
+  fi
+done
+
+identity_secrets="$prepared_directory/development-identity.secrets.env"
+existing_identity_secrets=$(gh secret list --repo "$repository" --env development-identity)
+if ! grep -q '^APPLE_PRIVATE_KEY_B64=' "$identity_secrets" && printf '%s\n' "$existing_identity_secrets" \
+  | awk '$1 == "APPLE_PRIVATE_KEY_B64" { found = 1 } END { exit !found }'; then
+  gh secret delete APPLE_PRIVATE_KEY_B64 --repo "$repository" --env development-identity
+  echo "Removed disabled Apple private key from development-identity."
+fi
 
 echo "Development GitHub environments were updated without printing secret values."

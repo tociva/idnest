@@ -15,8 +15,8 @@ Usage:
 Packages the development VPS bootstrap payload, stores the archive under
 ../idnest-secure, and transfers the archive, VPS bootstrap runner, checksum,
 and two required public keys. The uploaded checksums are verified on the VPS.
-When tmp/vps.env exists, compatible Idnest runtime values are securely staged for
-first-bootstrap import without adding that file to the archive.
+Identity secrets are configured through the protected development-identity
+GitHub Environment and are never included in this bootstrap payload.
 
 Defaults: VPS_HOST=vps-dev.idnest.cloud, VPS_PORT=22.
 VPS_ADMIN_USER must be a non-root account with sudo access.
@@ -49,7 +49,7 @@ printf '%s\n' "$VPS_PORT" | grep -Eq '^[1-9][0-9]{0,4}$' \
 [ -f "$VPS_ADMIN_SSH_KEY" ] && [ ! -L "$VPS_ADMIN_SSH_KEY" ] && [ -s "$VPS_ADMIN_SSH_KEY" ] \
   || fail "VPS_ADMIN_SSH_KEY must be a non-empty regular file"
 
-for command in awk dirname grep install mktemp rm scp shasum sort ssh ssh-keygen stat tar uname; do
+for command in awk dirname grep install mktemp rm scp shasum ssh ssh-keygen tar; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
@@ -65,19 +65,6 @@ SIGNING_PUBLIC_KEY=$DEPLOY_KEYS_DIR/host-release-signing-public.pem
 DEPLOY_SSH_PUBLIC_KEY=$DEPLOY_KEYS_DIR/github-deploy-ed25519.pub
 BOOTSTRAP_RUNNER_NAME=bootstrap-development-vps.sh
 BOOTSTRAP_RUNNER_PATH=$REPO_ROOT/scripts/deploy/vps/$BOOTSTRAP_RUNNER_NAME
-VPS_RUNTIME_ENV=$REPO_ROOT/tmp/vps.env
-IDNEST_ENV_TEMPLATE=$REPO_ROOT/scripts/deploy/env/idnest.env.example
-RUNTIME_IMPORT_NAME=idnest.env.import
-RUNTIME_IMPORT_CHECKSUM_NAME=$RUNTIME_IMPORT_NAME.sha256
-RUNTIME_IMPORT_ENABLED=false
-
-file_mode() {
-  if [ "$(uname -s)" = Darwin ]; then
-    stat -f '%Lp' "$1"
-  else
-    stat -c '%a' "$1"
-  fi
-}
 
 [ -d "$DEPLOY_KEYS_DIR" ] && [ ! -L "$DEPLOY_KEYS_DIR" ] \
   || fail "$DEPLOY_KEYS_DIR is missing or is not a regular directory; run create-development-credentials.sh first"
@@ -88,59 +75,6 @@ done
 [ -f "$BOOTSTRAP_RUNNER_PATH" ] && [ ! -L "$BOOTSTRAP_RUNNER_PATH" ] \
   && [ -s "$BOOTSTRAP_RUNNER_PATH" ] && [ -x "$BOOTSTRAP_RUNNER_PATH" ] \
   || fail "missing or invalid VPS bootstrap runner: $BOOTSTRAP_RUNNER_PATH"
-[ -f "$IDNEST_ENV_TEMPLATE" ] && [ ! -L "$IDNEST_ENV_TEMPLATE" ] && [ -s "$IDNEST_ENV_TEMPLATE" ] \
-  || fail "missing or invalid Idnest environment template: $IDNEST_ENV_TEMPLATE"
-
-if [ -e "$VPS_RUNTIME_ENV" ] || [ -L "$VPS_RUNTIME_ENV" ]; then
-  [ -f "$VPS_RUNTIME_ENV" ] && [ ! -L "$VPS_RUNTIME_ENV" ] && [ -s "$VPS_RUNTIME_ENV" ] \
-    || fail "$VPS_RUNTIME_ENV must be a non-empty regular file"
-  [ "$(file_mode "$VPS_RUNTIME_ENV")" = 600 ] \
-    || fail "$VPS_RUNTIME_ENV must have mode 600"
-
-  awk -F= '
-    FNR == NR {
-      if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) known[$1] = 1
-      next
-    }
-    /^[[:space:]]*($|#)/ { next }
-    /^[A-Za-z_][A-Za-z0-9_]*=/ {
-      key=$1
-      if (!(key in known)) {
-        printf "Unsupported key in tmp/vps.env: %s\n", key > "/dev/stderr"
-        failed=1
-      }
-      if (seen[key]++) {
-        printf "Duplicate key in tmp/vps.env: %s\n", key > "/dev/stderr"
-        failed=1
-      }
-      next
-    }
-    {
-      printf "Malformed line in tmp/vps.env: %d\n", FNR > "/dev/stderr"
-      failed=1
-    }
-    END { exit failed }
-  ' "$IDNEST_ENV_TEMPLATE" "$VPS_RUNTIME_ENV" \
-    || fail "$VPS_RUNTIME_ENV does not satisfy the Idnest environment contract"
-  "$REPO_ROOT/scripts/deploy/vps/validate-app-env.sh" "$VPS_RUNTIME_ENV" >/dev/null \
-    || fail "$VPS_RUNTIME_ENV contains duplicate, malformed, or placeholder values"
-  awk '
-    /^[[:space:]]*KRATOS_CIPHER_SECRET[[:space:]]*=/ {
-      value=$0
-      sub(/^[^=]*=/, "", value)
-      sub(/^[[:space:]]*/, "", value)
-      sub(/[[:space:]]*$/, "", value)
-      if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) {
-        value=substr(value, 2, length(value) - 2)
-      }
-      found=1
-      exit length(value) == 32 ? 0 : 1
-    }
-    END { if (!found) exit 1 }
-  ' "$VPS_RUNTIME_ENV" \
-    || fail "$VPS_RUNTIME_ENV must contain a 32-character KRATOS_CIPHER_SECRET"
-  RUNTIME_IMPORT_ENABLED=true
-fi
 for generated_file in "$ARCHIVE_PATH" "$CHECKSUM_PATH"; do
   [ ! -L "$generated_file" ] || fail "refusing to replace symbolic link: $generated_file"
 done
@@ -175,7 +109,6 @@ set -- \
   scripts/deploy/vps/auth.conf.example \
   scripts/deploy/vps/admin.conf.example \
   scripts/deploy/vps/idnest.conf.example \
-  scripts/deploy/env/idnest.env.example \
   scripts/docker/render-kratos-config.sh \
   config/kratos.tpl.yml \
   config/kratos/identity.schema.json \
@@ -205,38 +138,6 @@ runner_digest=$(shasum -a 256 "$BOOTSTRAP_RUNNER_PATH" | awk '{print $1}')
   printf '%s  %s\n' "$runner_digest" "$BOOTSTRAP_RUNNER_NAME"
 } > "$generation_dir/$ARCHIVE_NAME.sha256"
 
-if [ "$RUNTIME_IMPORT_ENABLED" = true ]; then
-  awk '
-    BEGIN {
-      count=split("HYDRA_DSN HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY", keys, " ")
-      for (idx=1; idx<=count; idx++) portable[keys[idx]]=1
-    }
-    FNR == NR {
-      if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
-        separator=index($0, "=")
-        key=substr($0, 1, separator - 1)
-        if (key in portable) imported[key]=substr($0, separator + 1)
-      }
-      next
-    }
-    /^[A-Za-z_][A-Za-z0-9_]*=/ {
-      separator=index($0, "=")
-      key=substr($0, 1, separator - 1)
-      if (key in imported) {
-        print key "=" imported[key]
-        next
-      }
-    }
-    { print }
-  ' "$VPS_RUNTIME_ENV" "$IDNEST_ENV_TEMPLATE" > "$generation_dir/$RUNTIME_IMPORT_NAME"
-  "$REPO_ROOT/scripts/deploy/vps/validate-app-env.sh" \
-    "$generation_dir/$RUNTIME_IMPORT_NAME" >/dev/null \
-    || fail "the generated Idnest runtime import is incomplete or invalid"
-  runtime_import_digest=$(shasum -a 256 "$generation_dir/$RUNTIME_IMPORT_NAME" | awk '{print $1}')
-  printf '%s  %s\n' "$runtime_import_digest" "$RUNTIME_IMPORT_NAME" \
-    > "$generation_dir/$RUNTIME_IMPORT_CHECKSUM_NAME"
-fi
-
 install -m 600 "$temporary_archive" "$ARCHIVE_PATH"
 install -m 600 "$generation_dir/$ARCHIVE_NAME.sha256" "$CHECKSUM_PATH"
 
@@ -249,10 +150,9 @@ ssh \
   "$VPS_ADMIN_USER@$VPS_HOST" \
   'staging="$HOME/idnest-bootstrap"
    test ! -L "$staging" && install -d -m 700 "$staging" || exit 1
-   for file in idnest-development-vps-bootstrap.tar.gz idnest-development-vps-bootstrap.tar.gz.sha256 bootstrap-development-vps.sh host-release-signing-public.pem github-deploy-ed25519.pub idnest.env.import idnest.env.import.sha256; do
+   for file in idnest-development-vps-bootstrap.tar.gz idnest-development-vps-bootstrap.tar.gz.sha256 bootstrap-development-vps.sh host-release-signing-public.pem github-deploy-ed25519.pub; do
      test ! -L "$staging/$file" || exit 1
-   done
-   rm -f -- "$staging/idnest.env.import" "$staging/idnest.env.import.sha256"'
+   done'
 
 set -- \
   "$ARCHIVE_PATH" \
@@ -260,12 +160,6 @@ set -- \
   "$BOOTSTRAP_RUNNER_PATH" \
   "$SIGNING_PUBLIC_KEY" \
   "$DEPLOY_SSH_PUBLIC_KEY"
-if [ "$RUNTIME_IMPORT_ENABLED" = true ]; then
-  set -- "$@" \
-    "$generation_dir/$RUNTIME_IMPORT_NAME" \
-    "$generation_dir/$RUNTIME_IMPORT_CHECKSUM_NAME"
-fi
-
 scp \
   -i "$VPS_ADMIN_SSH_KEY" \
   -P "$VPS_PORT" \
@@ -284,12 +178,7 @@ ssh \
   "$VPS_ADMIN_USER@$VPS_HOST" \
   'cd "$HOME/idnest-bootstrap"
    chmod 700 bootstrap-development-vps.sh
-   sha256sum --check idnest-development-vps-bootstrap.tar.gz.sha256
-   if [ -e idnest.env.import ] || [ -e idnest.env.import.sha256 ]; then
-     test -f idnest.env.import && test ! -L idnest.env.import
-     test -f idnest.env.import.sha256 && test ! -L idnest.env.import.sha256
-     sha256sum --check idnest.env.import.sha256
-   fi'
+   sha256sum --check idnest-development-vps-bootstrap.tar.gz.sha256'
 
 cleanup
 generation_dir=
@@ -297,7 +186,4 @@ trap - 0 1 2 15
 
 echo "Development bootstrap payload transferred and verified."
 echo "Remote staging directory: $VPS_ADMIN_USER@$VPS_HOST:~/idnest-bootstrap"
-if [ "$RUNTIME_IMPORT_ENABLED" = true ]; then
-  echo "Compatible values from tmp/vps.env were staged for Idnest runtime import."
-fi
 echo "On the VPS, run: ~/idnest-bootstrap/bootstrap-development-vps.sh"

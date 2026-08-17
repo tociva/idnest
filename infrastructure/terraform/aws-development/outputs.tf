@@ -24,7 +24,7 @@ output "ecr_repositories" {
 }
 
 output "github_environment_variables" {
-  description = "Complete non-secret values for the three development GitHub environments."
+  description = "Complete non-secret infrastructure values for the four development GitHub environments."
   value = {
     "ecr-build" = {
       AWS_ACCOUNT_ID       = data.aws_caller_identity.current.account_id
@@ -50,6 +50,11 @@ output "github_environment_variables" {
       VPS_HOST            = var.github_deployment_targets["development-admin"].vps_host
       VPS_PORT            = tostring(var.github_deployment_targets["development-admin"].vps_port)
       VPS_USER            = var.github_deployment_targets["development-admin"].vps_user
+    }
+    "development-identity" = {
+      VPS_HOST = var.github_deployment_targets["development-identity"].vps_host
+      VPS_PORT = tostring(var.github_deployment_targets["development-identity"].vps_port)
+      VPS_USER = var.github_deployment_targets["development-identity"].vps_user
     }
   }
 }

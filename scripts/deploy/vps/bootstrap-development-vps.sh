@@ -14,8 +14,9 @@ With no arguments, verifies and extracts the transferred development payload,
 installs the minimum host packages and templates, and provisions the deployment
 user and release processor.
 
-Use --validate-config after editing the four VPS-owned files under /etc/idnest.
-The application environment files are installed by signed GitHub deployments.
+Use --validate-config after reviewing the three VPS-owned *.conf files under
+/etc/idnest. All three environment files are installed by signed GitHub
+deployments.
 Run this script as a non-root administrative account with sudo access.
 EOF
 }
@@ -40,7 +41,7 @@ esac
 [ "$(id -un)" != github-deploy ] \
   || fail "github-deploy is deployment-only; use a separate non-root administrative account"
 
-for command in dirname id sha256sum stat sudo; do
+for command in dirname id sha256sum sudo; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
@@ -53,9 +54,6 @@ SIGNING_PUBLIC_KEY=$SCRIPT_DIR/host-release-signing-public.pem
 DEPLOY_SSH_PUBLIC_KEY=$SCRIPT_DIR/github-deploy-ed25519.pub
 REPOSITORY_DIR=$SCRIPT_DIR/repository
 SCRIPT_PATH=$SCRIPT_DIR/bootstrap-development-vps.sh
-RUNTIME_IMPORT_PATH=$SCRIPT_DIR/idnest.env.import
-RUNTIME_IMPORT_CHECKSUM_PATH=$SCRIPT_DIR/idnest.env.import.sha256
-RUNTIME_IMPORT_AVAILABLE=false
 
 [ -f "$SCRIPT_PATH" ] && [ ! -L "$SCRIPT_PATH" ] \
   || fail "the bootstrap script must be a regular file, not a symbolic link"
@@ -72,30 +70,13 @@ cd "$SCRIPT_DIR"
 sha256sum --check "$CHECKSUM_NAME" \
   || fail "transferred bootstrap checksum verification failed"
 
-if [ -e "$RUNTIME_IMPORT_PATH" ] || [ -L "$RUNTIME_IMPORT_PATH" ] \
-  || [ -e "$RUNTIME_IMPORT_CHECKSUM_PATH" ] || [ -L "$RUNTIME_IMPORT_CHECKSUM_PATH" ]; then
-  [ -f "$RUNTIME_IMPORT_PATH" ] && [ ! -L "$RUNTIME_IMPORT_PATH" ] \
-    && [ -s "$RUNTIME_IMPORT_PATH" ] \
-    || fail "the transferred Idnest runtime import is invalid"
-  [ -f "$RUNTIME_IMPORT_CHECKSUM_PATH" ] && [ ! -L "$RUNTIME_IMPORT_CHECKSUM_PATH" ] \
-    && [ -s "$RUNTIME_IMPORT_CHECKSUM_PATH" ] \
-    || fail "the transferred Idnest runtime import checksum is invalid"
-  [ "$(stat -c '%a' "$RUNTIME_IMPORT_PATH")" = 600 ] \
-    || fail "the transferred Idnest runtime import must have mode 600"
-  sha256sum --check "$RUNTIME_IMPORT_CHECKSUM_PATH" \
-    || fail "the transferred Idnest runtime import checksum verification failed"
-  RUNTIME_IMPORT_AVAILABLE=true
-fi
 sudo -v
 
 if [ "$MODE" = validate-config ]; then
-  [ "$RUNTIME_IMPORT_AVAILABLE" = false ] \
-    || fail "run the bootstrap without --validate-config to install the staged Idnest runtime import first"
   VALIDATOR=/usr/local/sbin/validate-idnest-app-env
   [ -x "$VALIDATOR" ] || fail "host provisioning has not installed $VALIDATOR"
 
   for config_file in \
-    /etc/idnest/idnest.env \
     /etc/idnest/auth.conf \
     /etc/idnest/admin.conf \
     /etc/idnest/idnest.conf; do
@@ -139,7 +120,7 @@ sudo apt-get update
 sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
   adduser ca-certificates coreutils curl grep openssl tar util-linux
 
-for command in cat cmp curl grep systemctl; do
+for command in cat curl grep systemctl; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command after package installation: $command"
 done
 
@@ -238,43 +219,10 @@ sudo "$REPOSITORY_DIR/scripts/deploy/vps/provision-host.sh" \
   "$SIGNING_PUBLIC_KEY" \
   "$DEPLOY_SSH_PUBLIC_KEY"
 
-install_if_missing() {
-  source_file=$1
-  destination_file=$2
-
-  if sudo test -e "$destination_file" || sudo test -L "$destination_file"; then
-    sudo test -f "$destination_file" && sudo test ! -L "$destination_file" \
-      || fail "$destination_file exists but is not a regular file"
-    return
-  fi
-
-  sudo install -o root -g root -m 600 "$source_file" "$destination_file"
-}
-
-if [ "$RUNTIME_IMPORT_AVAILABLE" = true ]; then
-  if sudo test -e /etc/idnest/idnest.env || sudo test -L /etc/idnest/idnest.env; then
-    sudo test -f /etc/idnest/idnest.env && sudo test ! -L /etc/idnest/idnest.env \
-      || fail "/etc/idnest/idnest.env exists but is not a regular file"
-    sudo cmp -s \
-      /etc/idnest/idnest.env \
-      "$REPOSITORY_DIR/scripts/deploy/env/idnest.env.example" \
-      || fail "/etc/idnest/idnest.env has local changes; staged tmp/vps.env values were not applied"
-  fi
-  sudo install -o root -g root -m 600 \
-    "$RUNTIME_IMPORT_PATH" /etc/idnest/idnest.env
-  rm -f -- "$RUNTIME_IMPORT_PATH" "$RUNTIME_IMPORT_CHECKSUM_PATH"
-  RUNTIME_IMPORT_AVAILABLE=false
-  echo "Installed compatible tmp/vps.env values as /etc/idnest/idnest.env."
-else
-  install_if_missing \
-    "$REPOSITORY_DIR/scripts/deploy/env/idnest.env.example" \
-    /etc/idnest/idnest.env
-fi
-
 sudo systemctl is-active --quiet idnest-release-queue.path \
   || fail "the development release queue watcher is not active"
 
 echo "Development VPS host bootstrap complete."
-echo "Review the four VPS-owned idnest.env and *.conf files under /etc/idnest."
-echo "Signed GitHub deployments will install auth-app.env and admin-app.env."
+echo "Review the three VPS-owned *.conf files under /etc/idnest."
+echo "Signed GitHub deployments install idnest.env, auth-app.env, and admin-app.env."
 echo "Then run: $SCRIPT_DIR/bootstrap-development-vps.sh --validate-config"

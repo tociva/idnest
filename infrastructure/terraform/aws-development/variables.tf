@@ -93,11 +93,11 @@ variable "github_deployment_targets" {
   description = "Non-secret VPS connection variables emitted for the development GitHub deployment environments."
 
   validation {
-    condition = length(var.github_deployment_targets) == 2 && alltrue([
-      for key in ["development-auth", "development-admin"] :
+    condition = length(var.github_deployment_targets) == 3 && alltrue([
+      for key in ["development-auth", "development-admin", "development-identity"] :
       contains(keys(var.github_deployment_targets), key)
     ])
-    error_message = "github_deployment_targets must define exactly development-auth and development-admin."
+    error_message = "github_deployment_targets must define exactly development-auth, development-admin, and development-identity."
   }
   validation {
     condition = alltrue([

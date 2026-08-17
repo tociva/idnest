@@ -1,0 +1,182 @@
+name: Deploy identity services (development)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Hydra and Kratos to development
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: development-identity
+    concurrency:
+      group: idnest-vps-development
+      cancel-in-progress: false
+    steps:
+      - name: Require the development branch
+        env:
+          DEPLOYMENT_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "${DEPLOYMENT_REF}" == refs/heads/development ]]
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate deployment configuration
+        env:
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_PORT: ${{ vars.VPS_PORT }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          APPLE_CLIENT_ID: ${{ vars.APPLE_CLIENT_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_PRIVATE_KEY_ID: ${{ vars.APPLE_PRIVATE_KEY_ID }}
+          HYDRA_DSN: ${{ secrets.HYDRA_DSN }}
+          HYDRA_SECRETS_SYSTEM: ${{ secrets.HYDRA_SECRETS_SYSTEM }}
+          KRATOS_DSN: ${{ secrets.KRATOS_DSN }}
+          KRATOS_CSRF_COOKIE_SECRET: ${{ secrets.KRATOS_CSRF_COOKIE_SECRET }}
+          KRATOS_CIPHER_SECRET: ${{ secrets.KRATOS_CIPHER_SECRET }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          APPLE_PRIVATE_KEY_B64: ${{ secrets.APPLE_PRIVATE_KEY_B64 }}
+          HOST_RELEASE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 }}
+          VPS_SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
+          VPS_SSH_KNOWN_HOSTS_B64: ${{ secrets.VPS_SSH_KNOWN_HOSTS_B64 }}
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_SHA}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${VPS_HOST}" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "${VPS_PORT:-22}" =~ ^[0-9]{1,5}$ ]]
+          (( ${VPS_PORT:-22} >= 1 && ${VPS_PORT:-22} <= 65535 ))
+          [[ "${VPS_USER}" =~ ^[A-Za-z_][A-Za-z0-9._-]*$ ]]
+          [[ -n "${GOOGLE_CLIENT_ID}" && -n "${GOOGLE_CLIENT_SECRET}" ]]
+          [[ -n "${HYDRA_DSN}" && -n "${HYDRA_SECRETS_SYSTEM}" ]]
+          [[ -n "${KRATOS_DSN}" && -n "${KRATOS_CSRF_COOKIE_SECRET}" && -n "${KRATOS_CIPHER_SECRET}" ]]
+          [[ -n "${HOST_RELEASE_SIGNING_PRIVATE_KEY_B64}" ]]
+          [[ -n "${VPS_SSH_PRIVATE_KEY_B64}" && -n "${VPS_SSH_KNOWN_HOSTS_B64}" ]]
+          apple_count=0
+          for value in "${APPLE_CLIENT_ID}" "${APPLE_TEAM_ID}" "${APPLE_PRIVATE_KEY_ID}" "${APPLE_PRIVATE_KEY_B64}"; do
+            [[ -z "${value}" ]] || apple_count=$((apple_count + 1))
+          done
+          [[ "${apple_count}" == 0 || "${apple_count}" == 4 ]]
+          bash -n scripts/deploy/render-development-identity-env.sh
+          for script in scripts/deploy/vps/*.sh scripts/docker/render-kratos-config.sh; do
+            sh -n "${script}"
+          done
+
+      - name: Prepare SSH and signed identity release
+        env:
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          APPLE_CLIENT_ID: ${{ vars.APPLE_CLIENT_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_PRIVATE_KEY_ID: ${{ vars.APPLE_PRIVATE_KEY_ID }}
+          HYDRA_DSN: ${{ secrets.HYDRA_DSN }}
+          HYDRA_SECRETS_SYSTEM: ${{ secrets.HYDRA_SECRETS_SYSTEM }}
+          KRATOS_DSN: ${{ secrets.KRATOS_DSN }}
+          KRATOS_CSRF_COOKIE_SECRET: ${{ secrets.KRATOS_CSRF_COOKIE_SECRET }}
+          KRATOS_CIPHER_SECRET: ${{ secrets.KRATOS_CIPHER_SECRET }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          APPLE_PRIVATE_KEY_B64: ${{ secrets.APPLE_PRIVATE_KEY_B64 }}
+          HOST_RELEASE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 }}
+          VPS_SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
+          VPS_SSH_KNOWN_HOSTS_B64: ${{ secrets.VPS_SSH_KNOWN_HOSTS_B64 }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "${RUNNER_TEMP}/idnest-ssh"
+          printf '%s' "${VPS_SSH_PRIVATE_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/idnest-ssh/id_ed25519"
+          printf '%s' "${VPS_SSH_KNOWN_HOSTS_B64}" | base64 --decode > "${RUNNER_TEMP}/idnest-ssh/known_hosts"
+          printf '%s' "${HOST_RELEASE_SIGNING_PRIVATE_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/host-release-signing-private.pem"
+          scripts/deploy/render-development-identity-env.sh "${RUNNER_TEMP}/idnest.env"
+          git ls-files -z -- config/kratos.tpl.yml config/kratos |
+            tar --null --files-from=- --create --gzip --file "${RUNNER_TEMP}/idnest-config.tar.gz"
+          tar --create --gzip --file "${RUNNER_TEMP}/host-release.tar.gz" \
+            scripts/deploy/vps/compose.auth.yaml \
+            scripts/deploy/vps/compose.admin.yaml \
+            scripts/deploy/vps/compose.idnest.yaml \
+            scripts/deploy/vps/Dockerfile.kratos \
+            scripts/deploy/vps/deploy-idnest-app.sh \
+            scripts/deploy/vps/deploy-idnest-infra.sh \
+            scripts/deploy/vps/deploy-idnest-auth.sh \
+            scripts/deploy/vps/deploy-idnest-admin.sh \
+            scripts/deploy/vps/rollback-idnest-app.sh \
+            scripts/deploy/vps/rollback-idnest-auth.sh \
+            scripts/deploy/vps/rollback-idnest-admin.sh \
+            scripts/deploy/vps/validate-app-env.sh \
+            scripts/docker/render-kratos-config.sh
+          openssl pkey -in "${RUNNER_TEMP}/host-release-signing-private.pem" -noout
+          openssl pkeyutl -sign -rawin \
+            -inkey "${RUNNER_TEMP}/host-release-signing-private.pem" \
+            -in "${RUNNER_TEMP}/host-release.tar.gz" -out "${RUNNER_TEMP}/host-release.sig"
+          openssl pkeyutl -sign -rawin \
+            -inkey "${RUNNER_TEMP}/host-release-signing-private.pem" \
+            -in "${RUNNER_TEMP}/idnest.env" -out "${RUNNER_TEMP}/idnest-env.sig"
+          openssl pkeyutl -sign -rawin \
+            -inkey "${RUNNER_TEMP}/host-release-signing-private.pem" \
+            -in "${RUNNER_TEMP}/idnest-config.tar.gz" -out "${RUNNER_TEMP}/idnest-config.sig"
+          chmod 600 "${RUNNER_TEMP}/idnest-ssh/id_ed25519" "${RUNNER_TEMP}/idnest-ssh/known_hosts" \
+            "${RUNNER_TEMP}/idnest.env" "${RUNNER_TEMP}/idnest-env.sig" \
+            "${RUNNER_TEMP}/idnest-config.tar.gz" "${RUNNER_TEMP}/idnest-config.sig" \
+            "${RUNNER_TEMP}/host-release.tar.gz" "${RUNNER_TEMP}/host-release.sig" \
+            "${RUNNER_TEMP}/host-release-signing-private.pem"
+
+      - name: Upload identity release request inputs
+        env:
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_PORT: ${{ vars.VPS_PORT }}
+          VPS_USER: ${{ vars.VPS_USER }}
+        run: |
+          set -euo pipefail
+          port="${VPS_PORT:-22}"
+          scp_args=(
+            -i "${RUNNER_TEMP}/idnest-ssh/id_ed25519"
+            -P "${port}"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o "UserKnownHostsFile=${RUNNER_TEMP}/idnest-ssh/known_hosts"
+          )
+          request_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for name in host-release.tar.gz host-release.sig idnest.env idnest-env.sig idnest-config.tar.gz idnest-config.sig; do
+            scp "${scp_args[@]}" "${RUNNER_TEMP}/${name}" \
+              "${VPS_USER}@${VPS_HOST}:/var/lib/idnest/queue/incoming/${name}.${request_id}.upload"
+          done
+
+      - name: Submit identity release and wait for root processor
+        env:
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_PORT: ${{ vars.VPS_PORT }}
+          VPS_USER: ${{ vars.VPS_USER }}
+        run: |
+          set -euo pipefail
+          port="${VPS_PORT:-22}"
+          request_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          host_bundle_sha256=$(sha256sum "${RUNNER_TEMP}/host-release.tar.gz" | awk '{print $1}')
+          identity_env_sha256=$(sha256sum "${RUNNER_TEMP}/idnest.env" | awk '{print $1}')
+          identity_config_sha256=$(sha256sum "${RUNNER_TEMP}/idnest-config.tar.gz" | awk '{print $1}')
+          ssh_args=(
+            -i "${RUNNER_TEMP}/idnest-ssh/id_ed25519"
+            -p "${port}"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o "UserKnownHostsFile=${RUNNER_TEMP}/idnest-ssh/known_hosts"
+          )
+          ssh "${ssh_args[@]}" "${VPS_USER}@${VPS_HOST}" \
+            /usr/local/bin/submit-idnest-release identity "${request_id}" "${GITHUB_RUN_ID}" \
+            "${GITHUB_SHA}" "${host_bundle_sha256}" "${identity_env_sha256}" "${identity_config_sha256}"
+          ssh "${ssh_args[@]}" "${VPS_USER}@${VPS_HOST}" \
+            /usr/local/bin/wait-idnest-release identity "${request_id}" 2200
+
+      - name: Remove runner-side sensitive files
+        if: ${{ always() }}
+        run: |
+          rm -f "${RUNNER_TEMP}/idnest.env" "${RUNNER_TEMP}/idnest-env.sig"
+          rm -f "${RUNNER_TEMP}/idnest-config.tar.gz" "${RUNNER_TEMP}/idnest-config.sig"
+          rm -f "${RUNNER_TEMP}/host-release.tar.gz" "${RUNNER_TEMP}/host-release.sig"
+          rm -f "${RUNNER_TEMP}/host-release-signing-private.pem"
+          rm -f "${RUNNER_TEMP}/idnest-ssh/id_ed25519" "${RUNNER_TEMP}/idnest-ssh/known_hosts"
