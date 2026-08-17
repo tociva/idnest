@@ -6,3 +6,6 @@ RUN (apk add --no-cache gettext 2>/dev/null) || \
     (apt-get update && apt-get install -y --no-install-recommends gettext-base && rm -rf /var/lib/apt/lists/*)
 COPY scripts/docker/render-kratos-config.sh /usr/local/bin/render-kratos-config.sh
 RUN chmod 755 /usr/local/bin/render-kratos-config.sh
+
+# Restore the non-root runtime identity declared by the upstream Kratos image.
+USER 10000

@@ -251,9 +251,9 @@ does not receive Docker or sudo access.
 | Hydra public API | `hydra-dev.idnest.cloud` | `8446` |
 | Kratos public API | `kratos-dev.idnest.cloud` | `8447` |
 
-All public development services use the `idnest.cloud` zone. The default SSH
-management hostname is `vps-dev.idnest.cloud`; keep that record DNS-only, while
-the four public service records above remain proxied through Cloudflare.
+All public development services use the `idnest.cloud` zone. The development
+VPS SSH endpoint is `65.108.158.243`, while the four public service records
+above remain proxied through Cloudflare.
 
 Hydra admin `4445` and Kratos admin `4434` stay bound to loopback/private
 network interfaces. The application containers terminate origin TLS directly.
@@ -302,19 +302,19 @@ force_delete_ecr_repositories = false
 
 github_deployment_targets = {
   development-auth = {
-    vps_host = "vps-dev.idnest.cloud"
+    vps_host = "65.108.158.243"
     vps_port = 22
     vps_user = "github-deploy"
   }
   development-admin = {
-    vps_host = "vps-dev.idnest.cloud"
+    vps_host = "65.108.158.243"
     vps_port = 22
     vps_user = "github-deploy"
   }
 }
 
 tags = {
-  Project = "daybook.cloud"
+  Project = "idnest"
 }
 ```
 
@@ -328,10 +328,10 @@ that provider. Change `create_ecr_repositories` to `false` only if both named
 repositories already exist. Keep `force_delete_ecr_repositories=false` for
 normal operation.
 
-`vps-dev.idnest.cloud` must resolve directly to the VPS for SSH and must not be
-Cloudflare-proxied. Replace it with the actual DNS-only management hostname or
-public IP if a different SSH endpoint is used. Auth and admin share the same
-VPS by default but remain separate GitHub deployment environments.
+`65.108.158.243` is the direct SSH endpoint and is not routed through
+Cloudflare. Auth and admin share this VPS but remain separate GitHub deployment
+environments. `vps_user` is intentionally `github-deploy`: Terraform exports it
+to GitHub Actions, which must not connect as `root`.
 
 This Terraform directory manages development only. Production will use a
 separate Terraform directory, state, IAM roles, and GitHub environments. If an
@@ -368,7 +368,7 @@ root processor to activate checked-in host scripts.
 
 ```bash
 DEPLOY_KEYS_DIR="/absolute/secure/path/idnest-development"
-DEVELOPMENT_VPS_HOST="vps-dev.idnest.cloud"
+DEVELOPMENT_VPS_HOST="65.108.158.243"
 
 install -d -m 700 "$DEPLOY_KEYS_DIR"
 ssh-keygen -t ed25519 -a 64 -N '' \
@@ -395,8 +395,11 @@ before uploading the known-hosts value to GitHub.
 ### 3. Bootstrap the development VPS
 
 Install Docker Engine with the Compose plugin using Docker's official packages.
-From a trusted checkout on the VPS, run the following minimum host setup after
-copying the two public keys to the shown protected paths:
+Connect using an approved administrative account with `sudo` access. SSH
+private-key paths are workstation-specific and must not be stored in Terraform,
+GitHub variables, or repository files. From a trusted checkout on the VPS, run
+the following minimum host setup after copying the two public keys to the shown
+protected paths:
 
 ```bash
 sudo apt update

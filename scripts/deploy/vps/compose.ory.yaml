@@ -67,6 +67,7 @@ services:
       dockerfile: Dockerfile
     image: ory-kratos-envsubst:v26.2.0
     container_name: ory-kratos
+    user: "10000"
     restart: unless-stopped
     env_file:
       - ${ORY_ENV_FILE:-/etc/ory-auth/ory.env}
@@ -76,7 +77,7 @@ services:
       KRATOS_PUBLIC_TLS_ENABLED: 'true'
     entrypoint: >-
       sh -c "sh /usr/local/bin/render-kratos-config.sh
-      && exec kratos serve -c /etc/config/kratos.yml --watch-courier"
+      && exec kratos serve -c /tmp/kratos.yml --watch-courier"
     ports:
       - '0.0.0.0:${KRATOS_ORIGIN_HTTPS_PORT:-8447}:4433'
       - '127.0.0.1:${KRATOS_ADMIN_HTTP_PORT:-4434}:4434'

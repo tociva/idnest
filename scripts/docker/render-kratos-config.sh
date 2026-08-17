@@ -2,8 +2,12 @@
 set -eu
 
 template="${1:-/etc/config/kratos.tpl.yml}"
-output="${2:-/etc/config/kratos.yml}"
+output="${2:-/tmp/kratos.yml}"
 tmp="${output}.tmp"
+
+# The rendered file contains secrets. Keep it private to the non-root Kratos
+# process and write it outside the read-only configuration source directory.
+umask 077
 
 render_cors_origins_yaml() {
   printf '%s\n' "${CORS_ALLOWED_ORIGINS:-}" | awk '

@@ -41,5 +41,5 @@ github_deployment_targets = {
 }
 
 tags = {
-  Project = "daybook.cloud"
+  Project = "idnest"
 }

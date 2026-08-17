@@ -59,6 +59,7 @@ services:
       dockerfile: scripts/docker/Dockerfile.kratos
     image: ory-kratos-envsubst:v26.2.0
     container_name: ory-kratos
+    user: "10000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -68,10 +69,10 @@ services:
     env_file:
       - ../../.env
     volumes:
-      - ../../config:/etc/config
+      - ../../config:/etc/config:ro
     entrypoint: >
       sh -c "sh /usr/local/bin/render-kratos-config.sh
-      && exec kratos serve -c /etc/config/kratos.yml --watch-courier"
+      && exec kratos serve -c /tmp/kratos.yml --watch-courier"
     networks:
       ory-network:
         aliases:

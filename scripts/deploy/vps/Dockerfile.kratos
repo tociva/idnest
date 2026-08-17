@@ -6,3 +6,6 @@ RUN (apk add --no-cache gettext 2>/dev/null) || \
 COPY render-kratos-config.sh /usr/local/bin/render-kratos-config.sh
 COPY config /etc/config
 RUN chmod 755 /usr/local/bin/render-kratos-config.sh
+
+# Restore the non-root runtime identity declared by the upstream Kratos image.
+USER 10000
