@@ -372,31 +372,26 @@ Keep Terraform state in an encrypted remote backend for shared environments.
 
 ### 2. Create development deployment credentials
 
-Generate the keys outside the repository. The SSH key authenticates the
-unprivileged release-submit account; the independent signing key authorizes the
-root processor to activate checked-in host scripts.
+Run the credential generator from the repository root on a trusted Mac. It
+creates the sibling directory `../idnest-secure` with mode `0700`, generates the
+deployment SSH and release-signing keypairs, captures the VPS SSH host keys, and
+refuses to overwrite any existing credential:
 
 ```bash
-DEPLOY_KEYS_DIR="/absolute/secure/path/idnest-development"
-DEVELOPMENT_VPS_HOST="vps-dev.idnest.cloud"
+./scripts/deploy/create-development-credentials.sh
+```
 
-install -d -m 700 "$DEPLOY_KEYS_DIR"
-ssh-keygen -t ed25519 -a 64 -N '' \
-  -f "$DEPLOY_KEYS_DIR/github-deploy-ed25519"
-openssl genpkey -algorithm ED25519 \
-  -out "$DEPLOY_KEYS_DIR/host-release-signing-private.pem"
-openssl pkey \
-  -in "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" \
-  -pubout \
-  -out "$DEPLOY_KEYS_DIR/host-release-signing-public.pem"
+The defaults are `vps-dev.idnest.cloud` and SSH port `22`. Pass a different
+management endpoint explicitly when required:
 
-ssh-keyscan -p 22 "$DEVELOPMENT_VPS_HOST" \
-  > "$DEPLOY_KEYS_DIR/vps-known-hosts"
-ssh-keygen -lf "$DEPLOY_KEYS_DIR/vps-known-hosts"
-chmod 600 \
-  "$DEPLOY_KEYS_DIR/github-deploy-ed25519" \
-  "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" \
-  "$DEPLOY_KEYS_DIR/vps-known-hosts"
+```bash
+./scripts/deploy/create-development-credentials.sh VPS_HOST VPS_PORT
+```
+
+The generated directory used by the following steps is:
+
+```bash
+DEPLOY_KEYS_DIR="../idnest-secure"
 ```
 
 Verify the displayed VPS host-key fingerprint through a second trusted channel
@@ -462,6 +457,7 @@ that already has `sudo` access; its SSH key is separate from the newly generated
 `github-deploy` key:
 
 ```bash
+DEPLOY_KEYS_DIR="../idnest-secure"
 DEVELOPMENT_VPS_HOST="vps-dev.idnest.cloud"
 VPS_SSH_PORT=22
 VPS_ADMIN_USER="replace-with-sudo-enabled-user"
