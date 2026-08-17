@@ -413,9 +413,94 @@ they are never installed on the VPS.
 Install Docker Engine with the Compose plugin using Docker's official packages.
 Connect using an approved administrative account with `sudo` access. SSH
 private-key paths are workstation-specific and must not be stored in Terraform,
-GitHub variables, or repository files. From a trusted checkout on the VPS, run
-the following minimum host setup after copying the two public keys to the shown
-protected paths:
+GitHub variables, or repository files.
+
+On the trusted Mac, create the development-only bootstrap archive from the
+repository root. The explicit file list excludes production examples and local
+secrets:
+
+```bash
+BOOTSTRAP_ARCHIVE="idnest-development-vps-bootstrap.tar.gz"
+
+tar -czf "$BOOTSTRAP_ARCHIVE" \
+  scripts/deploy/vps/provision-host.sh \
+  scripts/deploy/vps/compose.auth.yaml \
+  scripts/deploy/vps/compose.admin.yaml \
+  scripts/deploy/vps/compose.ory.yaml \
+  scripts/deploy/vps/Dockerfile.kratos \
+  scripts/deploy/vps/deploy-ory-app.sh \
+  scripts/deploy/vps/deploy-ory-infra.sh \
+  scripts/deploy/vps/deploy-ory-auth.sh \
+  scripts/deploy/vps/deploy-ory-admin.sh \
+  scripts/deploy/vps/rollback-ory-app.sh \
+  scripts/deploy/vps/rollback-ory-auth.sh \
+  scripts/deploy/vps/rollback-ory-admin.sh \
+  scripts/deploy/vps/validate-app-env.sh \
+  scripts/deploy/vps/activate-host-release.sh \
+  scripts/deploy/vps/process-ory-release-queue.sh \
+  scripts/deploy/vps/submit-ory-release.sh \
+  scripts/deploy/vps/wait-ory-release.sh \
+  scripts/deploy/vps/ory-auth-release-queue.path \
+  scripts/deploy/vps/ory-auth-release-queue.service \
+  scripts/deploy/vps/auth.conf.example \
+  scripts/deploy/vps/admin.conf.example \
+  scripts/deploy/vps/ory.conf.example \
+  scripts/deploy/env/auth-app.env.example \
+  scripts/deploy/env/admin-app.env.example \
+  scripts/deploy/env/ory.env.example \
+  scripts/docker/render-kratos-config.sh \
+  config/kratos.tpl.yml \
+  config/kratos/identity.schema.json \
+  config/kratos/oidc.apple.mapper.jsonnet \
+  config/kratos/oidc.google.mapper.jsonnet
+
+shasum -a 256 "$BOOTSTRAP_ARCHIVE" > "$BOOTSTRAP_ARCHIVE.sha256"
+```
+
+Set the administrative SSH values. `VPS_ADMIN_USER` must be a non-root account
+that already has `sudo` access; its SSH key is separate from the newly generated
+`github-deploy` key:
+
+```bash
+DEVELOPMENT_VPS_HOST="vps-dev.idnest.cloud"
+VPS_SSH_PORT=22
+VPS_ADMIN_USER="replace-with-sudo-enabled-user"
+VPS_ADMIN_SSH_KEY="/absolute/path/to/admin-ssh-private-key"
+
+SSH_COMMON_OPTIONS=(
+  -i "$VPS_ADMIN_SSH_KEY"
+  -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=yes
+  -o "UserKnownHostsFile=$DEPLOY_KEYS_DIR/vps-known-hosts"
+)
+
+ssh "${SSH_COMMON_OPTIONS[@]}" -p "$VPS_SSH_PORT" \
+  "$VPS_ADMIN_USER@$DEVELOPMENT_VPS_HOST" \
+  'install -d -m 700 "$HOME/idnest-bootstrap"'
+
+scp "${SSH_COMMON_OPTIONS[@]}" -P "$VPS_SSH_PORT" \
+  "$BOOTSTRAP_ARCHIVE" \
+  "$BOOTSTRAP_ARCHIVE.sha256" \
+  "$DEPLOY_KEYS_DIR/host-release-signing-public.pem" \
+  "$DEPLOY_KEYS_DIR/github-deploy-ed25519.pub" \
+  "$VPS_ADMIN_USER@$DEVELOPMENT_VPS_HOST:idnest-bootstrap/"
+```
+
+On the VPS, verify and extract the archive before running anything from it:
+
+```bash
+BOOTSTRAP_DIR="$HOME/idnest-bootstrap"
+BOOTSTRAP_ARCHIVE="idnest-development-vps-bootstrap.tar.gz"
+REPOSITORY_DIR="$BOOTSTRAP_DIR/repository"
+
+cd "$BOOTSTRAP_DIR"
+sha256sum --check "$BOOTSTRAP_ARCHIVE.sha256"
+install -d -m 700 "$REPOSITORY_DIR"
+tar -xzf "$BOOTSTRAP_ARCHIVE" -C "$REPOSITORY_DIR"
+cd "$REPOSITORY_DIR"
+```
+
+Run the minimum host setup from that extracted repository tree:
 
 ```bash
 sudo apt update
@@ -425,8 +510,8 @@ sudo adduser --disabled-password --gecos '' github-deploy
 sudo scripts/deploy/vps/provision-host.sh \
   github-deploy \
   ory-runtime-development \
-  /secure/idnest-development/host-release-signing-public.pem \
-  /secure/idnest-development/github-deploy-ed25519.pub
+  "$BOOTSTRAP_DIR/host-release-signing-public.pem" \
+  "$BOOTSTRAP_DIR/github-deploy-ed25519.pub"
 
 sudo systemctl status ory-auth-release-queue.path --no-pager
 sudo test ! -e /etc/sudoers.d/ory-auth-deploy
@@ -489,17 +574,33 @@ only once. Use these filenames when transferring the files securely to the VPS:
 Download the appropriate Origin CA root from Cloudflare's
 [Origin CA documentation](https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/).
 Do not commit these files or store the origin private key in GitHub. Install the
-three transferred files on the VPS:
+three files by transferring them from the trusted Mac to the existing staging
+directory. Use the same Mac shell and SSH variables configured in step 3:
 
 ```bash
+CLOUDFLARE_FILES_DIR="/absolute/path/to/cloudflare-downloads"
+
+scp "${SSH_COMMON_OPTIONS[@]}" -P "$VPS_SSH_PORT" \
+  "$CLOUDFLARE_FILES_DIR/origin-cert.pem" \
+  "$CLOUDFLARE_FILES_DIR/origin-key.pem" \
+  "$CLOUDFLARE_FILES_DIR/origin-ca.pem" \
+  "$VPS_ADMIN_USER@$DEVELOPMENT_VPS_HOST:idnest-bootstrap/"
+```
+
+Then, on the VPS, install and validate them:
+
+```bash
+BOOTSTRAP_DIR="$HOME/idnest-bootstrap"
+chmod 600 "$BOOTSTRAP_DIR/origin-key.pem"
+
 sudo install -o root -g root -m 644 \
-  /secure/idnest-development/origin-cert.pem \
+  "$BOOTSTRAP_DIR/origin-cert.pem" \
   /etc/idnest/tls/origin-cert.pem
 sudo install -o root -g idnest-tls -m 640 \
-  /secure/idnest-development/origin-key.pem \
+  "$BOOTSTRAP_DIR/origin-key.pem" \
   /etc/idnest/tls/origin-key.pem
 sudo install -o root -g root -m 644 \
-  /secure/idnest-development/origin-ca.pem \
+  "$BOOTSTRAP_DIR/origin-ca.pem" \
   /etc/idnest/tls/origin-ca.pem
 
 sudo openssl x509 -in /etc/idnest/tls/origin-cert.pem -noout \
