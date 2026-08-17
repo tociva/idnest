@@ -34,13 +34,14 @@ valid_sha256() {
   printf '%s\n' "$1" | grep -Eq '^[a-f0-9]{64}$'
 }
 
-[ "$#" -eq 6 ] || fail "usage: submit-idnest-release KIND REQUEST_ID GITHUB_RUN_ID GIT_REVISION IMAGE@DIGEST HOST_BUNDLE_SHA256"
+[ "$#" -eq 7 ] || fail "usage: submit-idnest-release KIND REQUEST_ID GITHUB_RUN_ID GIT_REVISION IMAGE@DIGEST HOST_BUNDLE_SHA256 APP_ENV_SHA256"
 KIND=$1
 REQUEST_ID=$2
 RUN_ID=$3
 REVISION=$4
 IMAGE_REF=$5
 HOST_BUNDLE_SHA256=$6
+APP_ENV_SHA256=$7
 
 valid_kind "$KIND" || fail "kind must be auth or admin"
 valid_request_id "$REQUEST_ID" || fail "request ID must be GITHUB_RUN_ID-GITHUB_RUN_ATTEMPT"
@@ -48,13 +49,14 @@ valid_positive_integer "$RUN_ID" || fail "GitHub run ID must be a positive integ
 valid_revision "$REVISION" || fail "revision must be a full lowercase Git SHA"
 valid_image "$IMAGE_REF" || fail "image must be an ECR URI pinned by sha256 digest"
 valid_sha256 "$HOST_BUNDLE_SHA256" || fail "invalid host bundle checksum"
+valid_sha256 "$APP_ENV_SHA256" || fail "invalid application environment checksum"
 
 [ -d "$INCOMING_ROOT" ] && [ ! -L "$INCOMING_ROOT" ] || fail "release queue is not provisioned"
 [ "$(stat -c '%u' "$INCOMING_ROOT")" -eq "$(id -u)" ] || fail "current user does not own the release queue"
 
 case "$KIND" in
-  auth) REQUIRED_UPLOADS="host-release.tar.gz host-release.sig ecr-password idnest-config.tar.gz" ;;
-  admin) REQUIRED_UPLOADS="host-release.tar.gz host-release.sig ecr-password" ;;
+  auth) REQUIRED_UPLOADS="host-release.tar.gz host-release.sig app.env app-env.sig ecr-password idnest-config.tar.gz" ;;
+  admin) REQUIRED_UPLOADS="host-release.tar.gz host-release.sig app.env app-env.sig ecr-password" ;;
 esac
 
 for name in $REQUIRED_UPLOADS; do
@@ -79,6 +81,7 @@ request_candidate="$INCOMING_ROOT/.request.$KIND.$REQUEST_ID.$$"
   printf 'GIT_REVISION=%s\n' "$REVISION"
   printf 'IMAGE_REF=%s\n' "$IMAGE_REF"
   printf 'HOST_BUNDLE_SHA256=%s\n' "$HOST_BUNDLE_SHA256"
+  printf 'APP_ENV_SHA256=%s\n' "$APP_ENV_SHA256"
 } >"$request_candidate"
 mv -- "$request_candidate" "$INCOMING_ROOT/request.$KIND.$REQUEST_ID"
 echo "Submitted $KIND release request $REQUEST_ID."

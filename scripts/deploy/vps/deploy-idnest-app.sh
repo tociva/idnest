@@ -128,18 +128,40 @@ restore_previous_release() {
   if [ -z "$ACTIVE_IMAGE" ]; then
     echo "No previous release exists; removing the failed first-deployment container." >&2
     compose rm --force --stop "$SERVICE_NAME" >&2 || return 1
+    restore_application_env
     restore_release_metadata
     return 0
   fi
   echo "Restoring previous image $ACTIVE_IMAGE" >&2
+  restore_application_env
   restore_release_metadata
   compose up --detach --no-deps "$SERVICE_NAME" >&2 || return 1
   wait_until_healthy && host_local_ready
 }
 
+restore_application_env() {
+  [ "${APP_ENV_INSTALLED:-false}" = true ] || return 0
+  if [ "${APP_ENV_PREVIOUSLY_PRESENT:-false}" = true ]; then
+    mv -- "$APP_ENV_BACKUP" "$APP_ENV"
+    TLS_SERVER_NAME=$(dotenv_value TLS_SERVER_NAME)
+  else
+    rm -f -- "$APP_ENV"
+  fi
+  APP_ENV_INSTALLED=false
+}
+
 cleanup() {
+  if [ "${DEPLOYMENT_SUCCEEDED:-false}" != true ]; then
+    if [ "${CANDIDATE_STARTED:-false}" = true ]; then
+      CANDIDATE_STARTED=false
+      restore_previous_release || true
+    else
+      restore_application_env || true
+    fi
+  fi
   [ -z "${STATE_CANDIDATE:-}" ] || rm -f -- "$STATE_CANDIDATE"
   rm -f -- "$RELEASE_ENV.candidate" "$RELEASE_ENV.restore"
+  [ -z "${APP_ENV_BACKUP:-}" ] || rm -f -- "$APP_ENV_BACKUP"
   [ -z "${REGISTRY:-}" ] || docker logout "$REGISTRY" >/dev/null 2>&1 || true
 }
 
@@ -172,25 +194,31 @@ RELEASE_ENV=$KIND_ROOT/release.env
 STATE_FILE=$KIND_ROOT/state.env
 HISTORY_ROOT=$KIND_ROOT/deployment-history
 ECR_PASSWORD=$INCOMING_ROOT/ecr-password.$RUN_ID
+APP_ENV_CANDIDATE=$INCOMING_ROOT/$KIND-app.env.$RUN_ID
+APP_ENV_BACKUP=$KIND_ROOT/app.env.before.$RUN_ID
 STATE_CANDIDATE=
 REGISTRY=
+APP_ENV_INSTALLED=false
+APP_ENV_PREVIOUSLY_PRESENT=false
+CANDIDATE_STARTED=false
+DEPLOYMENT_SUCCEEDED=false
 trap cleanup EXIT
 
 valid_image "$IMAGE_REF" || fail "image must be an ECR URI pinned by sha256 digest"
 valid_revision "$REVISION" || fail "revision must be a full lowercase Git SHA"
 valid_positive_integer "$RUN_ID" || fail "GitHub run ID must be a positive integer"
 
-for command in awk chmod cp curl date docker flock grep id mkdir mv openssl rm sha256sum sleep stat; do
+for command in awk chmod cp curl date docker flock grep id install mkdir mv openssl rm sha256sum sleep stat; do
   require_command "$command"
 done
 docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is unavailable"
 [ "$(id -u)" -eq 0 ] || fail "deployment must run as root through the release queue processor"
-for file in "$COMPOSE_FILE" "$DEPLOY_CONFIG" "$APP_ENV" "$ENV_VALIDATOR" "$TLS_CERT_FILE" "$TLS_KEY_FILE" "$TLS_CA_FILE" "$ECR_PASSWORD"; do
+for file in "$COMPOSE_FILE" "$DEPLOY_CONFIG" "$APP_ENV_CANDIDATE" "$ENV_VALIDATOR" "$TLS_CERT_FILE" "$TLS_KEY_FILE" "$TLS_CA_FILE" "$ECR_PASSWORD"; do
   root_regular_file "$file" || fail "invalid root-owned deployment file: $file"
 done
 [ -x "$ENV_VALIDATOR" ] || fail "environment validator is not executable"
 case "$(stat -c '%a' "$DEPLOY_CONFIG")" in 600) ;; *) fail "deployment config mode must be 600" ;; esac
-case "$(stat -c '%a' "$APP_ENV")" in 600) ;; *) fail "application environment mode must be 600" ;; esac
+case "$(stat -c '%a' "$APP_ENV_CANDIDATE")" in 600) ;; *) fail "staged application environment mode must be 600" ;; esac
 case "$(stat -c '%a' "$TLS_KEY_FILE")" in 440|640) ;; *) fail "TLS private key mode must be 440 or 640" ;; esac
 
 # shellcheck source=/dev/null
@@ -209,14 +237,13 @@ valid_positive_integer "$HEALTH_TIMEOUT_SECONDS" || fail "invalid health timeout
 case "$PUBLIC_HEALTH_URL" in https://*) ;; *) fail "public health URL must use HTTPS" ;; esac
 case "$REQUIRE_BACKUP_HOOK" in true|false) ;; *) fail "invalid backup-hook setting" ;; esac
 
-"$ENV_VALIDATOR" "$APP_ENV"
-TLS_SERVER_NAME=$(dotenv_value TLS_SERVER_NAME)
-printf '%s\n' "$TLS_SERVER_NAME" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$' \
-  || fail "TLS_SERVER_NAME must be a fully-qualified hostname"
+"$ENV_VALIDATOR" "$APP_ENV_CANDIDATE" "$KIND"
+if [ -e "$APP_ENV" ] || [ -L "$APP_ENV" ]; then
+  root_regular_file "$APP_ENV" || fail "existing application environment must be a root-owned regular file"
+  case "$(stat -c '%a' "$APP_ENV")" in 600) ;; *) fail "existing application environment mode must be 600" ;; esac
+fi
 openssl x509 -in "$TLS_CERT_FILE" -noout -checkend 86400 >/dev/null \
   || fail "TLS certificate is invalid or expires within 24 hours"
-openssl x509 -in "$TLS_CERT_FILE" -noout -checkhost "$TLS_SERVER_NAME" >/dev/null \
-  || fail "TLS certificate does not cover TLS_SERVER_NAME"
 CERT_PUBLIC_KEY=$(openssl x509 -in "$TLS_CERT_FILE" -pubkey -noout)
 KEY_PUBLIC_KEY=$(openssl pkey -in "$TLS_KEY_FILE" -pubout)
 [ "$CERT_PUBLIC_KEY" = "$KEY_PUBLIC_KEY" ] || fail "TLS certificate and private key do not match"
@@ -226,6 +253,26 @@ valid_positive_integer "$TLS_READ_GID" || fail "TLS private key must use a dedic
 exec 9>"$LOCK_FILE"
 flock -n 9 || fail "another auth/admin deployment is running"
 mkdir -p "$HISTORY_ROOT"
+
+[ ! -e "$APP_ENV_BACKUP" ] && [ ! -L "$APP_ENV_BACKUP" ] \
+  || fail "application environment backup path already exists"
+if [ -f "$APP_ENV" ]; then
+  cp -p -- "$APP_ENV" "$APP_ENV_BACKUP"
+  APP_ENV_PREVIOUSLY_PRESENT=true
+fi
+app_env_install_candidate=$APP_ENV.candidate.$RUN_ID
+[ ! -e "$app_env_install_candidate" ] && [ ! -L "$app_env_install_candidate" ] \
+  || fail "application environment candidate path already exists"
+install -o root -g root -m 600 "$APP_ENV_CANDIDATE" "$app_env_install_candidate"
+mv -- "$app_env_install_candidate" "$APP_ENV"
+rm -f -- "$APP_ENV_CANDIDATE"
+APP_ENV_INSTALLED=true
+
+TLS_SERVER_NAME=$(dotenv_value TLS_SERVER_NAME)
+printf '%s\n' "$TLS_SERVER_NAME" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$' \
+  || fail "TLS_SERVER_NAME must be a fully-qualified hostname"
+openssl x509 -in "$TLS_CERT_FILE" -noout -checkhost "$TLS_SERVER_NAME" >/dev/null \
+  || fail "TLS certificate does not cover TLS_SERVER_NAME"
 
 ACTIVE_IMAGE=
 ACTIVE_REVISION=
@@ -239,35 +286,44 @@ fi
 
 write_release_env "$IMAGE_REF" "$REVISION" "$RELEASE_ENV.candidate"
 mv "$RELEASE_ENV.candidate" "$RELEASE_ENV"
-compose config --quiet || { restore_release_metadata; fail "Compose configuration is invalid"; }
+compose config --quiet || { restore_application_env; restore_release_metadata; fail "Compose configuration is invalid"; }
 
 REGISTRY=${IMAGE_REF%%/*}
 docker login --username AWS --password-stdin "$REGISTRY" <"$ECR_PASSWORD" >/dev/null \
-  || { restore_release_metadata; fail "ECR login failed"; }
-compose pull "$SERVICE_NAME" || { restore_release_metadata; fail "candidate image pull failed"; }
+  || { restore_application_env; restore_release_metadata; fail "ECR login failed"; }
+compose pull "$SERVICE_NAME" || { restore_application_env; restore_release_metadata; fail "candidate image pull failed"; }
 
 backup_hook=$CONFIG_ROOT/pre-deploy-backup
 if [ -e "$backup_hook" ] || [ -L "$backup_hook" ]; then
   root_regular_file "$backup_hook" && [ -x "$backup_hook" ] \
-    || { restore_release_metadata; fail "$backup_hook must be a root-owned executable regular file"; }
+    || { restore_application_env; restore_release_metadata; fail "$backup_hook must be a root-owned executable regular file"; }
   "$backup_hook" "$KIND" "$REVISION" \
-    || { restore_release_metadata; fail "pre-deployment backup failed"; }
+    || { restore_application_env; restore_release_metadata; fail "pre-deployment backup failed"; }
 elif [ "$REQUIRE_BACKUP_HOOK" = true ]; then
+  restore_application_env
   restore_release_metadata
   fail "$backup_hook is required but missing"
 fi
 
 compose run --rm --no-deps "$SERVICE_NAME" node migrations/authz-migrate.cjs \
-  || { restore_release_metadata; fail "database migration failed"; }
+  || { restore_application_env; restore_release_metadata; fail "database migration failed"; }
 
-if ! compose up --detach --no-deps "$SERVICE_NAME" || ! wait_until_healthy || ! host_local_ready; then
+if ! compose up --detach --no-deps "$SERVICE_NAME"; then
   restore_previous_release || true
+  CANDIDATE_STARTED=false
+  fail "candidate failed to start"
+fi
+CANDIDATE_STARTED=true
+if ! wait_until_healthy || ! host_local_ready; then
+  restore_previous_release || true
+  CANDIDATE_STARTED=false
   fail "candidate failed its container or host-local HTTPS readiness check"
 fi
 
 if ! curl --fail --silent --show-error --retry 5 --retry-delay 3 \
   --header 'Cache-Control: no-cache' "$PUBLIC_HEALTH_URL" >/dev/null; then
   restore_previous_release || true
+  CANDIDATE_STARTED=false
   fail "candidate failed the public Cloudflare readiness check"
 fi
 
@@ -288,6 +344,10 @@ mv "$STATE_CANDIDATE" "$STATE_FILE"
 STATE_CANDIDATE=
 cp "$STATE_FILE" "$HISTORY_ROOT/$DEPLOYED_AT-$RUN_ID.env"
 chmod 600 "$HISTORY_ROOT/$DEPLOYED_AT-$RUN_ID.env"
+rm -f -- "$APP_ENV_BACKUP"
+APP_ENV_INSTALLED=false
+CANDIDATE_STARTED=false
+DEPLOYMENT_SUCCEEDED=true
 docker logout "$REGISTRY" >/dev/null 2>&1 || true
 REGISTRY=
 echo "Deployment complete: $KIND runs $IMAGE_REF on HTTPS port $ORIGIN_HTTPS_PORT"

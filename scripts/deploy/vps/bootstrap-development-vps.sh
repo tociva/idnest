@@ -14,7 +14,8 @@ With no arguments, verifies and extracts the transferred development payload,
 installs the minimum host packages and templates, and provisions the deployment
 user and release processor.
 
-Use --validate-config after editing the VPS-owned files under /etc/idnest.
+Use --validate-config after editing the four VPS-owned files under /etc/idnest.
+The application environment files are installed by signed GitHub deployments.
 Run this script as a non-root administrative account with sudo access.
 EOF
 }
@@ -94,8 +95,6 @@ if [ "$MODE" = validate-config ]; then
   [ -x "$VALIDATOR" ] || fail "host provisioning has not installed $VALIDATOR"
 
   for config_file in \
-    /etc/idnest/auth-app.env \
-    /etc/idnest/admin-app.env \
     /etc/idnest/idnest.env \
     /etc/idnest/auth.conf \
     /etc/idnest/admin.conf \
@@ -252,13 +251,6 @@ install_if_missing() {
   sudo install -o root -g root -m 600 "$source_file" "$destination_file"
 }
 
-install_if_missing \
-  "$REPOSITORY_DIR/scripts/deploy/env/auth-app.env.example" \
-  /etc/idnest/auth-app.env
-install_if_missing \
-  "$REPOSITORY_DIR/scripts/deploy/env/admin-app.env.example" \
-  /etc/idnest/admin-app.env
-
 if [ "$RUNTIME_IMPORT_AVAILABLE" = true ]; then
   if sudo test -e /etc/idnest/idnest.env || sudo test -L /etc/idnest/idnest.env; then
     sudo test -f /etc/idnest/idnest.env && sudo test ! -L /etc/idnest/idnest.env \
@@ -283,5 +275,6 @@ sudo systemctl is-active --quiet idnest-release-queue.path \
   || fail "the development release queue watcher is not active"
 
 echo "Development VPS host bootstrap complete."
-echo "Edit the six VPS-owned configuration files under /etc/idnest with your preferred editor."
+echo "Review the four VPS-owned idnest.env and *.conf files under /etc/idnest."
+echo "Signed GitHub deployments will install auth-app.env and admin-app.env."
 echo "Then run: $SCRIPT_DIR/bootstrap-development-vps.sh --validate-config"

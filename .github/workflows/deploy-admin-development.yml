@@ -175,7 +175,11 @@ jobs:
           VPS_HOST: ${{ vars.VPS_HOST }}
           VPS_PORT: ${{ vars.VPS_PORT }}
           VPS_USER: ${{ vars.VPS_USER }}
+          ADMIN_BOOTSTRAP_EMAILS: ${{ vars.ADMIN_BOOTSTRAP_EMAILS }}
           HOST_RELEASE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 }}
+          AUTHZ_DATABASE_URL: ${{ secrets.AUTHZ_DATABASE_URL }}
+          ADMIN_CSRF_SECRET: ${{ secrets.ADMIN_CSRF_SECRET }}
+          ADMIN_OIDC_CLIENT_SECRET: ${{ secrets.ADMIN_OIDC_CLIENT_SECRET }}
           VPS_SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
           VPS_SSH_KNOWN_HOSTS_B64: ${{ secrets.VPS_SSH_KNOWN_HOSTS_B64 }}
         run: |
@@ -189,7 +193,11 @@ jobs:
           [[ "${VPS_HOST}" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ "${VPS_PORT:-22}" =~ ^[0-9]{1,5}$ ]]
           [[ "${VPS_USER}" =~ ^[A-Za-z_][A-Za-z0-9._-]*$ ]]
+          [[ -n "${ADMIN_BOOTSTRAP_EMAILS}" ]]
           [[ -n "${HOST_RELEASE_SIGNING_PRIVATE_KEY_B64}" ]]
+          [[ -n "${AUTHZ_DATABASE_URL}" ]]
+          [[ -n "${ADMIN_CSRF_SECRET}" ]]
+          [[ -n "${ADMIN_OIDC_CLIENT_SECRET}" ]]
           [[ -n "${VPS_SSH_PRIVATE_KEY_B64}" && -n "${VPS_SSH_KNOWN_HOSTS_B64}" ]]
 
       - name: Configure short-lived AWS pull credentials
@@ -204,7 +212,11 @@ jobs:
       - name: Prepare SSH and release
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
+          ADMIN_BOOTSTRAP_EMAILS: ${{ vars.ADMIN_BOOTSTRAP_EMAILS }}
           HOST_RELEASE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 }}
+          AUTHZ_DATABASE_URL: ${{ secrets.AUTHZ_DATABASE_URL }}
+          ADMIN_CSRF_SECRET: ${{ secrets.ADMIN_CSRF_SECRET }}
+          ADMIN_OIDC_CLIENT_SECRET: ${{ secrets.ADMIN_OIDC_CLIENT_SECRET }}
           VPS_SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
           VPS_SSH_KNOWN_HOSTS_B64: ${{ secrets.VPS_SSH_KNOWN_HOSTS_B64 }}
         run: |
@@ -213,6 +225,7 @@ jobs:
           printf '%s' "${VPS_SSH_PRIVATE_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/idnest-ssh/id_ed25519"
           printf '%s' "${VPS_SSH_KNOWN_HOSTS_B64}" | base64 --decode > "${RUNNER_TEMP}/idnest-ssh/known_hosts"
           printf '%s' "${HOST_RELEASE_SIGNING_PRIVATE_KEY_B64}" | base64 --decode > "${RUNNER_TEMP}/host-release-signing-private.pem"
+          scripts/deploy/render-development-app-env.sh admin "${RUNNER_TEMP}/app.env"
           tar --create --gzip --file "${RUNNER_TEMP}/host-release.tar.gz" \
             scripts/deploy/vps/compose.auth.yaml \
             scripts/deploy/vps/compose.admin.yaml \
@@ -228,11 +241,16 @@ jobs:
             scripts/deploy/vps/validate-app-env.sh \
             scripts/docker/render-kratos-config.sh
           openssl pkey -in "${RUNNER_TEMP}/host-release-signing-private.pem" -noout
-          openssl dgst -sha256 -sign "${RUNNER_TEMP}/host-release-signing-private.pem" \
-            -out "${RUNNER_TEMP}/host-release.sig" "${RUNNER_TEMP}/host-release.tar.gz"
+          openssl pkeyutl -sign -rawin \
+            -inkey "${RUNNER_TEMP}/host-release-signing-private.pem" \
+            -in "${RUNNER_TEMP}/host-release.tar.gz" -out "${RUNNER_TEMP}/host-release.sig"
+          openssl pkeyutl -sign -rawin \
+            -inkey "${RUNNER_TEMP}/host-release-signing-private.pem" \
+            -in "${RUNNER_TEMP}/app.env" -out "${RUNNER_TEMP}/app-env.sig"
           aws ecr get-login-password --region "${AWS_REGION}" > "${RUNNER_TEMP}/ecr-password"
           chmod 600 "${RUNNER_TEMP}/idnest-ssh/id_ed25519" "${RUNNER_TEMP}/idnest-ssh/known_hosts" \
             "${RUNNER_TEMP}/host-release.tar.gz" \
+            "${RUNNER_TEMP}/app.env" "${RUNNER_TEMP}/app-env.sig" \
             "${RUNNER_TEMP}/host-release.sig" "${RUNNER_TEMP}/host-release-signing-private.pem" \
             "${RUNNER_TEMP}/ecr-password"
 
@@ -253,7 +271,7 @@ jobs:
             -o "UserKnownHostsFile=${RUNNER_TEMP}/idnest-ssh/known_hosts"
           )
           request_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          for name in host-release.tar.gz host-release.sig ecr-password; do
+          for name in host-release.tar.gz host-release.sig app.env app-env.sig ecr-password; do
             scp "${scp_args[@]}" "${RUNNER_TEMP}/${name}" \
               "${VPS_USER}@${VPS_HOST}:/var/lib/idnest/queue/incoming/${name}.${request_id}.upload"
           done
@@ -274,6 +292,7 @@ jobs:
           request_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           image_ref="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@${IMAGE_DIGEST}"
           host_bundle_sha256=$(sha256sum "${RUNNER_TEMP}/host-release.tar.gz" | awk '{print $1}')
+          app_env_sha256=$(sha256sum "${RUNNER_TEMP}/app.env" | awk '{print $1}')
           ssh_args=(
             -i "${RUNNER_TEMP}/idnest-ssh/id_ed25519"
             -p "${port}"
@@ -284,13 +303,14 @@ jobs:
           )
           ssh "${ssh_args[@]}" "${VPS_USER}@${VPS_HOST}" \
             /usr/local/bin/submit-idnest-release admin "${request_id}" "${GITHUB_RUN_ID}" \
-            "${REVISION}" "${image_ref}" "${host_bundle_sha256}"
+            "${REVISION}" "${image_ref}" "${host_bundle_sha256}" "${app_env_sha256}"
           ssh "${ssh_args[@]}" "${VPS_USER}@${VPS_HOST}" \
             /usr/local/bin/wait-idnest-release admin "${request_id}" 2200
 
       - name: Remove runner-side sensitive files
         if: ${{ always() }}
         run: |
+          rm -f "${RUNNER_TEMP}/app.env" "${RUNNER_TEMP}/app-env.sig"
           rm -f "${RUNNER_TEMP}/host-release.tar.gz" "${RUNNER_TEMP}/host-release.sig"
           rm -f "${RUNNER_TEMP}/host-release-signing-private.pem" "${RUNNER_TEMP}/ecr-password"
           rm -f "${RUNNER_TEMP}/idnest-ssh/id_ed25519" "${RUNNER_TEMP}/idnest-ssh/known_hosts"

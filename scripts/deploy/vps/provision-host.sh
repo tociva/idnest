@@ -84,5 +84,6 @@ systemctl is-active --quiet idnest-release-queue.path || fail "release queue wat
 
 echo "One-time privileged host bootstrap complete."
 echo "GitHub Actions can now submit deployments as $DEPLOY_USER without sudo."
-echo "Review /etc/idnest/*.conf and install VPS-owned app.env, idnest.env, and Origin CA files before the first deployment."
+echo "Review /etc/idnest/*.conf and install VPS-owned idnest.env and Origin CA files before the first deployment."
+echo "Signed GitHub deployments install auth-app.env and admin-app.env automatically."
 echo "Install origin-cert.pem and origin-ca.pem as root-readable files and origin-key.pem as root:$TLS_GROUP mode 640 under /etc/idnest/tls."

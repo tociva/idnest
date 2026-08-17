@@ -175,8 +175,6 @@ set -- \
   scripts/deploy/vps/auth.conf.example \
   scripts/deploy/vps/admin.conf.example \
   scripts/deploy/vps/idnest.conf.example \
-  scripts/deploy/env/auth-app.env.example \
-  scripts/deploy/env/admin-app.env.example \
   scripts/deploy/env/idnest.env.example \
   scripts/docker/render-kratos-config.sh \
   config/kratos.tpl.yml \

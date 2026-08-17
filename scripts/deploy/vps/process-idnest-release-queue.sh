@@ -8,6 +8,8 @@ readonly RESULTS_ROOT=$QUEUE_ROOT/results
 readonly LOG_ROOT=/var/log/idnest
 readonly DEPLOY_INCOMING=/var/lib/idnest/incoming
 readonly HOST_ACTIVATOR=/usr/local/sbin/activate-idnest-host-release
+readonly SIGNING_PUBLIC_KEY=/etc/idnest/host-release-signing-public.pem
+readonly ENV_VALIDATOR=/usr/local/sbin/validate-idnest-app-env
 
 fail() {
   echo "Release processing failed: $*" >&2
@@ -60,8 +62,8 @@ process_one() {
   [ "$(stat -c '%U' "$request_path")" = "$QUEUE_USER" ] || fail "request owner does not match queue owner"
 
   case "$KIND" in
-    auth) REQUIRED_INPUTS="host-release.tar.gz host-release.sig ecr-password idnest-config.tar.gz" ;;
-    admin) REQUIRED_INPUTS="host-release.tar.gz host-release.sig ecr-password" ;;
+    auth) REQUIRED_INPUTS="host-release.tar.gz host-release.sig app.env app-env.sig ecr-password idnest-config.tar.gz" ;;
+    admin) REQUIRED_INPUTS="host-release.tar.gz host-release.sig app.env app-env.sig ecr-password" ;;
   esac
 
   WORK_ROOT="$PROCESSING_ROOT/$KIND.$REQUEST_ID"
@@ -81,14 +83,15 @@ process_one() {
   done
 
   request_file="$WORK_ROOT/request"
-  [ "$(wc -l <"$request_file" | tr -d ' ')" -eq 6 ] || fail "request must contain six fields"
-  [ "$(grep -Ec '^(KIND|REQUEST_ID|GITHUB_RUN_ID|GIT_REVISION|IMAGE_REF|HOST_BUNDLE_SHA256)=' "$request_file")" -eq 6 ] || fail "request contains an unexpected field"
+  [ "$(wc -l <"$request_file" | tr -d ' ')" -eq 7 ] || fail "request must contain seven fields"
+  [ "$(grep -Ec '^(KIND|REQUEST_ID|GITHUB_RUN_ID|GIT_REVISION|IMAGE_REF|HOST_BUNDLE_SHA256|APP_ENV_SHA256)=' "$request_file")" -eq 7 ] || fail "request contains an unexpected field"
   request_kind=$(request_value KIND "$request_file")
   request_id=$(request_value REQUEST_ID "$request_file")
   RUN_ID=$(request_value GITHUB_RUN_ID "$request_file")
   REVISION=$(request_value GIT_REVISION "$request_file")
   IMAGE_REF=$(request_value IMAGE_REF "$request_file")
   HOST_BUNDLE_SHA256=$(request_value HOST_BUNDLE_SHA256 "$request_file")
+  APP_ENV_SHA256=$(request_value APP_ENV_SHA256 "$request_file")
 
   [ "$request_kind" = "$KIND" ] || fail "request kind does not match filename"
   [ "$request_id" = "$REQUEST_ID" ] || fail "request ID does not match filename"
@@ -96,11 +99,19 @@ process_one() {
   printf '%s\n' "$REVISION" | grep -Eq '^[a-f0-9]{40}$' || fail "invalid Git revision"
   printf '%s\n' "$IMAGE_REF" | grep -Eq '^[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$' || fail "invalid image reference"
   printf '%s\n' "$HOST_BUNDLE_SHA256" | grep -Eq '^[a-f0-9]{64}$' || fail "invalid host bundle checksum"
+  printf '%s\n' "$APP_ENV_SHA256" | grep -Eq '^[a-f0-9]{64}$' || fail "invalid application environment checksum"
 
+  actual_app_env_sha256=$(sha256sum "$WORK_ROOT/app.env" | awk '{print $1}')
+  [ "$actual_app_env_sha256" = "$APP_ENV_SHA256" ] || fail "application environment checksum mismatch"
+  openssl pkeyutl -verify -rawin -pubin -inkey "$SIGNING_PUBLIC_KEY" \
+    -sigfile "$WORK_ROOT/app-env.sig" -in "$WORK_ROOT/app.env" >/dev/null 2>&1 \
+    || fail "application environment signature verification failed"
   write_result running
   "$HOST_ACTIVATOR" "$WORK_ROOT/host-release.tar.gz" "$WORK_ROOT/host-release.sig" \
     "$HOST_BUNDLE_SHA256" "$REVISION" "$REQUEST_ID"
+  "$ENV_VALIDATOR" "$WORK_ROOT/app.env" "$KIND" >/dev/null
   install -o root -g root -m 600 "$WORK_ROOT/ecr-password" "$DEPLOY_INCOMING/ecr-password.$RUN_ID"
+  install -o root -g root -m 600 "$WORK_ROOT/app.env" "$DEPLOY_INCOMING/$KIND-app.env.$RUN_ID"
 
   case "$KIND" in
     auth)
@@ -137,6 +148,7 @@ run_one() {
     if printf '%s\n' "${RUN_ID:-}" | grep -Eq '^[1-9][0-9]*$'; then
       rm -f -- \
         "$DEPLOY_INCOMING/ecr-password.$RUN_ID" \
+        "$DEPLOY_INCOMING/$KIND-app.env.$RUN_ID" \
         "$DEPLOY_INCOMING/idnest-config.tar.gz.$RUN_ID"
     fi
     return "$exit_code"
@@ -147,10 +159,14 @@ run_one() {
 }
 
 [ "$(id -u)" -eq 0 ] || fail "queue processor must run as root"
-for command in chown chmod grep id install mv rm sed sha256sum stat tr wc; do
+for command in awk chown chmod grep id install mv openssl rm sed sha256sum stat tr wc; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 [ -x "$HOST_ACTIVATOR" ] || fail "host release activator is unavailable"
+[ -x "$ENV_VALIDATOR" ] || fail "application environment validator is unavailable"
+[ -f "$SIGNING_PUBLIC_KEY" ] && [ ! -L "$SIGNING_PUBLIC_KEY" ] \
+  && [ "$(stat -c '%U' "$SIGNING_PUBLIC_KEY")" = root ] \
+  || fail "release signing public key is unavailable"
 
 if [ "${1:-}" = --one ]; then
   [ "$#" -eq 2 ] || fail "invalid internal invocation"

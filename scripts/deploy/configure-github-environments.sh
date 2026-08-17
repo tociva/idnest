@@ -113,7 +113,7 @@ for environment in ecr-build development-auth development-admin; do
       expected="AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY"
       ;;
     *)
-      expected="AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER"
+      expected="AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS"
       ;;
   esac
   validate_env_contract "$variables" "$expected" true
@@ -129,13 +129,24 @@ for environment in development-auth development-admin; do
     echo "Secret file must have mode 600: $secrets" >&2
     exit 1
   }
-  validate_env_contract "$secrets" \
-    "VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64" false
+  case "$environment" in
+    development-auth)
+      expected_secrets="VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET"
+      ;;
+    development-admin)
+      expected_secrets="VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 AUTHZ_DATABASE_URL ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET"
+      ;;
+  esac
+  validate_env_contract "$secrets" "$expected_secrets" false
   while IFS='=' read -r key value; do
-    printf '%s' "$value" | openssl base64 -d -A >/dev/null 2>&1 || {
-      echo "Invalid base64 value for $key in $secrets" >&2
-      exit 1
-    }
+    case "$key" in
+      *_B64)
+        printf '%s' "$value" | openssl base64 -d -A >/dev/null 2>&1 || {
+          echo "Invalid base64 value for $key in $secrets" >&2
+          exit 1
+        }
+        ;;
+    esac
   done <"$secrets"
 done
 
@@ -153,6 +164,12 @@ for environment in development-auth development-admin; do
   gh secret set --repo "$repository" --env "$environment" \
     --env-file "$prepared_directory/$environment.secrets.env"
   echo "Updated secrets for $environment."
+  existing_secrets=$(gh secret list --repo "$repository" --env "$environment")
+  if printf '%s\n' "$existing_secrets" \
+    | awk '$1 == "APP_ENV_B64" { found = 1 } END { exit !found }'; then
+    gh secret delete APP_ENV_B64 --repo "$repository" --env "$environment"
+    echo "Removed obsolete whole-file secret APP_ENV_B64 from $environment."
+  fi
 done
 
 echo "Development GitHub environments were updated without printing secret values."

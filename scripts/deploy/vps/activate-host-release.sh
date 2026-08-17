@@ -31,7 +31,8 @@ done
 
 ACTUAL_SHA256=$(sha256sum "$ARCHIVE" | awk '{print $1}')
 [ "$ACTUAL_SHA256" = "$EXPECTED_SHA256" ] || fail "host release checksum mismatch"
-openssl dgst -sha256 -verify "$SIGNING_PUBLIC_KEY" -signature "$SIGNATURE" "$ARCHIVE" >/dev/null 2>&1 \
+openssl pkeyutl -verify -rawin -pubin -inkey "$SIGNING_PUBLIC_KEY" \
+  -sigfile "$SIGNATURE" -in "$ARCHIVE" >/dev/null 2>&1 \
   || fail "host release signature verification failed"
 
 REQUIRED_FILES='scripts/deploy/vps/compose.auth.yaml
