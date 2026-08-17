@@ -262,11 +262,12 @@ Hydra admin `4445` and Kratos admin `4434` stay bound to loopback/private
 network interfaces. The application containers terminate origin TLS directly.
 
 Before starting, the development VPS must be running and reachable at
-`65.108.158.243:22`. Create a **DNS-only** Cloudflare `A` record for
-`vps-dev.idnest.cloud` pointing to `65.108.158.243`; never proxy this SSH
-hostname. Keep the four proxied application records for step 6. Confirm that
-the provider-created account can be reached with the workstation SSH key before
-continuing.
+`VPS_PUBLIC_IP:22`, where `VPS_PUBLIC_IP` is the address assigned by the VPS
+provider. Create a **DNS-only** Cloudflare `A` record for
+`vps-dev.idnest.cloud` pointing to that address; never proxy this SSH hostname.
+Keep the four proxied application records for step 6. Confirm that the
+provider-created account can be reached with the workstation SSH key before
+continuing. Do not commit the actual address to this repository.
 
 The required order is: provision AWS, create deployment credentials, bootstrap
 the VPS, prepare runtime values and databases, install Origin CA TLS, configure
@@ -866,11 +867,11 @@ trusted browser certificates, so keep all four DNS records proxied.
 ### 6. Configure Cloudflare DNS and origin port rewrites
 
 Confirm the DNS-only `vps-dev.idnest.cloud` management record created before
-step 1 still points directly to `65.108.158.243`. Create proxied `A` records for
-the four application hostnames pointing to `65.108.158.243`. Add `AAAA` records
-only when IPv6 is configured and reachable on the VPS. Then create four
-exact-hostname rules under **Rules → Origin Rules**. For each rule, set
-**Destination port → Rewrite to**:
+step 1 still points directly to `VPS_PUBLIC_IP`. Create proxied `A` records for
+the four application hostnames pointing to the same address. Add `AAAA` records
+only when IPv6 is configured and reachable on the VPS. Then create four exact
+hostname rules under **Rules → Origin Rules**. For each rule, set **Destination
+port → Rewrite to**:
 
 | Rule expression | Destination port |
 | --- | ---: |
