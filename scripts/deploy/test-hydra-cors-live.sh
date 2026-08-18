@@ -16,14 +16,11 @@ fi
 
 hydra_public_url="${1%/}"
 probe_origin="${HYDRA_CORS_PROBE_ORIGIN:-https://cors-probe.invalid}"
-spa_origin="${HYDRA_SPA_CORS_ORIGIN:-}"
 
 [[ "$hydra_public_url" == https://* || "$hydra_public_url" == http://127.0.0.1:* || "$hydra_public_url" == http://localhost:* ]] \
   || fail "HYDRA_PUBLIC_URL must use HTTPS or an HTTP loopback address"
 [[ "$probe_origin" == http://* || "$probe_origin" == https://* ]] \
   || fail "HYDRA_CORS_PROBE_ORIGIN must be an HTTP(S) origin"
-[[ -z "$spa_origin" || "$spa_origin" == http://* || "$spa_origin" == https://* ]] \
-  || fail "HYDRA_SPA_CORS_ORIGIN must be empty or an HTTP(S) origin"
 
 for command in awk curl mktemp rm sleep; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
@@ -120,24 +117,6 @@ assert_no_cors_origin() {
     || fail "$description returned unexpected Access-Control-Allow-Origin=$allow_origin (HTTP $status)"
 }
 
-assert_spa_userinfo_preflight() {
-  local status allow_origin allow_credentials allow_headers
-  status="$(request_with_origin OPTIONS '/userinfo' "$spa_origin" \
-    --header 'Access-Control-Request-Method: GET' \
-    --header 'Access-Control-Request-Headers: authorization')"
-  [[ "$status" =~ ^2 ]] || fail "OPTIONS /userinfo returned HTTP $status"
-
-  allow_origin="$(header_value Access-Control-Allow-Origin)"
-  allow_credentials="$(header_value Access-Control-Allow-Credentials)"
-  allow_headers="$(header_value Access-Control-Allow-Headers)"
-  [[ "$allow_origin" == "$spa_origin" ]] \
-    || fail "OPTIONS /userinfo returned Access-Control-Allow-Origin=${allow_origin:-<missing>} instead of $spa_origin"
-  [[ "$allow_credentials" == 'true' ]] \
-    || fail "OPTIONS /userinfo returned Access-Control-Allow-Credentials=${allow_credentials:-<missing>} instead of true"
-  [[ "${allow_headers,,}" == *authorization* ]] \
-    || fail "OPTIONS /userinfo did not allow the Authorization header"
-}
-
 metadata_paths=(
   '/.well-known/openid-configuration'
   '/.well-known/oauth-authorization-server'
@@ -151,10 +130,6 @@ for metadata_path in "${metadata_paths[@]}"; do
   assert_public_metadata_cors HEAD "$metadata_path"
   assert_public_metadata_cors OPTIONS "$metadata_path"
 done
-
-if [[ -n "$spa_origin" ]]; then
-  assert_spa_userinfo_preflight
-fi
 
 assert_no_cors_origin \
   'POST to an OIDC metadata route' \
@@ -172,8 +147,4 @@ assert_no_cors_origin \
   GET '/userinfo' \
   --header 'Authorization: Bearer cors-live-invalid-token'
 
-if [[ -n "$spa_origin" ]]; then
-  echo "Hydra live CORS boundary exposes metadata wildcard CORS and exact configured SPA access."
-else
-  echo "Hydra live CORS boundary is correctly limited to public OIDC metadata routes."
-fi
+echo "Hydra live CORS boundary is correctly limited to public OIDC metadata routes."

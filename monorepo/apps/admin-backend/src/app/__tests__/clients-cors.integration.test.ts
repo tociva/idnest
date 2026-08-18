@@ -6,7 +6,6 @@ const integrationEnabled = process.env.HYDRA_CORS_INTEGRATION === "1";
 const hydraAdminUrl = process.env.HYDRA_CORS_TEST_ADMIN_URL ?? "";
 const hydraPublicUrl = process.env.HYDRA_CORS_TEST_PUBLIC_URL ?? "";
 const globalOrigin = "https://hydra.cors.test";
-const globalSpaOrigin = "https://spa.cors.test";
 const publicMetadataPaths = [
   "/.well-known/openid-configuration",
   "/.well-known/oauth-authorization-server",
@@ -157,12 +156,11 @@ describe.skipIf(!integrationEnabled)("created OAuth client CORS against Hydra", 
     expect(response.headers.get("access-control-allow-credentials")).toBe("true");
   });
 
-  it("allows an exact global SPA origin to preflight userinfo without a wildcard", async () => {
-    const response = await userInfoPreflightResponse(globalSpaOrigin);
+  it("does not elevate a client-registered origin to global userinfo access", async () => {
+    const response = await userInfoPreflightResponse(storedOrigins[0]);
     expect(response.status).toBe(204);
-    expect(response.headers.get("access-control-allow-origin")).toBe(globalSpaOrigin);
-    expect(response.headers.get("access-control-allow-credentials")).toBe("true");
-    expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    expect(response.headers.get("access-control-allow-credentials")).toBeNull();
   });
 
   it("does not allow an unconfigured origin to preflight userinfo", async () => {

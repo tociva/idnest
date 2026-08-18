@@ -196,7 +196,7 @@ if [ "$kind" = development-source ]; then
       || fail "$default_key must keep the tracked development default: $expected_value"
   }
   require_development_default AUTH_URL 'https://auth-dev.idnest.cloud'
-  require_development_default HYDRA_CORS_ALLOWED_ORIGINS 'https://hydra-dev.idnest.cloud,https://app-dev.daybook.cloud'
+  require_development_default HYDRA_CORS_ALLOWED_ORIGINS 'https://hydra-dev.idnest.cloud'
   require_development_default KRATOS_CORS_ALLOWED_ORIGINS 'https://auth-dev.idnest.cloud'
   require_development_default HYDRA_URLS_SELF_ISSUER 'https://hydra-dev.idnest.cloud/'
   require_development_default HYDRA_URLS_CONSENT 'https://auth-dev.idnest.cloud/oauth2/consent'

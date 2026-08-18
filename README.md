@@ -165,9 +165,9 @@ only to `GET`, `HEAD`, and `OPTIONS` responses for these paths:
 Set `Access-Control-Allow-Origin: *` and
 `Access-Control-Allow-Methods: GET, HEAD, OPTIONS`, and remove
 `Access-Control-Allow-Credentials`. Do not apply this rule to token, userinfo,
-revocation, or logout routes. Exact trusted SPA origins that need anonymous
-preflights, such as an Authorization-bearing `/userinfo` request, must also be
-present in Hydra's non-wildcard global origin list.
+revocation, or logout routes. Browser applications must use ID-token claims or
+a same-origin backend instead of adding product origins to Hydra's global list
+for Authorization-bearing `/userinfo` requests.
 
 The tracked nginx rule uses a method map and an exact anchored metadata matcher:
 
@@ -251,7 +251,7 @@ substitute for exact client registration:
 
 | Setting | Owner | Purpose |
 | --- | --- | --- |
-| `.env` → `HYDRA_CORS_ALLOWED_ORIGINS` | Hydra public server | Non-empty exact allowlist containing Hydra's own public origin plus trusted SPA origins that require anonymous preflights. Never use `*`; an empty list is also permissive in Hydra v26.2.0. |
+| `.env` → `HYDRA_CORS_ALLOWED_ORIGINS` | Hydra public server | Non-empty infrastructure-only baseline containing Hydra's own public origin. Never add product origins or use `*`; an empty list is also permissive in Hydra v26.2.0. |
 | OAuth client → `allowed_cors_origins` | Hydra client registration | Exact browser origins allowed on client-identifiable requests such as a form-encoded public-client token exchange. SPA clients require at least one. |
 | `.env` → `KRATOS_CORS_ALLOWED_ORIGINS` | Kratos public server | Browser origin of the trusted auth UI that calls Kratos self-service APIs. |
 | `monorepo/.env` → `ADMIN_CORS_ALLOWED_ORIGINS` | Admin backend | Browser origins allowed to call the admin BFF/API. Keep this admin-only. |
@@ -260,7 +260,9 @@ substitute for exact client registration:
 Do not copy product-domain wildcards into Hydra, Kratos, or the admin backend.
 Add exact SPA browser origins through the admin console, and keep redirect URIs,
 post-logout URIs, CORS origins, and application return URIs as independent
-client properties.
+client properties. SPAs should disable automatic UserInfo loading and consume
+the minimal claims issued in their ID token; use a same-origin backend for
+richer or freshly loaded profile data.
 
 Both environment files are ignored by Git. Commit changes to their `.example`
 templates when the required configuration contract changes.
@@ -275,7 +277,7 @@ Run commands from the repository root.
 | `pnpm test` | Run all configured tests |
 | `pnpm test:cors:config` | Verify that local and deployment renderers use the split Hydra, Kratos, and auth origin settings |
 | `pnpm test:cors` | Run the CORS configuration check and the container-backed Hydra client integration test |
-| `HYDRA_SPA_CORS_ORIGIN=https://app-dev.daybook.cloud pnpm test:cors:live -- https://hydra-dev.idnest.cloud` | Verify metadata-only wildcard CORS, exact SPA `/userinfo` preflight access, and denied-origin boundaries |
+| `pnpm test:cors:live -- https://hydra-dev.idnest.cloud` | Verify metadata-only wildcard CORS and denied protected-route origins |
 | `pnpm test:client-cors:integration` | Create a client in an isolated Hydra v26.2.0 container and verify its runtime CORS origins |
 | `pnpm typecheck` | Type-check all projects |
 | `pnpm lint` | Lint all projects |
@@ -618,7 +620,7 @@ VPS_HOST=replace-with-terraform-output
 VPS_PORT=replace-with-terraform-output
 VPS_USER=replace-with-terraform-output
 AUTH_URL=https://auth-dev.idnest.cloud
-HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud,https://app-dev.daybook.cloud
+HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud
 KRATOS_CORS_ALLOWED_ORIGINS=https://auth-dev.idnest.cloud
 HYDRA_DSN=postgres://hydrau:replace-with-hydra-password@host.docker.internal:5432/hydra?sslmode=disable
 HYDRA_URLS_SELF_ISSUER=https://hydra-dev.idnest.cloud/
@@ -695,7 +697,7 @@ properties; update the matching renderer, validator, and example together.
 | Property | Default | Purpose and source |
 | --- | --- | --- |
 | `AUTH_URL` | `https://auth-dev.idnest.cloud` | Public auth UI/backend origin from the `auth-dev` DNS record. |
-| `HYDRA_CORS_ALLOWED_ORIGINS` | `https://hydra-dev.idnest.cloud,https://app-dev.daybook.cloud` | Exact global fallback for Hydra itself and SPA requests whose preflight has no client identity. Product origins must still be registered per client. Never use `*`. |
+| `HYDRA_CORS_ALLOWED_ORIGINS` | `https://hydra-dev.idnest.cloud` | Infrastructure-only non-empty baseline for Hydra CORS. Product origins belong exclusively to their OAuth clients. Never use `*`. |
 | `KRATOS_CORS_ALLOWED_ORIGINS` | `https://auth-dev.idnest.cloud` | Auth UI origin allowed to call Kratos. Kratos does not read Hydra client configuration. |
 | `HYDRA_URLS_SELF_ISSUER` | `https://hydra-dev.idnest.cloud/` | Public OAuth issuer. It must exactly match the URL clients use, including the trailing slash. |
 | `HYDRA_URLS_CONSENT` | `https://auth-dev.idnest.cloud/oauth2/consent` | Auth backend endpoint Hydra uses for consent challenges. |
@@ -1184,18 +1186,19 @@ Resource servers must validate token issuer, signature, expiry, and audience.
 Browser state is not an authorization boundary.
 
 Hydra stores `allowed_cors_origins` with the OAuth client and applies changes
-without an identity-service restart. Client-identifiable requests continue to
-use that registration. True browser preflights carry no client identity, so an
-SPA that calls `/userinfo` with an `Authorization` header must also be included
-as an exact deployment-level fallback origin. HTTP browser origins are accepted
-only for loopback clients outside production. Server web, native, and service
-clients default to no recorded browser origins.
+without an identity-service restart. Client-identifiable token requests use
+that registration, while Hydra's global list remains an infrastructure-only
+non-empty baseline. True browser preflights carry no client identity, so this
+deployment does not support direct browser `/userinfo` calls. SPAs use ID-token
+claims or a same-origin backend instead. HTTP browser origins are accepted only
+for loopback clients outside production. Server web, native, and service clients
+default to no recorded browser origins.
 
 Existing installations must replace the former shared
 `CORS_ALLOWED_ORIGINS` value before restarting identity services:
 
 ```dotenv
-HYDRA_CORS_ALLOWED_ORIGINS=https://hydra.example.com,https://app.example.com
+HYDRA_CORS_ALLOWED_ORIGINS=https://hydra.example.com
 KRATOS_CORS_ALLOWED_ORIGINS=https://auth.example.com
 KRATOS_TOTP_ISSUER='Idnest Production'
 ```
@@ -1223,20 +1226,18 @@ pnpm clients:cors:backfill -- --apply
 ```
 
 Install the local and Cloudflare metadata-only rules before restarting Hydra
-with the exact non-wildcard global values. After deployment, verify metadata,
-the trusted SPA preflight, and the negative route boundary:
+with the exact non-wildcard global value. After deployment, verify metadata and
+the negative protected-route boundary:
 
 ```bash
-HYDRA_SPA_CORS_ORIGIN=https://app-dev.daybook.cloud \
-  pnpm test:cors:live -- https://hydra-dev.idnest.cloud
+pnpm test:cors:live -- https://hydra-dev.idnest.cloud
 ```
 
 Hydra v26.2.0 cannot resolve a client-only origin from a true browser preflight
 because the `OPTIONS` request carries no client identity. Public SPA token
 exchange should remain a CORS-safelisted `application/x-www-form-urlencoded`
-request without custom headers. Prefer ID-token claims or a same-origin BFF to
-calling userinfo directly; legacy SPAs that require browser userinfo must be in
-both the client registration and the exact global allowlist.
+request without custom headers. Use ID-token claims or a same-origin BFF instead
+of calling UserInfo directly from browser code.
 
 The helper skips clients that already have browser origins and never invents
 application return URIs; configure those exact destinations through the admin

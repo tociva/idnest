@@ -33,7 +33,7 @@ for command in grep mktemp openssl rm sed; do
 done
 
 require_line "$REPO_ROOT/.env.example" \
-  'HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-local.idnest.cloud,https://app-local.daybook.cloud'
+  'HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-local.idnest.cloud'
 require_line "$REPO_ROOT/.env.example" \
   'KRATOS_CORS_ALLOWED_ORIGINS=https://auth-local.idnest.cloud'
 require_line "$REPO_ROOT/.env.example" \
@@ -41,7 +41,7 @@ require_line "$REPO_ROOT/.env.example" \
 require_line "$REPO_ROOT/monorepo/.env.example" \
   'AUTH_RETURN_TO_ALLOWED_ORIGINS=https://admin-local.idnest.cloud'
 require_line "$SCRIPT_DIR/env/development.env.example" \
-  'HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud,https://app-dev.daybook.cloud'
+  'HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud'
 require_line "$SCRIPT_DIR/env/development.env.example" \
   'KRATOS_CORS_ALLOWED_ORIGINS=https://auth-dev.idnest.cloud'
 require_line "$SCRIPT_DIR/env/development.env.example" \
@@ -102,7 +102,7 @@ GOOGLE_CLIENT_SECRET='cors-contract-test-secret' \
   "$temporary_directory/identity.env" >/dev/null
 
 require_line "$temporary_directory/identity.env" \
-  "HYDRA_CORS_ALLOWED_ORIGINS='https://hydra-dev.idnest.cloud,https://app-dev.daybook.cloud'"
+  "HYDRA_CORS_ALLOWED_ORIGINS='https://hydra-dev.idnest.cloud'"
 require_line "$temporary_directory/identity.env" \
   "KRATOS_CORS_ALLOWED_ORIGINS='https://auth-dev.idnest.cloud'"
 require_line "$temporary_directory/identity.env" \
