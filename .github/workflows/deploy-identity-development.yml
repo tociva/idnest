@@ -65,6 +65,7 @@ jobs:
           done
           [[ "${apple_count}" == 0 || "${apple_count}" == 4 ]]
           bash -n scripts/deploy/render-development-identity-env.sh
+          bash scripts/deploy/test-cors-contract.sh
           for script in scripts/deploy/vps/*.sh scripts/docker/render-kratos-config.sh; do
             sh -n "${script}"
           done
@@ -171,6 +172,9 @@ jobs:
             "${GITHUB_SHA}" "${host_bundle_sha256}" "${identity_env_sha256}" "${identity_config_sha256}"
           ssh "${ssh_args[@]}" "${VPS_USER}@${VPS_HOST}" \
             /usr/local/bin/wait-idnest-release identity "${request_id}" 2200
+
+      - name: Verify the public Hydra CORS boundary
+        run: bash scripts/deploy/test-hydra-cors-live.sh https://hydra-dev.idnest.cloud
 
       - name: Remove runner-side sensitive files
         if: ${{ always() }}

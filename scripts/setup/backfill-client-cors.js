@@ -19,7 +19,8 @@ for (const envFile of [resolve(repoRoot, ".env"), resolve(repoRoot, "monorepo/.e
   }
 }
 
-const args = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+const args = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
 const apply = args.includes("--apply");
 const clientArg = args.find((arg) => arg.startsWith("--client="));
 const onlyClientId = clientArg?.slice("--client=".length) || "";

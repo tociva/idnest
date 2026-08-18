@@ -5,6 +5,12 @@ import { createClient, deleteClient, getClient } from "../handlers/clients";
 const integrationEnabled = process.env.HYDRA_CORS_INTEGRATION === "1";
 const hydraAdminUrl = process.env.HYDRA_CORS_TEST_ADMIN_URL ?? "";
 const hydraPublicUrl = process.env.HYDRA_CORS_TEST_PUBLIC_URL ?? "";
+const globalOrigin = "https://hydra.cors.test";
+const publicMetadataPaths = [
+  "/.well-known/openid-configuration",
+  "/.well-known/oauth-authorization-server",
+  "/.well-known/jwks.json",
+];
 
 const submittedOrigins = [
   "https://CLIENT.example:443/",
@@ -62,6 +68,22 @@ async function tokenResponse(origin: string): Promise<Response> {
   });
 }
 
+async function tokenPreflightResponse(origin: string): Promise<Response> {
+  return fetch(`${hydraPublicUrl.replace(/\/+$/, "")}/oauth2/token`, {
+    method: "OPTIONS",
+    headers: {
+      "Access-Control-Request-Method": "POST",
+      Origin: origin,
+    },
+  });
+}
+
+async function publicMetadataResponse(path: string, origin: string): Promise<Response> {
+  return fetch(`${hydraPublicUrl.replace(/\/+$/, "")}${path}`, {
+    headers: { Origin: origin },
+  });
+}
+
 async function waitForClientCors(origin: string): Promise<void> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const response = await tokenResponse(origin);
@@ -116,10 +138,43 @@ describe.skipIf(!integrationEnabled)("created OAuth client CORS against Hydra", 
     expect(response.headers.get("access-control-allow-credentials")).toBe("true");
   });
 
+  it("allows the exact non-wildcard global fallback origin", async () => {
+    const response = await tokenResponse(globalOrigin);
+    expect(response.status).toBe(400);
+    expect(response.headers.get("access-control-allow-origin")).toBe(globalOrigin);
+    expect(response.headers.get("access-control-allow-credentials")).toBe("true");
+  });
+
   it.each(deniedOrigins)("does not allow an unregistered near-miss origin: %s", async (origin) => {
     const response = await tokenResponse(origin);
     expect(response.status).toBe(400);
     expect(response.headers.get("access-control-allow-origin")).toBeNull();
     expect(response.headers.get("access-control-allow-credentials")).toBeNull();
   });
+
+  it("does not authorize a client-only origin from an anonymous preflight", async () => {
+    const origin = storedOrigins[0];
+    const preflight = await tokenPreflightResponse(origin);
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBeNull();
+    expect(preflight.headers.get("access-control-allow-credentials")).toBeNull();
+
+    const actual = await tokenResponse(deniedOrigins[0]);
+    expect(actual.headers.get("access-control-allow-origin")).toBeNull();
+    expect(actual.headers.get("access-control-allow-credentials")).toBeNull();
+  });
+
+  it.each(publicMetadataPaths)(
+    "keeps public metadata on the exact global fallback before gateway handling: %s",
+    async (path) => {
+      const globallyAllowed = await publicMetadataResponse(path, globalOrigin);
+      expect(globallyAllowed.status).toBe(200);
+      expect(globallyAllowed.headers.get("access-control-allow-origin")).toBe(globalOrigin);
+
+      const unregistered = await publicMetadataResponse(path, deniedOrigins[0]);
+      expect(unregistered.status).toBe(200);
+      expect(unregistered.headers.get("access-control-allow-origin")).toBeNull();
+      expect(unregistered.headers.get("access-control-allow-credentials")).toBeNull();
+    },
+  );
 });

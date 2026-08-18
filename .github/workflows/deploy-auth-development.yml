@@ -56,6 +56,7 @@ jobs:
       - name: Validate deployment scripts
         run: |
           bash -n scripts/docker/smoke-test-auth-image.sh
+          pnpm test:cors:config
           for script in scripts/deploy/vps/*.sh; do
             sh -n "${script}"
           done

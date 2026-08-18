@@ -22,6 +22,9 @@
     "nx": "pnpm --dir=monorepo nx",
     "bootstrap:local": "./scripts/setup/bootstrap-local.sh",
     "clients:cors:backfill": "node scripts/setup/backfill-client-cors.js",
+    "test:cors:config": "bash scripts/deploy/test-cors-contract.sh",
+    "test:cors": "pnpm test:cors:config && pnpm test:client-cors:integration",
+    "test:cors:live": "bash scripts/deploy/test-hydra-cors-live.sh",
     "test:client-cors:integration": "bash scripts/docker/test-client-cors-integration.sh"
   },
   "packageManager": "pnpm@9.15.0"

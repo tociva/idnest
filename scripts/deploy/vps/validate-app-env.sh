@@ -119,8 +119,11 @@ if [ "$kind" = identity ] || [ "$kind" = development-source ]; then
 
   hydra_dsn=$(dotenv_value HYDRA_DSN)
   kratos_dsn=$(dotenv_value KRATOS_DSN)
+  hydra_cors_allowed_origins=$(dotenv_value HYDRA_CORS_ALLOWED_ORIGINS)
   case "$hydra_dsn" in postgres://*|postgresql://*) ;; *) fail "HYDRA_DSN must be a PostgreSQL DSN" ;; esac
   case "$kratos_dsn" in postgres://*|postgresql://*) ;; *) fail "KRATOS_DSN must be a PostgreSQL DSN" ;; esac
+  [ "$hydra_cors_allowed_origins" != '*' ] \
+    || fail "HYDRA_CORS_ALLOWED_ORIGINS must not allow every browser origin"
 
   hydra_secret=$(dotenv_value HYDRA_SECRETS_SYSTEM)
   kratos_csrf_secret=$(dotenv_value KRATOS_CSRF_COOKIE_SECRET)

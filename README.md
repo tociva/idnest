@@ -134,9 +134,11 @@ Add these entries to `/etc/hosts`:
 127.0.0.1 kratos-local.idnest.cloud
 ```
 
-The repository intentionally contains no gateway-specific configuration.
-Configure the HTTPS gateway of your choice with a locally trusted certificate
-and these routes:
+The tracked nginx reference at
+`scripts/deploy/nginx/hydra-local.idnest.cloud.conf.example` contains Hydra's
+local TLS proxy and discovery-only CORS rule. Adapt the other HTTPS virtual
+hosts to the gateway of your choice with a locally trusted certificate and
+these routes:
 
 | Browser hostname and path | Direct upstream |
 | --- | --- |
@@ -150,6 +152,44 @@ and these routes:
 
 Preserve the original `Host` header, report the external scheme as HTTPS, and
 enable WebSocket forwarding for the two frontend development servers.
+
+For browser OIDC discovery, configure the local gateway to add wildcard CORS
+only to `GET`, `HEAD`, and `OPTIONS` responses for these paths:
+
+```text
+/.well-known/openid-configuration
+/.well-known/oauth-authorization-server
+/.well-known/jwks.json
+```
+
+Set `Access-Control-Allow-Origin: *` and
+`Access-Control-Allow-Methods: GET, HEAD, OPTIONS`, and remove
+`Access-Control-Allow-Credentials`. Do not apply this rule to token, userinfo,
+revocation, or logout routes; Hydra evaluates those requests against the exact
+origin stored on the OAuth client.
+
+The tracked nginx rule uses a method map and an exact anchored metadata matcher:
+
+```nginx
+map $request_method $idnest_public_metadata_cors_origin {
+  default "";
+  GET     "*";
+  HEAD    "*";
+  OPTIONS "*";
+}
+
+location ~ ^/\.well-known/(openid-configuration|oauth-authorization-server|jwks\.json)$ {
+  proxy_pass http://localhost:4444;
+  proxy_hide_header Access-Control-Allow-Origin;
+  proxy_hide_header Access-Control-Allow-Methods;
+  proxy_hide_header Access-Control-Allow-Credentials;
+  add_header Access-Control-Allow-Origin $idnest_public_metadata_cors_origin always;
+}
+```
+
+Install the full tracked virtual host, validate with `sudo nginx -t`, and reload
+with `sudo nginx -s reload`. Keep the existing locally trusted certificate if
+its paths differ. Run the live CORS test after reloading the gateway.
 
 ### 4. Bootstrap the local services
 
@@ -203,6 +243,24 @@ Keep these values aligned:
   command.
 - `KRATOS_COOKIES_DOMAIN` controls the shared identity-session cookie scope.
 
+### CORS and browser-origin settings
+
+The origin settings are intentionally separate; a global wildcard is not a
+substitute for exact client registration:
+
+| Setting | Owner | Purpose |
+| --- | --- | --- |
+| `.env` → `HYDRA_CORS_ALLOWED_ORIGINS` | Hydra public server | Minimal, non-empty fallback containing only Hydra's own public origin. An empty list is also permissive in Hydra v26.2.0 and must not be used. |
+| OAuth client → `allowed_cors_origins` | Hydra client registration | Exact browser origins allowed on client-identifiable requests such as a form-encoded public-client token exchange. SPA clients require at least one. |
+| `.env` → `KRATOS_CORS_ALLOWED_ORIGINS` | Kratos public server | Browser origin of the trusted auth UI that calls Kratos self-service APIs. |
+| `monorepo/.env` → `ADMIN_CORS_ALLOWED_ORIGINS` | Admin backend | Browser origins allowed to call the admin BFF/API. Keep this admin-only. |
+| `monorepo/.env` → `AUTH_RETURN_TO_ALLOWED_ORIGINS` | Auth backend | Transitional safe destinations for settings/logout navigation. This is a redirect allowlist, not CORS; new clients should use exact `metadata.allowed_return_uris`. |
+
+Do not copy product-domain wildcards into Hydra, Kratos, or the admin backend.
+Add exact SPA browser origins through the admin console, and keep redirect URIs,
+post-logout URIs, CORS origins, and application return URIs as independent
+client properties.
+
 Both environment files are ignored by Git. Commit changes to their `.example`
 templates when the required configuration contract changes.
 
@@ -214,6 +272,9 @@ Run commands from the repository root.
 | --- | --- |
 | `pnpm build` | Build every Nx application |
 | `pnpm test` | Run all configured tests |
+| `pnpm test:cors:config` | Verify that local and deployment renderers use the split Hydra, Kratos, and auth origin settings |
+| `pnpm test:cors` | Run the CORS configuration check and the container-backed Hydra client integration test |
+| `pnpm test:cors:live -- https://hydra-dev.idnest.cloud` | Verify that a running gateway exposes wildcard CORS only on public OIDC metadata routes |
 | `pnpm test:client-cors:integration` | Create a client in an isolated Hydra v26.2.0 container and verify its runtime CORS origins |
 | `pnpm typecheck` | Type-check all projects |
 | `pnpm lint` | Lint all projects |
@@ -632,7 +693,7 @@ properties; update the matching renderer, validator, and example together.
 | Property | Default | Purpose and source |
 | --- | --- | --- |
 | `AUTH_URL` | `https://auth-dev.idnest.cloud` | Public auth UI/backend origin from the `auth-dev` DNS record. |
-| `HYDRA_CORS_ALLOWED_ORIGINS` | `https://hydra-dev.idnest.cloud` | Minimal non-empty global Hydra CORS origin. Browser applications are registered per client through `allowed_cors_origins` in the admin UI. |
+| `HYDRA_CORS_ALLOWED_ORIGINS` | `https://hydra-dev.idnest.cloud` | Minimal non-empty global fallback. Product browser origins are registered per client through `allowed_cors_origins`. |
 | `KRATOS_CORS_ALLOWED_ORIGINS` | `https://auth-dev.idnest.cloud` | Auth UI origin allowed to call Kratos. Kratos does not read Hydra client configuration. |
 | `HYDRA_URLS_SELF_ISSUER` | `https://hydra-dev.idnest.cloud/` | Public OAuth issuer. It must exactly match the URL clients use, including the trailing slash. |
 | `HYDRA_URLS_CONSENT` | `https://auth-dev.idnest.cloud/oauth2/consent` | Auth backend endpoint Hydra uses for consent challenges. |
@@ -779,6 +840,13 @@ clear instruction to run the identity workflow if either dependency is not
 ready. Runner and queue copies of decoded secrets are deleted after each run.
 Bootstrap preserves any existing pipeline-installed environment files.
 
+The auth, admin, and identity validation jobs run the tracked CORS contract
+check before building or deploying. The admin validation job additionally
+starts an isolated Hydra v26.2.0 container and proves that exact per-client
+origins are enforced. After an identity deployment, the identity workflow
+checks the public Cloudflare route and fails if wildcard CORS is missing from
+metadata or leaks onto token or userinfo routes.
+
 Before the first workflow run, create the PostgreSQL roles, databases, and
 schemas referenced by `HYDRA_DSN`, `KRATOS_DSN`, and `AUTHZ_DATABASE_URL`.
 When PostgreSQL runs on the VPS, it must accept traffic from the Docker bridge
@@ -890,13 +958,33 @@ Browser URLs remain normal `https://...` URLs on port `443`; only Cloudflare's
 connection to the VPS is rewritten.
 
 OIDC discovery and signing keys are intentionally public and their requests do
-not contain a client ID. Before removing a legacy global Hydra application
-allowlist, add a response-header rule limited to GET/HEAD/OPTIONS requests for
-`/.well-known/openid-configuration`, `/.well-known/oauth-authorization-server`,
-and `/.well-known/jwks.json` on `hydra-dev.idnest.cloud`. Set
-`Access-Control-Allow-Origin: *` and do not set
-`Access-Control-Allow-Credentials`. Token and userinfo routes must continue to
-use Hydra's per-client CORS evaluation.
+not contain a client ID. Under **Rules → Overview**, create one **Response
+Header Transform Rule** named `Hydra public metadata CORS` with this expression:
+
+```text
+(
+  http.host eq "hydra-dev.idnest.cloud"
+  and http.request.method in {"GET" "HEAD" "OPTIONS"}
+  and http.request.uri.path in {
+    "/.well-known/openid-configuration"
+    "/.well-known/oauth-authorization-server"
+    "/.well-known/jwks.json"
+  }
+)
+```
+
+Configure three response-header operations:
+
+| Operation | Header | Value |
+| --- | --- | --- |
+| Set static | `Access-Control-Allow-Origin` | `*` |
+| Set static | `Access-Control-Allow-Methods` | `GET, HEAD, OPTIONS` |
+| Remove | `Access-Control-Allow-Credentials` | — |
+
+Use **Set static**, not **Add**, so an upstream header cannot produce a
+duplicate value. The hostname's proxied DNS record and existing origin-port
+rewrite remain unchanged. Do not broaden this expression to `/oauth2/token`,
+`/userinfo`, `/oauth2/revoke`, or `/oauth2/sessions/*`.
 
 Restrict VPS ports `8444`–`8447` to Cloudflare's current
 [published IP ranges](https://www.cloudflare.com/ips/). Permit SSH only from
@@ -1118,10 +1206,10 @@ Resource servers must validate token issuer, signature, expiry, and audience.
 Browser state is not an authorization boundary.
 
 Hydra stores `allowed_cors_origins` with the OAuth client and applies changes
-without an identity-service restart. The deployment-level Hydra allowlist is
-therefore deliberately limited to Hydra's own origin; do not restore product
-domain wildcards. HTTP browser origins are accepted only for loopback clients
-outside production. Server web, native, and service clients default to no
+without an identity-service restart. The deployment-level fallback contains
+only Hydra's own public origin, so each SPA client remains its own active CORS
+boundary. HTTP browser origins are accepted only for loopback clients outside
+production. Server web, native, and service clients default to no recorded
 browser origins.
 
 Existing installations must replace the former shared
@@ -1137,6 +1225,15 @@ Replace the old auth-application copy with
 fails when either new identity setting is absent, preventing Hydra's enabled
 CORS middleware from running with an empty global origin list.
 
+For local development, make the same rename in `monorepo/.env`; preserve only
+the origins that are still needed as transitional settings/logout return
+destinations. `ADMIN_CORS_ALLOWED_ORIGINS` remains a separate admin-backend
+setting. Verify the migrated files and renderers before restarting services:
+
+```bash
+pnpm test:cors:config
+```
+
 Inventory existing SPA clients with a non-mutating dry run, review the exact
 derived origins, then apply the backfill if they are correct:
 
@@ -1144,6 +1241,21 @@ derived origins, then apply the backfill if they are correct:
 pnpm clients:cors:backfill
 pnpm clients:cors:backfill -- --apply
 ```
+
+Install the local and Cloudflare metadata-only rules before restarting Hydra
+with the restrictive global value. After deployment, verify both the positive
+metadata behavior and the negative route boundary:
+
+```bash
+pnpm test:cors:live -- https://hydra-dev.idnest.cloud
+```
+
+Hydra v26.2.0 cannot resolve a client-only origin from a true browser preflight
+because the `OPTIONS` request carries no client identity. Public SPA token
+exchange must therefore remain a CORS-safelisted
+`application/x-www-form-urlencoded` request without custom headers. Do not call
+userinfo directly from a browser when that requires an `Authorization` header
+preflight; use ID-token claims or a same-origin BFF for that data instead.
 
 The helper skips clients that already have browser origins and never invents
 application return URIs; configure those exact destinations through the admin
