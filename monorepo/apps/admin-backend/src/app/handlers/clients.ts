@@ -56,7 +56,7 @@ function normalizeCorsOrigins(values: string[] | undefined): string[] {
     const origin = normalizeClientCorsOrigin(value, { allowHttpLoopback: allowHttpLoopback() });
     if (!origin) {
       throw new Error(
-        "allowed_cors_origins entries must be exact HTTPS origins without paths, credentials, queries, fragments, or wildcards",
+        "allowed_cors_origins entries must be exact supported HTTPS origins without paths, credentials, queries, fragments, wildcards, or IPv6 literals",
       );
     }
     return origin;

@@ -214,6 +214,7 @@ Run commands from the repository root.
 | --- | --- |
 | `pnpm build` | Build every Nx application |
 | `pnpm test` | Run all configured tests |
+| `pnpm test:client-cors:integration` | Create a client in an isolated Hydra v26.2.0 container and verify its runtime CORS origins |
 | `pnpm typecheck` | Type-check all projects |
 | `pnpm lint` | Lint all projects |
 | `pnpm auth-backend:build` | Build only the auth backend |
@@ -1083,6 +1084,9 @@ For browser applications:
 - Register exact browser origins in **Allowed CORS origins**. The admin UI can
   derive initial origins from redirect URIs, but they remain independently
   editable.
+- Do not register IPv6-literal browser origins. Hydra v26.2.0 stores them but
+  does not emit client-specific CORS response headers for them, so the admin
+  API rejects them instead of accepting a configuration Hydra cannot enforce.
 - Register exact **Application return URIs** for standalone settings/logout
   navigation and include the OAuth `client_id` when starting those flows.
 - Request only the required scopes and audience.

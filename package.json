@@ -21,7 +21,8 @@
     "db:migrate": "./scripts/deploy/run-migrations.sh",
     "nx": "pnpm --dir=monorepo nx",
     "bootstrap:local": "./scripts/setup/bootstrap-local.sh",
-    "clients:cors:backfill": "node scripts/setup/backfill-client-cors.js"
+    "clients:cors:backfill": "node scripts/setup/backfill-client-cors.js",
+    "test:client-cors:integration": "bash scripts/docker/test-client-cors-integration.sh"
   },
   "packageManager": "pnpm@9.15.0"
 }

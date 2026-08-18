@@ -44,7 +44,7 @@ describe("oauth client management", () => {
     expect(body.allowed_cors_origins).toEqual(["https://app1"]);
   });
 
-  it("normalizes and deduplicates SPA browser origins", async () => {
+  it("normalizes, deduplicates, and preserves every supported SPA browser-origin class", async () => {
     const fetchMock = mockFetchByUrl([
       { match: "/admin/clients", result: { ok: true, status: 201, json: { client_id: "spa" } } },
     ]);
@@ -52,7 +52,18 @@ describe("oauth client management", () => {
       client_id: "spa",
       client_type: "spa",
       redirect_uris: ["https://client.example/callback"],
-      allowed_cors_origins: ["https://client.example/", " https://client.example "],
+      allowed_cors_origins: [
+        "https://CLIENT.example:443/",
+        " https://client.example ",
+        "https://app.client.example",
+        "https://bücher.example",
+        "https://client.example:8443",
+        "https://192.0.2.10:9443",
+        "http://localhost:80",
+        "http://localhost:4200",
+        "http://tenant.localhost:4300",
+        "http://127.1:4400",
+      ],
       metadata: {
         allowed_return_uris: ["https://client.example/account/security"],
       },
@@ -60,13 +71,81 @@ describe("oauth client management", () => {
 
     expect(res.status).toBe(201);
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(body.allowed_cors_origins).toEqual(["https://client.example"]);
+    expect(body.allowed_cors_origins).toEqual([
+      "https://client.example",
+      "https://app.client.example",
+      "https://xn--bcher-kva.example",
+      "https://client.example:8443",
+      "https://192.0.2.10:9443",
+      "http://localhost",
+      "http://localhost:4200",
+      "http://tenant.localhost:4300",
+      "http://127.0.0.1:4400",
+    ]);
     expect(body.metadata.allowed_return_uris).toEqual([
       "https://client.example/account/security",
     ]);
   });
 
-  it("rejects missing, wildcard, and path-based SPA browser origins", async () => {
+  it("accepts at most 20 distinct SPA browser origins", async () => {
+    const fetchMock = mockFetchByUrl([
+      { match: "/admin/clients", result: { ok: true, status: 201, json: { client_id: "spa" } } },
+    ]);
+    const origins = Array.from({ length: 20 }, (_, index) => `https://app-${index}.example`);
+
+    expect(
+      await createClient({
+        client_id: "spa",
+        client_type: "spa",
+        redirect_uris: ["https://app-0.example/callback"],
+        allowed_cors_origins: origins,
+      }),
+    ).toMatchObject({ status: 201 });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).allowed_cors_origins).toEqual(origins);
+  });
+
+  it("rejects more than 20 SPA browser origins before calling Hydra", async () => {
+    const fetchMock = mockFetchByUrl([]);
+    const origins = Array.from({ length: 21 }, (_, index) => `https://app-${index}.example`);
+    expect(
+      await createClient({
+        client_id: "spa",
+        client_type: "spa",
+        redirect_uris: ["https://app-0.example/callback"],
+        allowed_cors_origins: origins,
+      }),
+    ).toMatchObject({
+      status: 400,
+      body: { error: "allowed_cors_origins must contain at most 20 origins" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing collection", undefined],
+    ["empty collection", []],
+    ["wildcard", ["https://*.example.com"]],
+    ["path", ["https://client.example/callback"]],
+    ["credentials", ["https://user:secret@client.example"]],
+    ["query", ["https://client.example?tenant=one"]],
+    ["fragment", ["https://client.example#section"]],
+    ["non-HTTP scheme", ["com.example.app://callback"]],
+    ["non-loopback HTTP", ["http://client.example"]],
+    ["HTTPS IPv6 literal unsupported by Hydra", ["https://[2001:db8::1]:9443"]],
+    ["HTTP IPv6 loopback unsupported by Hydra", ["http://[::1]:4500"]],
+  ] as Array<[string, string[] | undefined]>)("rejects a SPA browser-origin collection containing %s", async (_label, origins) => {
+    const fetchMock = mockFetchByUrl([]);
+    const res = await createClient({
+      client_id: "spa",
+      client_type: "spa",
+      redirect_uris: ["https://client.example/callback"],
+      allowed_cors_origins: origins,
+    });
+    expect(res).toMatchObject({ status: 400 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-array and non-string browser-origin values before calling Hydra", async () => {
     const fetchMock = mockFetchByUrl([]);
     const base = {
       client_id: "spa",
@@ -74,17 +153,32 @@ describe("oauth client management", () => {
       redirect_uris: ["https://client.example/callback"],
     };
 
-    expect(await createClient(base)).toMatchObject({ status: 400 });
-    expect(await createClient({ ...base, allowed_cors_origins: ["https://*.example.com"] })).toMatchObject({
+    expect(
+      await createClient({
+        ...base,
+        allowed_cors_origins: "https://client.example" as unknown as string[],
+      }),
+    ).toMatchObject({ status: 400 });
+    expect(
+      await createClient({
+        ...base,
+        allowed_cors_origins: ["https://client.example", 42] as unknown as string[],
+      }),
+    ).toMatchObject({
       status: 400,
-    });
-    expect(await createClient({ ...base, allowed_cors_origins: ["https://client.example/callback"] })).toMatchObject({
-      status: 400,
+      body: { error: "allowed_cors_origins entries must be strings" },
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects non-loopback HTTP origins in production", async () => {
+  it.each([
+    "http://client.example",
+    "http://localhost:4200",
+    "http://tenant.localhost:4200",
+    "http://127.0.0.1:4200",
+    "http://[::1]:4200",
+  ])("rejects HTTP browser origin in production: %s", async (origin) => {
+    const fetchMock = mockFetchByUrl([]);
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     try {
@@ -92,9 +186,10 @@ describe("oauth client management", () => {
         client_id: "spa",
         client_type: "spa",
         redirect_uris: ["https://client.example/callback"],
-        allowed_cors_origins: ["http://localhost:4200"],
+        allowed_cors_origins: [origin],
       });
       expect(res).toMatchObject({ status: 400 });
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;
@@ -129,16 +224,35 @@ describe("oauth client management", () => {
     });
   });
 
-  it("rejects browser origins for non-browser client profiles", async () => {
+  it.each(["service", "web", "native"] as const)(
+    "rejects browser origins for the %s client profile",
+    async (clientType) => {
+      const fetchMock = mockFetchByUrl([]);
+      const res = await createClient({
+        client_id: `${clientType}-with-cors`,
+        client_type: clientType,
+        redirect_uris: clientType === "service" ? undefined : ["https://client.example/callback"],
+        allowed_cors_origins: ["https://client.example"],
+      });
+      expect(res).toMatchObject({
+        status: 400,
+        body: { error: "allowed_cors_origins is only supported for SPA or custom clients" },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("requires browser origins when public=true infers a SPA client", async () => {
     const fetchMock = mockFetchByUrl([]);
-    const res = await createClient({
-      client_id: "service-with-cors",
-      client_type: "service",
-      allowed_cors_origins: ["https://client.example"],
-    });
-    expect(res).toMatchObject({
+    expect(
+      await createClient({
+        client_id: "inferred-spa",
+        public: true,
+        redirect_uris: ["https://client.example/callback"],
+      }),
+    ).toMatchObject({
       status: 400,
-      body: { error: "allowed_cors_origins is only supported for SPA or custom clients" },
+      body: { error: "allowed_cors_origins must be a non-empty array for SPA clients" },
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

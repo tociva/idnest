@@ -47,6 +47,9 @@ jobs:
         run: |
           pnpm --dir=monorepo nx run-many -t test --projects=admin-backend,authz-store,server-runtime,shared-types
 
+      - name: Test created-client CORS against Hydra
+        run: pnpm test:client-cors:integration
+
       - name: Build release outputs
         run: |
           pnpm --dir=monorepo admin-backend:build

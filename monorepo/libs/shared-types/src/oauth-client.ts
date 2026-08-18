@@ -20,8 +20,7 @@ export interface CorsOriginOptions {
 const isLoopbackHostname = (hostname: string): boolean =>
   hostname === "localhost" ||
   hostname.endsWith(".localhost") ||
-  hostname === "127.0.0.1" ||
-  hostname === "[::1]";
+  hostname === "127.0.0.1";
 
 /**
  * Normalize an exact browser origin for Hydra client CORS.
@@ -36,9 +35,17 @@ export function normalizeClientCorsOrigin(
   const trimmed = value.trim();
   if (!trimmed || trimmed.includes("*")) return null;
 
+  // URL canonicalization removes empty query/fragment delimiters and resolves
+  // dot segments. Reject those inputs from their original spelling so only an
+  // authority and an optional root slash can be accepted as an exact origin.
+  if (!/^[a-z][a-z\d+.-]*:\/\/[^/?#\\\s]+\/?$/i.test(trimmed)) return null;
+
   try {
     const url = new URL(trimmed);
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    // Hydra v26.2.0 persists IPv6 literal origins but does not emit its CORS
+    // response headers for them, so do not accept a configuration it cannot enforce.
+    if (url.hostname.startsWith("[") && url.hostname.endsWith("]")) return null;
     if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
     if (url.protocol === "http:" && !(options.allowHttpLoopback && isLoopbackHostname(url.hostname))) {
       return null;

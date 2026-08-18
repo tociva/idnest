@@ -7,7 +7,7 @@
     "serve": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "tsx watch apps/auth-backend/src/main.ts"
+        "command": "tsx watch --tsconfig apps/auth-backend/tsconfig.app.json apps/auth-backend/src/main.ts"
       }
     },
     "build": {
