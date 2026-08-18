@@ -882,56 +882,31 @@ only once. Use these filenames when transferring the files securely to the VPS:
 
 Download the appropriate Origin CA root from Cloudflare's
 [Origin CA documentation](https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/).
-Do not commit these files or store the origin private key in GitHub. Install the
-three files by transferring them from the trusted Mac to the existing staging
-directory. Set the same endpoint and administrative account used in step 3:
+Do not commit these files or store the origin private key in GitHub. From the
+trusted Mac, install all three files with the same administrative account and
+SSH key used in step 3:
 
 ```bash
-DEPLOY_KEYS_DIR="../idnest-secure"
-CLOUDFLARE_FILES_DIR="/absolute/path/to/cloudflare-downloads"
-DEVELOPMENT_VPS_HOST="vps-dev.idnest.cloud"
-VPS_SSH_PORT=22
-VPS_ADMIN_USER="replace-with-sudo-enabled-user"
-VPS_ADMIN_SSH_KEY="/absolute/path/to/admin-ssh-private-key"
-
-scp \
-  -i "$VPS_ADMIN_SSH_KEY" \
-  -P "$VPS_SSH_PORT" \
-  -o IdentitiesOnly=yes \
-  -o StrictHostKeyChecking=yes \
-  -o "UserKnownHostsFile=$DEPLOY_KEYS_DIR/vps-known-hosts" \
-  "$CLOUDFLARE_FILES_DIR/origin-cert.pem" \
-  "$CLOUDFLARE_FILES_DIR/origin-key.pem" \
-  "$CLOUDFLARE_FILES_DIR/origin-ca.pem" \
-  "$VPS_ADMIN_USER@$DEVELOPMENT_VPS_HOST:idnest-bootstrap/"
+./scripts/deploy/install-development-origin-ca.sh \
+  /absolute/path/to/cloudflare-downloads \
+  idnest-admin \
+  /absolute/path/to/vps-admin-ssh-private-key
 ```
 
-Then, on the VPS, install and validate them:
+The defaults are `vps-dev.idnest.cloud` and SSH port `22`. Pass a different
+management endpoint after the required arguments when necessary:
 
 ```bash
-BOOTSTRAP_DIR="$HOME/idnest-bootstrap"
-chmod 600 "$BOOTSTRAP_DIR/origin-key.pem"
-
-sudo install -o root -g root -m 644 \
-  "$BOOTSTRAP_DIR/origin-cert.pem" \
-  /etc/idnest/tls/origin-cert.pem
-sudo install -o root -g idnest-tls -m 640 \
-  "$BOOTSTRAP_DIR/origin-key.pem" \
-  /etc/idnest/tls/origin-key.pem
-sudo install -o root -g root -m 644 \
-  "$BOOTSTRAP_DIR/origin-ca.pem" \
-  /etc/idnest/tls/origin-ca.pem
-
-sudo openssl x509 -in /etc/idnest/tls/origin-cert.pem -noout \
-  -subject -issuer -dates -ext subjectAltName
-sudo openssl pkey -in /etc/idnest/tls/origin-key.pem -noout -check
-for hostname in auth-dev.idnest.cloud admin-dev.idnest.cloud \
-  hydra-dev.idnest.cloud kratos-dev.idnest.cloud; do
-  sudo openssl x509 -in /etc/idnest/tls/origin-cert.pem \
-    -noout -checkhost "$hostname"
-done
-sudo stat -c '%U:%G %a %n' /etc/idnest/tls/*
+./scripts/deploy/install-development-origin-ca.sh \
+  CLOUDFLARE_FILES_DIR VPS_ADMIN_USER VPS_ADMIN_SSH_KEY VPS_HOST VPS_PORT
 ```
+
+The script validates the certificate, private key, CA chain, and matching
+public keys locally before transfer. It pins the VPS host with
+`../idnest-secure/vps-known-hosts`, installs the files with the required owner
+and permissions, verifies all four development hostnames on the VPS, and
+removes the staging copies after a successful installation. It may prompt for
+the administrative account's `sudo` password.
 
 Set the zone's SSL/TLS encryption mode to
 [**Full (strict)**](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/)
