@@ -33,15 +33,19 @@ for command in grep mktemp openssl rm sed; do
 done
 
 require_line "$REPO_ROOT/.env.example" \
-  'HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-local.idnest.cloud'
+  'HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-local.idnest.cloud,https://app-local.daybook.cloud'
 require_line "$REPO_ROOT/.env.example" \
   'KRATOS_CORS_ALLOWED_ORIGINS=https://auth-local.idnest.cloud'
+require_line "$REPO_ROOT/.env.example" \
+  "KRATOS_TOTP_ISSUER='Idnest Local'"
 require_line "$REPO_ROOT/monorepo/.env.example" \
   'AUTH_RETURN_TO_ALLOWED_ORIGINS=https://admin-local.idnest.cloud'
 require_line "$SCRIPT_DIR/env/development.env.example" \
-  'HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud'
+  'HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud,https://app-dev.daybook.cloud'
 require_line "$SCRIPT_DIR/env/development.env.example" \
   'KRATOS_CORS_ALLOWED_ORIGINS=https://auth-dev.idnest.cloud'
+require_line "$SCRIPT_DIR/env/development.env.example" \
+  "KRATOS_TOTP_ISSUER='Idnest Development'"
 
 for file in \
   "$REPO_ROOT/.env.example" \
@@ -62,14 +66,19 @@ done
 
 require_text "$REPO_ROOT/scripts/docker/render-kratos-config.sh" \
   'KRATOS_CORS_ALLOWED_ORIGINS:?KRATOS_CORS_ALLOWED_ORIGINS is required'
+require_text "$REPO_ROOT/scripts/docker/render-kratos-config.sh" \
+  'KRATOS_TOTP_ISSUER:?KRATOS_TOTP_ISSUER is required'
 require_text "$REPO_ROOT/config/kratos.tpl.yml" \
   'allowed_origins: ${KRATOS_CORS_ALLOWED_ORIGINS_YAML}'
+require_text "$REPO_ROOT/config/kratos.tpl.yml" \
+  'issuer: ${KRATOS_TOTP_ISSUER}'
 
 local_gateway_config="$SCRIPT_DIR/nginx/hydra-local.idnest.cloud.conf.example"
 for gateway_contract in \
   'openid-configuration' \
   'oauth-authorization-server' \
   'jwks\.json' \
+  'proxy_pass http://127.0.0.1:4444' \
   'proxy_hide_header Access-Control-Allow-Credentials' \
   'add_header Access-Control-Allow-Origin $idnest_public_metadata_cors_origin always' \
   'add_header Access-Control-Allow-Methods $idnest_public_metadata_cors_methods always'; do
@@ -93,9 +102,11 @@ GOOGLE_CLIENT_SECRET='cors-contract-test-secret' \
   "$temporary_directory/identity.env" >/dev/null
 
 require_line "$temporary_directory/identity.env" \
-  "HYDRA_CORS_ALLOWED_ORIGINS='https://hydra-dev.idnest.cloud'"
+  "HYDRA_CORS_ALLOWED_ORIGINS='https://hydra-dev.idnest.cloud,https://app-dev.daybook.cloud'"
 require_line "$temporary_directory/identity.env" \
   "KRATOS_CORS_ALLOWED_ORIGINS='https://auth-dev.idnest.cloud'"
+require_line "$temporary_directory/identity.env" \
+  "KRATOS_TOTP_ISSUER='Idnest Development'"
 reject_legacy_key "$temporary_directory/identity.env"
 "$SCRIPT_DIR/vps/validate-app-env.sh" "$temporary_directory/identity.env" identity >/dev/null
 

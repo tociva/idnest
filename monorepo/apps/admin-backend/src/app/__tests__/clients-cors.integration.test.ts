@@ -6,6 +6,7 @@ const integrationEnabled = process.env.HYDRA_CORS_INTEGRATION === "1";
 const hydraAdminUrl = process.env.HYDRA_CORS_TEST_ADMIN_URL ?? "";
 const hydraPublicUrl = process.env.HYDRA_CORS_TEST_PUBLIC_URL ?? "";
 const globalOrigin = "https://hydra.cors.test";
+const globalSpaOrigin = "https://spa.cors.test";
 const publicMetadataPaths = [
   "/.well-known/openid-configuration",
   "/.well-known/oauth-authorization-server",
@@ -78,6 +79,17 @@ async function tokenPreflightResponse(origin: string): Promise<Response> {
   });
 }
 
+async function userInfoPreflightResponse(origin: string): Promise<Response> {
+  return fetch(`${hydraPublicUrl.replace(/\/+$/, "")}/userinfo`, {
+    method: "OPTIONS",
+    headers: {
+      "Access-Control-Request-Headers": "authorization",
+      "Access-Control-Request-Method": "GET",
+      Origin: origin,
+    },
+  });
+}
+
 async function publicMetadataResponse(path: string, origin: string): Promise<Response> {
   return fetch(`${hydraPublicUrl.replace(/\/+$/, "")}${path}`, {
     headers: { Origin: origin },
@@ -143,6 +155,21 @@ describe.skipIf(!integrationEnabled)("created OAuth client CORS against Hydra", 
     expect(response.status).toBe(400);
     expect(response.headers.get("access-control-allow-origin")).toBe(globalOrigin);
     expect(response.headers.get("access-control-allow-credentials")).toBe("true");
+  });
+
+  it("allows an exact global SPA origin to preflight userinfo without a wildcard", async () => {
+    const response = await userInfoPreflightResponse(globalSpaOrigin);
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe(globalSpaOrigin);
+    expect(response.headers.get("access-control-allow-credentials")).toBe("true");
+    expect(response.headers.get("access-control-allow-headers")).toContain("authorization");
+  });
+
+  it("does not allow an unconfigured origin to preflight userinfo", async () => {
+    const response = await userInfoPreflightResponse(deniedOrigins[0]);
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    expect(response.headers.get("access-control-allow-credentials")).toBeNull();
   });
 
   it.each(deniedOrigins)("does not allow an unregistered near-miss origin: %s", async (origin) => {

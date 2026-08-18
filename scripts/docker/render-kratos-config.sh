@@ -10,6 +10,7 @@ tmp="${output}.tmp"
 umask 077
 
 : "${KRATOS_CORS_ALLOWED_ORIGINS:?KRATOS_CORS_ALLOWED_ORIGINS is required}"
+: "${KRATOS_TOTP_ISSUER:?KRATOS_TOTP_ISSUER is required}"
 
 render_cors_origins_yaml() {
   printf '%s\n' "${KRATOS_CORS_ALLOWED_ORIGINS:-}" | awk '

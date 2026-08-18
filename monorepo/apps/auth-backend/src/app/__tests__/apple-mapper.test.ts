@@ -73,6 +73,14 @@ describe("Social OIDC Kratos config", () => {
     );
   });
 
+  it("requires an environment-specific TOTP issuer", () => {
+    expect(kratosTemplate).toContain("issuer: ${KRATOS_TOTP_ISSUER}");
+    expect(kratosTemplate).not.toContain("issuer: Kratos");
+    expect(kratosRenderer).toContain(
+      "${KRATOS_TOTP_ISSUER:?KRATOS_TOTP_ISSUER is required}",
+    );
+  });
+
   it("uses Kratos v26.2-compatible Google and Apple provider config", () => {
     const google = providerBlock("google");
     const apple = providerBlock("apple");

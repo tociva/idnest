@@ -55,7 +55,7 @@ selfservice:
       enabled: false
     totp:
       config:
-        issuer: Kratos
+        issuer: ${KRATOS_TOTP_ISSUER}
       enabled: true
     lookup_secret:
       enabled: true

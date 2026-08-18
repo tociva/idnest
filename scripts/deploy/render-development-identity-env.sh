@@ -84,7 +84,7 @@ trap cleanup EXIT HUP INT TERM
 
 {
   printf "%s\n" "AUTH_URL='https://auth-dev.idnest.cloud'"
-  printf "%s\n" "HYDRA_CORS_ALLOWED_ORIGINS='https://hydra-dev.idnest.cloud'"
+  printf "%s\n" "HYDRA_CORS_ALLOWED_ORIGINS='https://hydra-dev.idnest.cloud,https://app-dev.daybook.cloud'"
   printf "%s\n" "KRATOS_CORS_ALLOWED_ORIGINS='https://auth-dev.idnest.cloud'"
   printf "HYDRA_DSN='%s'\n" "$HYDRA_DSN"
   printf "%s\n" "HYDRA_URLS_SELF_ISSUER='https://hydra-dev.idnest.cloud/'"
@@ -100,6 +100,7 @@ trap cleanup EXIT HUP INT TERM
   printf "%s\n" "KRATOS_URLS_LOGOUT='https://hydra-dev.idnest.cloud/oauth2/sessions/logout'"
   printf "%s\n" "KRATOS_COOKIES_DOMAIN='.idnest.cloud'"
   printf "%s\n" "KRATOS_LOG_LEVEL='info'"
+  printf "%s\n" "KRATOS_TOTP_ISSUER='Idnest Development'"
   printf "KRATOS_CSRF_COOKIE_SECRET='%s'\n" "$KRATOS_CSRF_COOKIE_SECRET"
   printf "KRATOS_CIPHER_SECRET='%s'\n" "$KRATOS_CIPHER_SECRET"
   printf "GOOGLE_CLIENT_ID='%s'\n" "$GOOGLE_CLIENT_ID"

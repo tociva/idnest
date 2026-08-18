@@ -27,7 +27,7 @@ docker run --rm -d \
   -e URLS_LOGIN=http://login.cors.test/login \
   -e URLS_CONSENT=http://login.cors.test/consent \
   -e SERVE_PUBLIC_CORS_ENABLED=true \
-  -e SERVE_PUBLIC_CORS_ALLOWED_ORIGINS=https://hydra.cors.test \
+  -e SERVE_PUBLIC_CORS_ALLOWED_ORIGINS=https://hydra.cors.test,https://spa.cors.test \
   -e SERVE_PUBLIC_CORS_ALLOWED_METHODS=GET,POST,OPTIONS \
   -e SERVE_PUBLIC_CORS_ALLOWED_HEADERS=Authorization,Content-Type,Accept \
   -e SERVE_PUBLIC_CORS_ALLOW_CREDENTIALS=true \
