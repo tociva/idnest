@@ -3,7 +3,6 @@ import type { AppToastEvent, AppToastOptions } from "./toast.model";
 
 /**
  * Plain signal-based toast service (no ngrx).
- * Mirrors the public API of daybook's ToastStore.
  */
 @Injectable({ providedIn: "root" })
 export class ToastService {

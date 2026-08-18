@@ -27,35 +27,35 @@ const OIDC_SCOPE_OPTIONS: readonly ScopeOption[] = [
 ];
 
 const API_SCOPE_OPTIONS: readonly ScopeOption[] = [
-  { value: "taskmesh.workflow.read", label: "Taskmesh workflow read" },
-  { value: "taskmesh.workflow.execute", label: "Taskmesh workflow execute" },
-  { value: "taskmesh.execution.read", label: "Taskmesh execution read" },
+  { value: "resource.read", label: "Resource read" },
+  { value: "resource.write", label: "Resource write" },
+  { value: "resource.manage", label: "Resource manage" },
 ];
 
 export const CLIENT_PROFILE_VIEWS: Record<KnownOAuthClientType, OAuthClientProfileView> = {
   spa: {
     ...OAUTH_CLIENT_PROFILES.spa,
     scopeOptions: OIDC_SCOPE_OPTIONS,
-    audiencePlaceholder: "taskmesh-api",
-    redirectPlaceholder: "https://console-local.taskme.sh/auth/callback",
+    audiencePlaceholder: "example-api",
+    redirectPlaceholder: "https://client.example/auth/callback",
   },
   service: {
     ...OAUTH_CLIENT_PROFILES.service,
     scopeOptions: API_SCOPE_OPTIONS,
-    audiencePlaceholder: "taskmesh-api",
+    audiencePlaceholder: "example-api",
     redirectPlaceholder: "",
   },
   web: {
     ...OAUTH_CLIENT_PROFILES.web,
     scopeOptions: OIDC_SCOPE_OPTIONS,
-    audiencePlaceholder: "taskmesh-api",
-    redirectPlaceholder: "https://app.daybook.cloud/auth/callback",
+    audiencePlaceholder: "example-api",
+    redirectPlaceholder: "https://client.example/auth/callback",
   },
   native: {
     ...OAUTH_CLIENT_PROFILES.native,
     scopeOptions: OIDC_SCOPE_OPTIONS,
-    audiencePlaceholder: "taskmesh-api",
-    redirectPlaceholder: "com.daybook.app:/auth/callback",
+    audiencePlaceholder: "example-api",
+    redirectPlaceholder: "com.example.app:/auth/callback",
   },
 };
 

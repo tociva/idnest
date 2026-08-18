@@ -88,7 +88,7 @@
                   name="client_id"
                   [(ngModel)]="form.client_id"
                   [readonly]="!createMode"
-                  placeholder="taskmesh-console"
+                  placeholder="example-spa"
                 />
               </tng-form-field>
               <tng-form-field>
@@ -98,7 +98,7 @@
                   name="client_name"
                   [(ngModel)]="form.client_name"
                   [readonly]="protectedAdminClient"
-                  placeholder="Taskmesh Console"
+                  placeholder="Example SPA"
                 />
               </tng-form-field>
               <tng-form-field class="full">
@@ -108,7 +108,7 @@
                   name="client_uri"
                   [(ngModel)]="form.client_uri"
                   [readonly]="protectedAdminClient"
-                  placeholder="https://console.taskme.sh"
+                  placeholder="https://client.example"
                 />
               </tng-form-field>
               <tng-form-field class="full">
@@ -118,7 +118,7 @@
                   name="logo_uri"
                   [(ngModel)]="form.logo_uri"
                   [readonly]="protectedAdminClient"
-                  placeholder="https://console.taskme.sh/logo.png"
+                  placeholder="https://assets.idnest.cloud/brands/example/logo.png"
                 />
               </tng-form-field>
               <tng-form-field class="full">
@@ -128,7 +128,7 @@
                   name="policy_uri"
                   [(ngModel)]="form.policy_uri"
                   [readonly]="protectedAdminClient"
-                  placeholder="https://console.taskme.sh/privacy"
+                  placeholder="https://client.example/privacy"
                 />
               </tng-form-field>
               <tng-form-field class="full">
@@ -138,7 +138,7 @@
                   name="tos_uri"
                   [(ngModel)]="form.tos_uri"
                   [readonly]="protectedAdminClient"
-                  placeholder="https://console.taskme.sh/terms"
+                  placeholder="https://client.example/terms"
                 />
               </tng-form-field>
               <tng-form-field>
@@ -148,7 +148,7 @@
                   name="contacts"
                   [(ngModel)]="form.contacts"
                   [readonly]="protectedAdminClient"
-                  placeholder="support@daybook.cloud"
+                  placeholder="support@example.com"
                 />
               </tng-form-field>
             </div>
@@ -180,7 +180,7 @@
                   name="custom_scope"
                   [(ngModel)]="customScope"
                   [readonly]="protectedAdminClient"
-                  [placeholder]="form.client_type === 'service' ? 'taskmesh.workflow.read' : 'custom.scope'"
+                  [placeholder]="form.client_type === 'service' ? 'resource.read' : 'custom.scope'"
                   (keydown)="onCustomScopeKeydown($event)"
                 />
                 <tng-button
@@ -201,7 +201,7 @@
                   [value]="form.audience"
                   (valueChange)="form.audience = $event ?? ''"
                   [readonly]="protectedAdminClient"
-                  [placeholder]="selectedProfile?.audiencePlaceholder ?? 'taskmesh-api'"
+                  [placeholder]="selectedProfile?.audiencePlaceholder ?? 'example-api'"
                 />
               </tng-form-field>
             </div>
@@ -231,9 +231,53 @@
                       [value]="form.postLogoutUris"
                       (valueChange)="form.postLogoutUris = $event ?? ''"
                       [readonly]="protectedAdminClient"
-                      placeholder="https://console-local.taskme.sh/auth/logout"
+                      placeholder="https://client.example/auth/logout"
                     />
                   </tng-form-field>
+                }
+                @if (showBrowserOrigins) {
+                  <div class="field-heading full">
+                    <div>
+                      <strong>Browser origins</strong>
+                      <p>Exact origins allowed to call Hydra from browser JavaScript. Scheme and port must match.</p>
+                    </div>
+                    <tng-button
+                      appearance="outline"
+                      tone="neutral"
+                      size="sm"
+                      [disabled]="protectedAdminClient || !form.redirectUris.trim()"
+                      (click)="useRedirectOrigins()"
+                    >
+                      Use redirect origins
+                    </tng-button>
+                  </div>
+                  <tng-form-field class="full">
+                    <tng-label>Allowed CORS origins</tng-label>
+                    <tng-textarea
+                      name="allowed_cors_origins"
+                      [rows]="3"
+                      [value]="form.corsOrigins"
+                      (valueChange)="form.corsOrigins = $event ?? ''"
+                      [readonly]="protectedAdminClient"
+                      placeholder="https://client.example"
+                    />
+                  </tng-form-field>
+                }
+                @if (showReturnUris) {
+                  <tng-form-field class="full">
+                    <tng-label>Application return URIs</tng-label>
+                    <tng-textarea
+                      name="allowed_return_uris"
+                      [rows]="3"
+                      [value]="form.returnUris"
+                      (valueChange)="form.returnUris = $event ?? ''"
+                      [readonly]="protectedAdminClient"
+                      placeholder="https://client.example/account/security"
+                    />
+                  </tng-form-field>
+                  <p class="field-help full">
+                    Exact destinations accepted after standalone settings or logout flows. These are separate from OAuth callbacks.
+                  </p>
                 }
               </div>
             </section>

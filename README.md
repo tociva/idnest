@@ -1,8 +1,9 @@
 # Idnest Authentication Platform
 
-Idnest is the authentication and identity platform used by `daybook.cloud`.
-It is built upon Ory Hydra and Ory Kratos, with Express backends, Angular
-frontends, PostgreSQL, and a shared authorization store in an Nx workspace.
+Idnest is an independent authentication, identity, OAuth 2.0, and OpenID
+Connect platform. It is built upon Ory Hydra and Ory Kratos, with Express
+backends, Angular frontends, PostgreSQL, and a shared authorization store in an
+Nx workspace.
 
 This README is the single project guide. It covers the architecture, local
 development, development deployment, common workflows, and security boundaries.
@@ -554,7 +555,8 @@ VPS_HOST=replace-with-terraform-output
 VPS_PORT=replace-with-terraform-output
 VPS_USER=replace-with-terraform-output
 AUTH_URL=https://auth-dev.idnest.cloud
-CORS_ALLOWED_ORIGINS=https://*.idnest.cloud,https://*.daybook.cloud
+HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud
+KRATOS_CORS_ALLOWED_ORIGINS=https://auth-dev.idnest.cloud
 HYDRA_DSN=postgres://hydrau:replace-with-hydra-password@host.docker.internal:5432/hydra?sslmode=disable
 HYDRA_URLS_SELF_ISSUER=https://hydra-dev.idnest.cloud/
 HYDRA_URLS_CONSENT=https://auth-dev.idnest.cloud/oauth2/consent
@@ -586,7 +588,7 @@ ADMIN_CSRF_SECRET=replace-with-a-long-random-secret
 ADMIN_OIDC_CLIENT_SECRET=replace-with-admin-client-secret
 ```
 
-Keep all 41 properties. Do not enter the first ten infrastructure values by
+Keep all 42 properties. Do not enter the first ten infrastructure values by
 hand: `update-development-env-from-terraform.sh` replaces their
 `replace-with-terraform-output` placeholders from validated Terraform state.
 Replace every remaining placeholder with its real value. Leave all four
@@ -629,7 +631,8 @@ properties; update the matching renderer, validator, and example together.
 | Property | Default | Purpose and source |
 | --- | --- | --- |
 | `AUTH_URL` | `https://auth-dev.idnest.cloud` | Public auth UI/backend origin from the `auth-dev` DNS record. |
-| `CORS_ALLOWED_ORIGINS` | `https://*.idnest.cloud,https://*.daybook.cloud` | Browser origins allowed to call Kratos; derived from the development product domains. |
+| `HYDRA_CORS_ALLOWED_ORIGINS` | `https://hydra-dev.idnest.cloud` | Minimal non-empty global Hydra CORS origin. Browser applications are registered per client through `allowed_cors_origins` in the admin UI. |
+| `KRATOS_CORS_ALLOWED_ORIGINS` | `https://auth-dev.idnest.cloud` | Auth UI origin allowed to call Kratos. Kratos does not read Hydra client configuration. |
 | `HYDRA_URLS_SELF_ISSUER` | `https://hydra-dev.idnest.cloud/` | Public OAuth issuer. It must exactly match the URL clients use, including the trailing slash. |
 | `HYDRA_URLS_CONSENT` | `https://auth-dev.idnest.cloud/oauth2/consent` | Auth backend endpoint Hydra uses for consent challenges. |
 | `HYDRA_URLS_LOGIN` | `https://auth-dev.idnest.cloud/oauth2/login` | Auth backend endpoint Hydra uses for login challenges. |
@@ -885,6 +888,15 @@ Cloudflare documents destination-port overrides in
 Browser URLs remain normal `https://...` URLs on port `443`; only Cloudflare's
 connection to the VPS is rewritten.
 
+OIDC discovery and signing keys are intentionally public and their requests do
+not contain a client ID. Before removing a legacy global Hydra application
+allowlist, add a response-header rule limited to GET/HEAD/OPTIONS requests for
+`/.well-known/openid-configuration`, `/.well-known/oauth-authorization-server`,
+and `/.well-known/jwks.json` on `hydra-dev.idnest.cloud`. Set
+`Access-Control-Allow-Origin: *` and do not set
+`Access-Control-Allow-Credentials`. Token and userinfo routes must continue to
+use Hydra's per-client CORS evaluation.
+
 Restrict VPS ports `8444`–`8447` to Cloudflare's current
 [published IP ranges](https://www.cloudflare.com/ips/). Permit SSH only from
 approved administration and CI sources. Never open Hydra admin `4445`, Kratos
@@ -918,7 +930,7 @@ outputs change later, repeat the plan/apply commands in step 1 before running
 this sync; do not run an unplanned second apply here.
 
 Review the protected file with your preferred editor, then validate the full
-41-property contract:
+42-property contract:
 
 ```bash
 ./scripts/deploy/vps/validate-app-env.sh \
@@ -1068,6 +1080,11 @@ For browser applications:
 - Use Authorization Code with PKCE.
 - Configure the client as public with `token_endpoint_auth_method=none`.
 - Register exact redirect and post-logout URIs; do not use wildcards.
+- Register exact browser origins in **Allowed CORS origins**. The admin UI can
+  derive initial origins from redirect URIs, but they remain independently
+  editable.
+- Register exact **Application return URIs** for standalone settings/logout
+  navigation and include the OAuth `client_id` when starting those flows.
 - Request only the required scopes and audience.
 - Never place a client secret in browser code.
 
@@ -1095,6 +1112,38 @@ https://hydra-local.idnest.cloud/.well-known/openid-configuration
 
 Resource servers must validate token issuer, signature, expiry, and audience.
 Browser state is not an authorization boundary.
+
+Hydra stores `allowed_cors_origins` with the OAuth client and applies changes
+without an identity-service restart. The deployment-level Hydra allowlist is
+therefore deliberately limited to Hydra's own origin; do not restore product
+domain wildcards. HTTP browser origins are accepted only for loopback clients
+outside production. Server web, native, and service clients default to no
+browser origins.
+
+Existing installations must replace the former shared
+`CORS_ALLOWED_ORIGINS` value before restarting identity services:
+
+```dotenv
+HYDRA_CORS_ALLOWED_ORIGINS=https://hydra.example.com
+KRATOS_CORS_ALLOWED_ORIGINS=https://auth.example.com
+```
+
+Replace the old auth-application copy with
+`AUTH_RETURN_TO_ALLOWED_ORIGINS` during the same release. Identity startup now
+fails when either new identity setting is absent, preventing Hydra's enabled
+CORS middleware from running with an empty global origin list.
+
+Inventory existing SPA clients with a non-mutating dry run, review the exact
+derived origins, then apply the backfill if they are correct:
+
+```bash
+pnpm clients:cors:backfill
+pnpm clients:cors:backfill -- --apply
+```
+
+The helper skips clients that already have browser origins and never invents
+application return URIs; configure those exact destinations through the admin
+UI.
 
 ## Troubleshooting
 

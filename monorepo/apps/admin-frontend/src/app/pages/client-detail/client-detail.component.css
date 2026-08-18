@@ -117,6 +117,25 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.field-heading {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.field-heading strong {
+  font-size: 0.88rem;
+}
+
+.field-heading p,
+.field-help {
+  color: var(--tng-semantic-foreground-muted, #6b7280);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  margin: 0.2rem 0 0;
+}
+
 .protocol-grid {
   border: 1px solid var(--tng-semantic-border-subtle, #dbe3ea);
   border-radius: 0.5rem;
@@ -203,6 +222,11 @@
   .scope-add-row,
   .protocol-row {
     grid-template-columns: 1fr;
+  }
+
+  .field-heading {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .secret-actions {

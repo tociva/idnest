@@ -43,6 +43,7 @@ export interface HydraClient {
     trust_tier?: "first_party" | "partner" | "third_party";
     consent_version?: number;
     remember_offline_access?: boolean;
+    allowed_return_uris?: string[];
     [key: string]: unknown;
   } | null;
   grant_types?: string[];
@@ -50,6 +51,7 @@ export interface HydraClient {
   scope?: string;
   redirect_uris?: string[];
   post_logout_redirect_uris?: string[];
+  allowed_cors_origins?: string[];
   audience?: string[];
   token_endpoint_auth_method?: string;
   client_secret?: string;
@@ -68,6 +70,8 @@ export interface ClientFormValue {
     trust_tier: "first_party" | "partner" | "third_party";
     consent_version: number;
     remember_offline_access: boolean;
+    allowed_return_uris: string[];
+    [key: string]: unknown;
   };
   client_type: OAuthClientType;
   public: boolean;
@@ -77,6 +81,7 @@ export interface ClientFormValue {
   scope: string;
   redirect_uris: string[];
   post_logout_redirect_uris: string[];
+  allowed_cors_origins: string[];
   audience: string[];
 }
 

@@ -76,6 +76,12 @@ function originOf(url, fallback) {
   }
 }
 
+function logoutReturnUri(url) {
+  const value = new URL(url);
+  value.searchParams.set("sso", "done");
+  return value.toString();
+}
+
 const adminOrigin = (env.ADMIN_PUBLIC_ORIGIN || DEFAULT_ADMIN_ORIGIN).replace(/\/+$/, "");
 const redirectUris = csv(env.ADMIN_OIDC_REDIRECT_URIS, [
   env.ADMIN_OIDC_REDIRECT_URI || `${adminOrigin}/api/admin/auth/callback`,
@@ -101,9 +107,11 @@ const CLIENT_PAYLOAD = {
   tos_uri: env.ADMIN_AUTH_TOS_URI || `${legalOrigin.replace(/\/+$/, "")}/terms`,
   contacts: csv(env.ADMIN_AUTH_CONTACTS, ["support@idnest.cloud"]),
   metadata: {
+    client_type: "web",
     trust_tier: "first_party",
     consent_version: 1,
     remember_offline_access: false,
+    allowed_return_uris: postLogoutRedirectUris.map(logoutReturnUri),
   },
   audience: csv(CLIENT_AUDIENCE, ["idnest-admin"]),
 };

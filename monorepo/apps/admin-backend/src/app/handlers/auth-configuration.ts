@@ -27,7 +27,6 @@ import {
 } from "@idnest/shared-types";
 import {
   getAuthAssetAllowedOrigins,
-  getAuthLinkAllowedOrigins,
   getAuthzDatabaseUrl,
   getHydraAdminUrl,
 } from "../config";
@@ -110,7 +109,7 @@ function stringList(input: JsonObject, key: string, maxItems = 50): string[] {
 function optionalWebUrl(
   input: JsonObject,
   key: string,
-  allowedOrigins: string[] | null,
+  allowedOrigins: string[] | null = null,
 ): string | undefined {
   const value = text(input, key, { max: 2048 });
   if (!value) return undefined;
@@ -203,21 +202,9 @@ function parseBrandDefinition(input: unknown, status: AuthBrandStatus): AuthBran
     }) as string,
     recoveryHeading: text(input, "recoveryHeading", { required: true, max: 120 }) as string,
     consentHeading: text(input, "consentHeading", { required: true, max: 120 }) as string,
-    supportUrl: optionalWebUrl(
-      input,
-      "supportUrl",
-      status === "active" ? getAuthLinkAllowedOrigins() : null,
-    ),
-    privacyUrl: optionalWebUrl(
-      input,
-      "privacyUrl",
-      status === "active" ? getAuthLinkAllowedOrigins() : null,
-    ),
-    termsUrl: optionalWebUrl(
-      input,
-      "termsUrl",
-      status === "active" ? getAuthLinkAllowedOrigins() : null,
-    ),
+    supportUrl: optionalWebUrl(input, "supportUrl"),
+    privacyUrl: optionalWebUrl(input, "privacyUrl"),
+    termsUrl: optionalWebUrl(input, "termsUrl"),
     copyrightText: text(input, "copyrightText", { max: 160 }),
     defaultLocale: text(input, "defaultLocale", { required: true, max: 16 }) as string,
   };

@@ -11,9 +11,10 @@ import {
   type PublicAuthRecovery,
 } from "@idnest/shared-types";
 import { Router, type Request, type Response } from "express";
-import { getAuthBaseUrl, getCorsOrigins } from "./config";
+import { getAuthBaseUrl, getReturnToOrigins } from "./config";
 import { getHumanHint, pickSafeDetails } from "./error-utils";
 import { acceptLogin, acceptLogout, rejectConsent } from "./handlers";
+import { getHydraClient } from "./hydra-admin";
 import {
   acceptLoadedConsent,
   auditDecision,
@@ -50,8 +51,30 @@ function first(value: unknown): string | undefined {
  * settings handoff. This keeps session-only login `return_to` from becoming an
  * open redirect while still letting /settings require login first.
  */
-function isAllowedAppReturnTo(target: string): boolean {
-  return isAllowedOrigin(target, getCorsOrigins());
+function isRegisteredClientReturnTo(target: string, client: HydraClient): boolean {
+  try {
+    const normalizedTarget = new URL(target).toString();
+    return (client.metadata?.allowed_return_uris ?? []).some((registered) => {
+      try {
+        return new URL(registered).toString() === normalizedTarget;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function isAllowedAppReturnTo(target: string, clientId?: string): Promise<boolean> {
+  if (clientId) {
+    try {
+      if (isRegisteredClientReturnTo(target, await getHydraClient(clientId))) return true;
+    } catch {
+      // Fall through to the narrow deployment-level migration allowlist.
+    }
+  }
+  return isAllowedOrigin(target, getReturnToOrigins());
 }
 
 function isAllowedAuthReturnTo(target: string): boolean {
@@ -65,8 +88,8 @@ function isAllowedAuthReturnTo(target: string): boolean {
 }
 
 /** Product apps plus the trusted OAuth completion URL used after AAL2 enrollment. */
-function isAllowedSettingsReturnTo(target: string): boolean {
-  if (isAllowedAppReturnTo(target)) return true;
+async function isAllowedSettingsReturnTo(target: string, clientId?: string): Promise<boolean> {
+  if (await isAllowedAppReturnTo(target, clientId)) return true;
   try {
     const url = new URL(target);
     const auth = new URL(getAuthBaseUrl());
@@ -76,35 +99,38 @@ function isAllowedSettingsReturnTo(target: string): boolean {
   }
 }
 
-function isAllowedReturnTo(target: string): boolean {
-  return isAllowedAppReturnTo(target) || isAllowedAuthReturnTo(target);
+async function isAllowedReturnTo(target: string, clientId?: string): Promise<boolean> {
+  return (await isAllowedAppReturnTo(target, clientId)) || isAllowedAuthReturnTo(target);
 }
 
-function settingsUrl(returnTo: string | undefined): string {
+function settingsUrl(returnTo: string | undefined, clientId?: string): string {
   const params = new URLSearchParams();
   if (returnTo) params.set("return_to", returnTo);
+  if (clientId) params.set("client_id", clientId);
   const query = params.toString();
   return `${getAuthBaseUrl()}/settings${query ? `?${query}` : ""}`;
 }
 
-function settingsReturnUrl(returnTo: string | undefined): string {
+function settingsReturnUrl(returnTo: string | undefined, clientId?: string): string {
   const params = new URLSearchParams();
   if (returnTo) params.set("return_to", returnTo);
+  if (clientId) params.set("client_id", clientId);
   const query = params.toString();
   return `${getAuthBaseUrl()}/settings/return${query ? `?${query}` : ""}`;
 }
 
-function loginUrl(returnTo: string): string {
+function loginUrl(returnTo: string, clientId?: string): string {
   const params = new URLSearchParams({ return_to: returnTo });
+  if (clientId) params.set("client_id", clientId);
   return `/login?${params.toString()}`;
 }
 
-function switchAccountUrl(clientUri: string | undefined): string | undefined {
-  if (!clientUri) return undefined;
+function switchAccountUrl(client: HydraClient): string | undefined {
+  if (!client.client_uri) return undefined;
   try {
-    const clientRoot = new URL("/", clientUri).toString();
-    if (!isAllowedReturnTo(clientRoot)) return undefined;
-    const params = new URLSearchParams({ return_to: clientRoot });
+    const clientRoot = new URL("/", client.client_uri).toString();
+    if (!isRegisteredClientReturnTo(clientRoot, client)) return undefined;
+    const params = new URLSearchParams({ return_to: clientRoot, client_id: client.client_id });
     return `/logout?${params.toString()}`;
   } catch {
     return undefined;
@@ -183,6 +209,7 @@ export function createPagesRouter(): Router {
     const flow = first(req.query["flow"]);
     const loginChallenge = first(req.query["login_challenge"]);
     const loginHint = first(req.query["login_hint"]);
+    const clientId = first(req.query["client_id"]);
 
     if (!flow) {
       // Carry both the Hydra `login_challenge` (OAuth flow) and a session-only
@@ -192,6 +219,7 @@ export function createPagesRouter(): Router {
       const params = new URLSearchParams();
       if (loginChallenge) params.set("login_challenge", loginChallenge);
       if (postLoginReturnTo) params.set("return_to", postLoginReturnTo);
+      if (clientId) params.set("client_id", clientId);
       const query = params.toString();
       const returnTo = `${getAuthBaseUrl()}/login/return${query ? `?${query}` : ""}`;
       res.redirect(kratos.browserLoginUrl(returnTo));
@@ -234,7 +262,8 @@ export function createPagesRouter(): Router {
     // against the origin allowlist to prevent an open redirect.
     if (!loginChallenge) {
       const returnTo = first(req.query["return_to"]);
-      if (returnTo && isAllowedReturnTo(returnTo)) {
+      const clientId = first(req.query["client_id"]);
+      if (returnTo && await isAllowedReturnTo(returnTo, clientId)) {
         res.redirect(returnTo);
         return;
       }
@@ -283,8 +312,9 @@ export function createPagesRouter(): Router {
   router.get("/settings", async (req: Request, res: Response): Promise<void> => {
     const flow = first(req.query["flow"]);
     const returnTo = first(req.query["return_to"]);
+    const clientId = first(req.query["client_id"]);
 
-    if (returnTo && !isAllowedSettingsReturnTo(returnTo)) {
+    if (returnTo && !(await isAllowedSettingsReturnTo(returnTo, clientId))) {
       sendError(
         res,
         {
@@ -302,7 +332,7 @@ export function createPagesRouter(): Router {
       } catch (e) {
         const status = (e as { status?: number }).status;
         if (status === 401) {
-          res.redirect(loginUrl(settingsUrl(returnTo)));
+          res.redirect(loginUrl(settingsUrl(returnTo, clientId), clientId));
           return;
         }
         sendError(
@@ -313,7 +343,7 @@ export function createPagesRouter(): Router {
         return;
       }
 
-      res.redirect(kratos.browserSettingsUrl(settingsReturnUrl(returnTo)));
+      res.redirect(kratos.browserSettingsUrl(settingsReturnUrl(returnTo, clientId)));
       return;
     }
 
@@ -331,7 +361,7 @@ export function createPagesRouter(): Router {
     } catch (e) {
       const status = (e as { status?: number }).status;
       if (status === 401) {
-        res.redirect(loginUrl(settingsUrl(returnTo)));
+        res.redirect(loginUrl(settingsUrl(returnTo, clientId), clientId));
         return;
       }
       sendError(
@@ -348,7 +378,8 @@ export function createPagesRouter(): Router {
    */
   router.get("/settings/return", async (req: Request, res: Response): Promise<void> => {
     const returnTo = first(req.query["return_to"]);
-    if (returnTo && isAllowedSettingsReturnTo(returnTo)) {
+    const clientId = first(req.query["client_id"]);
+    if (returnTo && await isAllowedSettingsReturnTo(returnTo, clientId)) {
       res.redirect(returnTo);
       return;
     }
@@ -385,7 +416,7 @@ export function createPagesRouter(): Router {
             clientName: loaded.client.client_name ?? loaded.clientId,
             email: identityEmail(loaded.identity),
             reason: "This account is not allowed to use this application.",
-            switchAccountUrl: switchAccountUrl(loaded.client.client_uri),
+            switchAccountUrl: switchAccountUrl(loaded.client),
             recovery: clientRecovery(loaded.client, loaded.clientId),
           }),
         );
@@ -461,7 +492,7 @@ export function createPagesRouter(): Router {
             clientName: loaded.client.client_name ?? loaded.clientId,
             email: identityEmail(loaded.identity),
             reason: "This account is not allowed to use this application.",
-            switchAccountUrl: switchAccountUrl(loaded.client.client_uri),
+            switchAccountUrl: switchAccountUrl(loaded.client),
             recovery: clientRecovery(loaded.client, loaded.clientId),
           }),
         );
@@ -547,7 +578,8 @@ export function createPagesRouter(): Router {
     // back to the app's allowlisted return_to.
     if (!logoutChallenge) {
       const returnTo = first(req.query["return_to"]);
-      if (returnTo && isAllowedReturnTo(returnTo)) {
+      const clientId = first(req.query["client_id"]);
+      if (returnTo && await isAllowedReturnTo(returnTo, clientId)) {
         res.redirect(returnTo);
         return;
       }

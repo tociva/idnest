@@ -35,44 +35,117 @@ describe("oauth client management", () => {
       client_id: "app1",
       public: true,
       redirect_uris: ["https://app1/callback"],
+      allowed_cors_origins: ["https://app1"],
     });
     expect(res.status).toBe(201);
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(body.token_endpoint_auth_method).toBe("none");
     expect(body.grant_types).toContain("authorization_code");
+    expect(body.allowed_cors_origins).toEqual(["https://app1"]);
+  });
+
+  it("normalizes and deduplicates SPA browser origins", async () => {
+    const fetchMock = mockFetchByUrl([
+      { match: "/admin/clients", result: { ok: true, status: 201, json: { client_id: "spa" } } },
+    ]);
+    const res = await createClient({
+      client_id: "spa",
+      client_type: "spa",
+      redirect_uris: ["https://client.example/callback"],
+      allowed_cors_origins: ["https://client.example/", " https://client.example "],
+      metadata: {
+        allowed_return_uris: ["https://client.example/account/security"],
+      },
+    });
+
+    expect(res.status).toBe(201);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.allowed_cors_origins).toEqual(["https://client.example"]);
+    expect(body.metadata.allowed_return_uris).toEqual([
+      "https://client.example/account/security",
+    ]);
+  });
+
+  it("rejects missing, wildcard, and path-based SPA browser origins", async () => {
+    const fetchMock = mockFetchByUrl([]);
+    const base = {
+      client_id: "spa",
+      client_type: "spa" as const,
+      redirect_uris: ["https://client.example/callback"],
+    };
+
+    expect(await createClient(base)).toMatchObject({ status: 400 });
+    expect(await createClient({ ...base, allowed_cors_origins: ["https://*.example.com"] })).toMatchObject({
+      status: 400,
+    });
+    expect(await createClient({ ...base, allowed_cors_origins: ["https://client.example/callback"] })).toMatchObject({
+      status: 400,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-loopback HTTP origins in production", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const res = await createClient({
+        client_id: "spa",
+        client_type: "spa",
+        redirect_uris: ["https://client.example/callback"],
+        allowed_cors_origins: ["http://localhost:4200"],
+      });
+      expect(res).toMatchObject({ status: 400 });
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
   });
 
   it("creates a machine-to-machine client without redirect URIs", async () => {
     const fetchMock = mockFetchByUrl([
-      { match: "/admin/clients", result: { ok: true, status: 201, json: { client_id: "daybook-cloud" } } },
+      { match: "/admin/clients", result: { ok: true, status: 201, json: { client_id: "example-service" } } },
     ]);
     const res = await createClient({
-      client_id: "daybook-cloud",
-      client_name: "Daybook Cloud",
+      client_id: "example-service",
+      client_name: "Example Service",
       client_type: "service",
-      scope: "taskmesh.workflow.read taskmesh.workflow.execute taskmesh.execution.read",
-      audience: ["taskmesh-api"],
+      scope: "resource.read resource.write resource.manage",
+      audience: ["example-api"],
     });
 
     expect(res.status).toBe(201);
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(body).toMatchObject({
-      client_id: "daybook-cloud",
-      client_name: "Daybook Cloud",
+      client_id: "example-service",
+      client_name: "Example Service",
       grant_types: ["client_credentials"],
       response_types: ["code"],
-      scope: "taskmesh.workflow.read taskmesh.workflow.execute taskmesh.execution.read",
+      scope: "resource.read resource.write resource.manage",
       redirect_uris: [],
       post_logout_redirect_uris: [],
-      audience: ["taskmesh-api"],
+      audience: ["example-api"],
       token_endpoint_auth_method: "client_secret_basic",
       metadata: { client_type: "service" },
     });
   });
 
+  it("rejects browser origins for non-browser client profiles", async () => {
+    const fetchMock = mockFetchByUrl([]);
+    const res = await createClient({
+      client_id: "service-with-cors",
+      client_type: "service",
+      allowed_cors_origins: ["https://client.example"],
+    });
+    expect(res).toMatchObject({
+      status: 400,
+      body: { error: "allowed_cors_origins is only supported for SPA or custom clients" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("requires redirect URIs for interactive client profiles", async () => {
     const fetchMock = mockFetchByUrl([]);
-    const res = await createClient({ client_id: "taskmesh-console", client_type: "spa" });
+    const res = await createClient({ client_id: "example-spa", client_type: "spa" });
 
     expect(res).toMatchObject({
       status: 400,

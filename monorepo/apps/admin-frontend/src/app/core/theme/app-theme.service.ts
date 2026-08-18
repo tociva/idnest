@@ -142,7 +142,6 @@ function persistTheme(darkMode: boolean, themeName: AppThemeName): void {
 
 /**
  * Plain signal-based theme service (no ngrx).
- * Mirrors the public API of daybook's AppThemeStore.
  * Applies the idnest teal brand accent on top of every preset.
  * Persists under key `admin:theme` in localStorage.
  */

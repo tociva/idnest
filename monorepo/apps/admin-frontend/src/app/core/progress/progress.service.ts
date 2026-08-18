@@ -2,7 +2,6 @@ import { computed, Injectable, signal } from "@angular/core";
 
 /**
  * Plain signal-based progress service (no ngrx).
- * Mirrors the public API of daybook's ProgressStore.
  */
 @Injectable({ providedIn: "root" })
 export class ProgressService {

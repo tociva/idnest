@@ -6,6 +6,7 @@
 import {
   OAUTH_CLIENT_PROFILES,
   isKnownOAuthClientType,
+  normalizeClientCorsOrigin,
   type KnownOAuthClientType,
   type OAuthClientType,
 } from "@idnest/shared-types";
@@ -27,6 +28,7 @@ export interface ClientPayload {
     consent_version?: number;
     remember_offline_access?: boolean;
     client_type?: OAuthClientType;
+    allowed_return_uris?: string[];
     [key: string]: unknown;
   };
   client_type?: OAuthClientType;
@@ -37,7 +39,52 @@ export interface ClientPayload {
   scope?: string;
   redirect_uris?: string[];
   post_logout_redirect_uris?: string[];
+  allowed_cors_origins?: string[];
   audience?: string[];
+}
+
+const MAX_CLIENT_ORIGINS = 20;
+const allowHttpLoopback = (): boolean => process.env.NODE_ENV !== "production";
+
+function normalizeCorsOrigins(values: string[] | undefined): string[] {
+  if (!values) return [];
+  if (!Array.isArray(values) || values.length > MAX_CLIENT_ORIGINS) {
+    throw new Error(`allowed_cors_origins must contain at most ${MAX_CLIENT_ORIGINS} origins`);
+  }
+  const normalized = values.map((value) => {
+    if (typeof value !== "string") throw new Error("allowed_cors_origins entries must be strings");
+    const origin = normalizeClientCorsOrigin(value, { allowHttpLoopback: allowHttpLoopback() });
+    if (!origin) {
+      throw new Error(
+        "allowed_cors_origins entries must be exact HTTPS origins without paths, credentials, queries, fragments, or wildcards",
+      );
+    }
+    return origin;
+  });
+  return [...new Set(normalized)];
+}
+
+function normalizeReturnUris(values: string[] | undefined): string[] {
+  if (!values) return [];
+  if (!Array.isArray(values) || values.length > MAX_CLIENT_ORIGINS) {
+    throw new Error(`metadata.allowed_return_uris must contain at most ${MAX_CLIENT_ORIGINS} URLs`);
+  }
+  const normalized = values.map((value) => {
+    if (typeof value !== "string") throw new Error("metadata.allowed_return_uris entries must be strings");
+    try {
+      const url = new URL(value.trim());
+      if (url.username || url.password || url.hash) throw new Error("invalid");
+      if (!normalizeClientCorsOrigin(url.origin, { allowHttpLoopback: allowHttpLoopback() })) {
+        throw new Error("invalid");
+      }
+      return url.toString();
+    } catch {
+      throw new Error(
+        "metadata.allowed_return_uris entries must be exact HTTPS URLs without credentials or fragments",
+      );
+    }
+  });
+  return [...new Set(normalized)];
 }
 
 /** Required fields for creating a client. */
@@ -49,6 +96,9 @@ function validateForCreate(input: ClientPayload): string | null {
   if (profile?.requiresRedirectUris && (!Array.isArray(input.redirect_uris) || input.redirect_uris.length === 0)) {
     return "redirect_uris must be a non-empty array";
   }
+  if (clientType === "spa" && (!Array.isArray(input.allowed_cors_origins) || input.allowed_cors_origins.length === 0)) {
+    return "allowed_cors_origins must be a non-empty array for SPA clients";
+  }
   return null;
 }
 
@@ -58,7 +108,28 @@ function normalizedMetadata(input: ClientPayload["metadata"]) {
     trust_tier: input?.trust_tier ?? "first_party",
     consent_version: input?.consent_version ?? 1,
     remember_offline_access: input?.remember_offline_access === true,
+    allowed_return_uris: normalizeReturnUris(input?.allowed_return_uris),
   };
+}
+
+function validateClientBrowserConfiguration(input: ClientPayload): string | null {
+  try {
+    const clientType = resolveClientType(input);
+    const origins = normalizeCorsOrigins(input.allowed_cors_origins);
+    const returnUris = normalizeReturnUris(input.metadata?.allowed_return_uris);
+    if (clientType === "spa" && origins.length === 0) {
+      return "allowed_cors_origins must be a non-empty array for SPA clients";
+    }
+    if (clientType !== "spa" && clientType !== "custom" && origins.length > 0) {
+      return "allowed_cors_origins is only supported for SPA or custom clients";
+    }
+    if ((clientType === "service" || clientType === "native") && returnUris.length > 0) {
+      return "allowed_return_uris is only supported for browser-based clients";
+    }
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "Invalid browser client configuration";
+  }
 }
 
 function validateRememberOfflineAccess(input: ClientPayload): string | null {
@@ -132,6 +203,7 @@ function toHydraPayload(input: ClientPayload) {
     redirect_uris: profile?.requiresRedirectUris === false ? [] : input.redirect_uris ?? [],
     post_logout_redirect_uris:
       profile?.supportsPostLogoutRedirectUris === false ? [] : input.post_logout_redirect_uris ?? [],
+    allowed_cors_origins: normalizeCorsOrigins(input.allowed_cors_origins),
     audience: input.audience ?? [],
     client_uri: input.client_uri || undefined,
     logo_uri: input.logo_uri || undefined,
@@ -181,6 +253,8 @@ export async function createClient(input: ClientPayload): Promise<HandlerResult>
   try {
     const invalid = validateForCreate(input);
     if (invalid) return { status: 400, body: { error: invalid } };
+    const invalidBrowserConfiguration = validateClientBrowserConfiguration(input);
+    if (invalidBrowserConfiguration) return { status: 400, body: { error: invalidBrowserConfiguration } };
     const invalidPolicy = validateRememberOfflineAccess(input);
     if (invalidPolicy) return { status: 400, body: { error: invalidPolicy } };
     const res = await fetch(clientsBase(), {
@@ -203,6 +277,8 @@ export async function updateClient(input: ClientPayload): Promise<HandlerResult>
     if (isProtectedAdminClient(input.client_id)) {
       return { status: 403, body: { error: "The admin OAuth client cannot be edited" } };
     }
+    const invalidBrowserConfiguration = validateClientBrowserConfiguration(input);
+    if (invalidBrowserConfiguration) return { status: 400, body: { error: invalidBrowserConfiguration } };
     const invalidPolicy = validateRememberOfflineAccess(input);
     if (invalidPolicy) return { status: 400, body: { error: invalidPolicy } };
     const res = await fetch(`${clientsBase()}/${encodeURIComponent(input.client_id)}`, {

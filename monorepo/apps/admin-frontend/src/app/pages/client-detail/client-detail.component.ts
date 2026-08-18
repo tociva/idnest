@@ -21,6 +21,7 @@ import {
 import { TngIcon } from "@tailng-ui/icons";
 import {
   OAUTH_CLIENT_PROFILES,
+  clientCorsOriginsFromRedirectUris,
   isKnownOAuthClientType,
   type KnownOAuthClientType,
   type OAuthClientType,
@@ -61,6 +62,8 @@ interface ClientForm {
   scope: string;
   redirectUris: string;
   postLogoutUris: string;
+  corsOrigins: string;
+  returnUris: string;
   audience: string;
 }
 
@@ -98,6 +101,8 @@ const emptyForm = (): ClientForm => ({
   scope: defaultProfile.defaultScope,
   redirectUris: "",
   postLogoutUris: "",
+  corsOrigins: "",
+  returnUris: "",
   audience: "",
 });
 
@@ -185,6 +190,7 @@ export class ClientDetailComponent implements OnInit {
   readonly getSelectOptionLabel = getSelectOptionLabel;
 
   private clientId = "";
+  private existingMetadata: Record<string, unknown> = {};
 
   get protectedAdminClient(): boolean {
     return !this.createMode && this.form.client_id.trim() === IDNEST_ADMIN_CLIENT_ID;
@@ -208,6 +214,14 @@ export class ClientDetailComponent implements OnInit {
 
   get showPostLogoutFields(): boolean {
     return this.customClient || this.selectedProfile?.supportsPostLogoutRedirectUris === true;
+  }
+
+  get showBrowserOrigins(): boolean {
+    return this.form.client_type === "spa" || this.customClient;
+  }
+
+  get showReturnUris(): boolean {
+    return this.form.client_type === "spa" || this.form.client_type === "web" || this.customClient;
   }
 
   get supportsRefreshToken(): boolean {
@@ -260,6 +274,7 @@ export class ClientDetailComponent implements OnInit {
   get canSubmit(): boolean {
     if (this.busy || this.protectedAdminClient || !this.form.client_id.trim()) return false;
     if (this.selectedProfile?.requiresRedirectUris && splitList(this.form.redirectUris).length === 0) return false;
+    if (this.form.client_type === "spa" && splitList(this.form.corsOrigins).length === 0) return false;
     return true;
   }
 
@@ -298,6 +313,7 @@ export class ClientDetailComponent implements OnInit {
     const grantTypes = client.grant_types ?? profile?.grantTypes ?? [];
     const responseTypes = client.response_types ?? profile?.responseTypes ?? [];
     const tokenEndpointAuthMethod = client.token_endpoint_auth_method ?? profile?.tokenEndpointAuthMethod ?? "";
+    this.existingMetadata = { ...(client.metadata ?? {}) };
     this.form = {
       client_id: client.client_id,
       client_name: client.client_name ?? "",
@@ -317,6 +333,8 @@ export class ClientDetailComponent implements OnInit {
       scope: client.scope ?? "",
       redirectUris: (client.redirect_uris ?? []).join(", "),
       postLogoutUris: (client.post_logout_redirect_uris ?? []).join(", "),
+      corsOrigins: (client.allowed_cors_origins ?? []).join("\n"),
+      returnUris: (client.metadata?.allowed_return_uris ?? []).join("\n"),
       audience: (client.audience ?? []).join(", "),
     };
     if (!this.supportsRefreshToken) {
@@ -336,10 +354,12 @@ export class ClientDetailComponent implements OnInit {
       tos_uri: this.form.tos_uri.trim(),
       contacts: splitList(this.form.contacts),
       metadata: {
+        ...this.existingMetadata,
         trust_tier: this.form.trust_tier,
         consent_version: Number(this.form.consent_version) || 1,
         remember_offline_access:
           this.form.trust_tier === "first_party" && this.supportsRefreshToken && this.form.remember_offline_access,
+        allowed_return_uris: this.showReturnUris ? splitList(this.form.returnUris) : [],
       },
       client_type: this.form.client_type,
       public: profile ? profile.tokenEndpointAuthMethod === "none" : this.form.tokenEndpointAuthMethod === "none",
@@ -349,6 +369,7 @@ export class ClientDetailComponent implements OnInit {
       scope: this.form.scope.trim(),
       redirect_uris: this.showRedirectFields ? splitList(this.form.redirectUris) : [],
       post_logout_redirect_uris: this.showPostLogoutFields ? splitList(this.form.postLogoutUris) : [],
+      allowed_cors_origins: this.showBrowserOrigins ? splitList(this.form.corsOrigins) : [],
       audience: splitList(this.form.audience),
     };
   }
@@ -380,7 +401,20 @@ export class ClientDetailComponent implements OnInit {
     if (!profile.supportsPostLogoutRedirectUris) {
       this.form.postLogoutUris = "";
     }
+    if (clientType !== "spa") {
+      this.form.corsOrigins = "";
+    }
+    if (clientType !== "spa" && clientType !== "web") {
+      this.form.returnUris = "";
+    }
     this.onTrustTierChange();
+  }
+
+  useRedirectOrigins(): void {
+    const origins = clientCorsOriginsFromRedirectUris(splitList(this.form.redirectUris), {
+      allowHttpLoopback: true,
+    });
+    this.form.corsOrigins = origins.join("\n");
   }
 
   onScopesChange(scopes: readonly unknown[]): void {
@@ -413,9 +447,11 @@ export class ClientDetailComponent implements OnInit {
       return;
     }
     if (!this.canSubmit) {
-      this.error = this.selectedProfile?.requiresRedirectUris
-        ? "A redirect URI is required for this client type."
-        : "Client ID is required.";
+      this.error = !this.form.client_id.trim()
+        ? "Client ID is required."
+        : this.selectedProfile?.requiresRedirectUris && splitList(this.form.redirectUris).length === 0
+          ? "A redirect URI is required for this client type."
+          : "At least one browser origin is required for a single-page app.";
       this.toast.danger(this.error);
       return;
     }

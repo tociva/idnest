@@ -84,7 +84,8 @@ trap cleanup EXIT HUP INT TERM
 
 {
   printf "%s\n" "AUTH_URL='https://auth-dev.idnest.cloud'"
-  printf "%s\n" "CORS_ALLOWED_ORIGINS='https://*.idnest.cloud,https://*.daybook.cloud'"
+  printf "%s\n" "HYDRA_CORS_ALLOWED_ORIGINS='https://hydra-dev.idnest.cloud'"
+  printf "%s\n" "KRATOS_CORS_ALLOWED_ORIGINS='https://auth-dev.idnest.cloud'"
   printf "HYDRA_DSN='%s'\n" "$HYDRA_DSN"
   printf "%s\n" "HYDRA_URLS_SELF_ISSUER='https://hydra-dev.idnest.cloud/'"
   printf "%s\n" "HYDRA_URLS_CONSENT='https://auth-dev.idnest.cloud/oauth2/consent'"

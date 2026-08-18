@@ -70,13 +70,6 @@ export const getAuthAssetAllowedOrigins = (): string[] =>
     .map((origin) => origin.trim().replace(/\/+$/, ""))
     .filter(Boolean);
 
-/** HTTPS origins permitted for support, privacy, and terms destinations. */
-export const getAuthLinkAllowedOrigins = (): string[] =>
-  (process.env.AUTH_LINK_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((origin) => origin.trim().replace(/\/+$/, ""))
-    .filter(Boolean);
-
 const fallbackCsrfSecret = randomUUID();
 
 /** Secret used to sign stateless admin CSRF tokens. */

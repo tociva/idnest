@@ -51,9 +51,9 @@ function consentRequest(input?: {
   rememberOfflineAccess?: boolean;
 }) {
   const clientId = input?.clientId ?? "idnest-admin-client";
-  const audiences = input?.audiences ?? (clientId === "daybook-user-client" ? ["daybook.cloud-users"] : ["idnest-admin"]);
+  const audiences = input?.audiences ?? (clientId === "example-user-client" ? ["example-users"] : ["idnest-admin"]);
   const clientName =
-    input?.clientName ?? (clientId === "daybook-user-client" ? "Daybook User Client" : "Idnest Admin Console");
+    input?.clientName ?? (clientId === "example-user-client" ? "Example User Client" : "Idnest Admin Console");
   return {
     challenge: "cc_1",
     subject: "kratos-id-1",
@@ -114,8 +114,8 @@ afterEach(() => {
 });
 
 describe("remembered offline consent", () => {
-  it("allows remembered Daybook offline_access consent for a flagged first-party client", async () => {
-    const decision = await decide({ clientId: "daybook-user-client" });
+  it("allows remembered offline_access consent for a flagged first-party client", async () => {
+    const decision = await decide({ clientId: "example-user-client" });
 
     expect(decision.canAutoAccept).toBe(true);
     expect(decision.autoAcceptReason).toBe("remembered_first_party_offline_access_consent");
@@ -194,13 +194,13 @@ describe("remembered offline consent", () => {
   it("allows only registered audiences for the remembered offline_access exception", () => {
     const loaded = {
       client: {
-        client_id: "daybook-user-client",
-        audience: ["daybook.cloud-users"],
+        client_id: "example-user-client",
+        audience: ["example-users"],
         metadata: { remember_offline_access: true },
       },
       trustTier: "first_party",
       scopes: ["email", "offline_access", "openid", "profile"],
-      audiences: ["daybook.cloud-users"],
+      audiences: ["example-users"],
     } as LoadedConsent;
 
     expect(isRememberedOfflineAccessAllowed(loaded)).toBe(true);
@@ -211,7 +211,7 @@ describe("remembered offline consent", () => {
     process.env.CONSENT_GATE_MODE = "observe";
 
     const productDecision = await decide({
-      clientId: "daybook-user-client",
+      clientId: "example-user-client",
       hasAccess: false,
       hasApproval: false,
     });

@@ -11,30 +11,30 @@ describe("origin allowlist", () => {
     expect(isAllowedOrigin("https://admin-local.idnest.cloud/page", ["https://admin-local.idnest.cloud"])).toBe(
       true,
     );
-    expect(isAllowedOrigin("https://app-local.daybook.cloud", ["https://admin-local.idnest.cloud"])).toBe(
+    expect(isAllowedOrigin("https://client.example", ["https://admin-local.idnest.cloud"])).toBe(
       false,
     );
   });
 
   it("allows bounded wildcard subdomains", () => {
-    const allowedOrigins = ["https://*.idnest.cloud", "https://*.daybook.cloud"];
+    const allowedOrigins = ["https://*.idnest.cloud", "https://*.example.com"];
 
     expect(isAllowedOrigin("https://admin.idnest.cloud", allowedOrigins)).toBe(true);
-    expect(isAllowedOrigin("https://app.daybook.cloud", allowedOrigins)).toBe(true);
-    expect(isAllowedOrigin("https://app-dev.daybook.cloud", allowedOrigins)).toBe(true);
-    expect(isAllowedOrigin("https://tenant.preview.daybook.cloud", allowedOrigins)).toBe(true);
+    expect(isAllowedOrigin("https://app.example.com", allowedOrigins)).toBe(true);
+    expect(isAllowedOrigin("https://app-dev.example.com", allowedOrigins)).toBe(true);
+    expect(isAllowedOrigin("https://tenant.preview.example.com", allowedOrigins)).toBe(true);
   });
 
   it("rejects origins outside bounded wildcard domains", () => {
-    const allowedOrigins = ["https://*.idnest.cloud", "https://*.daybook.cloud"];
+    const allowedOrigins = ["https://*.idnest.cloud", "https://*.example.com"];
 
     expect(isAllowedOrigin("https://evil.com", allowedOrigins)).toBe(false);
-    expect(isAllowedOrigin("https://daybook.cloud.evil.com", allowedOrigins)).toBe(false);
-    expect(isAllowedOrigin("http://app.daybook.cloud", allowedOrigins)).toBe(false);
-    expect(isAllowedOrigin("https://daybook.cloud", allowedOrigins)).toBe(false);
+    expect(isAllowedOrigin("https://example.com.evil.com", allowedOrigins)).toBe(false);
+    expect(isAllowedOrigin("http://app.example.com", allowedOrigins)).toBe(false);
+    expect(isAllowedOrigin("https://example.com", allowedOrigins)).toBe(false);
   });
 
   it("does not allow bare wildcard origins", () => {
-    expect(isAllowedOrigin("https://app.daybook.cloud", ["*"])).toBe(false);
+    expect(isAllowedOrigin("https://app.example.com", ["*"])).toBe(false);
   });
 });

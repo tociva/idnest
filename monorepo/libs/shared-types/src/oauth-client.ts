@@ -13,6 +13,61 @@ export interface OAuthClientProfile {
   defaultScope: string;
 }
 
+export interface CorsOriginOptions {
+  allowHttpLoopback?: boolean;
+}
+
+const isLoopbackHostname = (hostname: string): boolean =>
+  hostname === "localhost" ||
+  hostname.endsWith(".localhost") ||
+  hostname === "127.0.0.1" ||
+  hostname === "[::1]";
+
+/**
+ * Normalize an exact browser origin for Hydra client CORS.
+ *
+ * CORS origins contain only scheme, host and optional port. Paths, credentials,
+ * queries, fragments and wildcard hosts are intentionally rejected.
+ */
+export function normalizeClientCorsOrigin(
+  value: string,
+  options: CorsOriginOptions = {},
+): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.includes("*")) return null;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
+    if (url.protocol === "http:" && !(options.allowHttpLoopback && isLoopbackHostname(url.hostname))) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Suggest exact browser origins from web redirect URIs without copying paths. */
+export function clientCorsOriginsFromRedirectUris(
+  redirectUris: readonly string[],
+  options: CorsOriginOptions = {},
+): string[] {
+  const origins = new Set<string>();
+  for (const redirectUri of redirectUris) {
+    try {
+      const url = new URL(redirectUri.trim());
+      if (url.username || url.password) continue;
+      const origin = normalizeClientCorsOrigin(url.origin, options);
+      if (origin) origins.add(origin);
+    } catch {
+      // Native custom schemes and malformed redirect URIs are not browser origins.
+    }
+  }
+  return [...origins];
+}
+
 export const OAUTH_CLIENT_PROFILES: Record<KnownOAuthClientType, OAuthClientProfile> = {
   spa: {
     type: "spa",

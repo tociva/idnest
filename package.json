@@ -20,7 +20,8 @@
     "authz:migrate:build": "pnpm --dir=monorepo authz:migrate:build",
     "db:migrate": "./scripts/deploy/run-migrations.sh",
     "nx": "pnpm --dir=monorepo nx",
-    "bootstrap:local": "./scripts/setup/bootstrap-local.sh"
+    "bootstrap:local": "./scripts/setup/bootstrap-local.sh",
+    "clients:cors:backfill": "node scripts/setup/backfill-client-cors.js"
   },
   "packageManager": "pnpm@9.15.0"
 }

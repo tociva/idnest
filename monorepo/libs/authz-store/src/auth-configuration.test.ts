@@ -11,12 +11,13 @@ import {
   expireAuthTransactions,
   releaseAuthTransactionForStepUp,
 } from "./auth-transaction-repository";
+import { AUTHZ_SCHEMA_SQL } from "./schema";
 
 const brand = {
-  key: "daybook",
-  displayName: "Daybook",
-  legalName: "Tociva",
-  productName: "Daybook",
+  key: "example-brand",
+  displayName: "Example Brand",
+  legalName: "Example Organization",
+  productName: "Example Product",
   primaryColor: "#2563eb",
   secondaryColor: "#1d4ed8",
   surfaceColor: "#ffffff",
@@ -49,7 +50,7 @@ const policy = {
   sessionMaximumAgeSeconds: 3600,
 };
 
-function resolvedRow(clientId = "daybook-web") {
+function resolvedRow(clientId = "example-web") {
   return {
     hydra_client_id: clientId,
     config_status: "active",
@@ -73,10 +74,10 @@ describe("authentication configuration repository", () => {
       query: async () => ({ rows: [resolvedRow()] }),
     } as unknown as Db;
 
-    const resolved = await resolveAuthConfiguration(db, "daybook-web");
+    const resolved = await resolveAuthConfiguration(db, "example-web");
 
     expect(resolved.usedFallback).toBe(false);
-    expect(resolved.brand.key).toBe("daybook");
+    expect(resolved.brand.key).toBe("example-brand");
     expect(resolved.policy.allowedOidcProviders).toEqual(["google"]);
     expect(clientSnapshotOf(resolved)).toEqual(resolved.client);
   });
@@ -97,6 +98,25 @@ describe("authentication configuration repository", () => {
     expect(resolved.usedFallback).toBe(true);
     expect(resolved.client.hydraClientId).toBe("unknown-client");
     expect(values[1]).toEqual(["unknown-client", DEFAULT_AUTH_POLICY_NAME]);
+  });
+});
+
+describe("authentication configuration schema", () => {
+  it("seeds only Idnest-owned brands", () => {
+    const seed = AUTHZ_SCHEMA_SQL.match(
+      /INSERT INTO auth_brands\(key, status\)\s+VALUES([\s\S]*?)ON CONFLICT \(key\) DO NOTHING;/,
+    );
+    expect(seed).not.toBeNull();
+    const keys = [...(seed?.[1] ?? "").matchAll(/\('([^']+)', 'active'\)/g)].map(
+      (match) => match[1],
+    );
+    expect(keys).toEqual(["idnest-default", "idnest-admin"]);
+  });
+
+  it("archives only unused historical system brands", () => {
+    expect(AUTHZ_SCHEMA_SQL).toContain("b.key NOT IN ('idnest-default', 'idnest-admin')");
+    expect(AUTHZ_SCHEMA_SQL).toContain("c.brand_id = b.id AND c.status = 'active'");
+    expect(AUTHZ_SCHEMA_SQL).toContain("(7, 'archive unused historical system brands')");
   });
 });
 

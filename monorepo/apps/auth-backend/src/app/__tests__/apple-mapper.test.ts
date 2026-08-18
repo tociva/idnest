@@ -63,6 +63,11 @@ describe("Social OIDC Kratos config", () => {
     expect(kratosRenderer).toContain(
       'KRATOS_CORS_ALLOWED_ORIGINS_YAML="$(render_cors_origins_yaml)"',
     );
+    expect(kratosRenderer).toContain('${KRATOS_CORS_ALLOWED_ORIGINS:-}');
+    expect(kratosRenderer).not.toContain('${CORS_ALLOWED_ORIGINS:-}');
+    expect(kratosRenderer).toContain(
+      '${KRATOS_CORS_ALLOWED_ORIGINS:?KRATOS_CORS_ALLOWED_ORIGINS is required}',
+    );
     expect(kratosRenderer).toContain(
       String.raw`printf "%s\"%s\"", separator, origin`,
     );

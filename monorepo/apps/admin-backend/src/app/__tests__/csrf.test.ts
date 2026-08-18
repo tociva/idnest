@@ -17,7 +17,7 @@ describe("admin csrf", () => {
     expect(isAllowedOrigin("https://admin-local.idnest.cloud/page", ["https://admin-local.idnest.cloud"])).toBe(
       true,
     );
-    expect(isAllowedOrigin("https://app-local.daybook.cloud", ["https://admin-local.idnest.cloud"])).toBe(
+    expect(isAllowedOrigin("https://client.example", ["https://admin-local.idnest.cloud"])).toBe(
       false,
     );
     expect(isAllowedOrigin(undefined, ["https://admin-local.idnest.cloud"])).toBe(false);
@@ -25,7 +25,7 @@ describe("admin csrf", () => {
 
   it("allows configured wildcard origins", () => {
     expect(isAllowedOrigin("https://admin.idnest.cloud/page", ["https://*.idnest.cloud"])).toBe(true);
-    expect(isAllowedOrigin("https://app.daybook.cloud", ["https://*.idnest.cloud"])).toBe(false);
+    expect(isAllowedOrigin("https://client.example", ["https://*.idnest.cloud"])).toBe(false);
   });
 
   it("creates and verifies a token bound to the identity and email", () => {
@@ -134,7 +134,7 @@ describe("admin csrf", () => {
       adminIdentity: identity,
       adminEmail: "admin@example.com",
       get: (name: string) =>
-        name.toLowerCase() === "origin" ? "https://app-local.daybook.cloud" : undefined,
+        name.toLowerCase() === "origin" ? "https://client.example" : undefined,
     };
     const res = {
       status: (code: number) => {

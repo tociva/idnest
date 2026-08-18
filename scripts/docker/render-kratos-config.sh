@@ -9,8 +9,10 @@ tmp="${output}.tmp"
 # process and write it outside the read-only configuration source directory.
 umask 077
 
+: "${KRATOS_CORS_ALLOWED_ORIGINS:?KRATOS_CORS_ALLOWED_ORIGINS is required}"
+
 render_cors_origins_yaml() {
-  printf '%s\n' "${CORS_ALLOWED_ORIGINS:-}" | awk '
+  printf '%s\n' "${KRATOS_CORS_ALLOWED_ORIGINS:-}" | awk '
     {
       count = split($0, origins, ",")
       separator = ""
@@ -21,7 +23,7 @@ render_cors_origins_yaml() {
         sub(/[[:space:]]+$/, "", origin)
         if (origin == "") continue
         if (origin ~ /["\\]/) {
-          print "CORS_ALLOWED_ORIGINS contains an unsupported quote or backslash." > "/dev/stderr"
+          print "KRATOS_CORS_ALLOWED_ORIGINS contains an unsupported quote or backslash." > "/dev/stderr"
           exit 1
         }
         printf "%s\"%s\"", separator, origin

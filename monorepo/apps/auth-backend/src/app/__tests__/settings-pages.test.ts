@@ -90,7 +90,7 @@ beforeEach(() => {
   process.env.AUTH_BASE_URL = "https://auth-local.idnest.cloud";
   process.env.KRATOS_PUBLIC_URL = "https://kratos-local.idnest.cloud";
   process.env.KRATOS_INTERNAL_URL = "http://localhost:4433";
-  process.env.CORS_ALLOWED_ORIGINS = "https://app-local.daybook.cloud,https://admin-local.idnest.cloud";
+  process.env.AUTH_RETURN_TO_ALLOWED_ORIGINS = "https://client.example,https://admin-local.idnest.cloud";
 });
 
 afterEach(() => {
@@ -102,13 +102,13 @@ describe("settings pages", () => {
   it("redirects unauthenticated users to login and preserves the settings return target", async () => {
     mockFetchByUrl([{ match: "/sessions/whoami", result: { ok: false, status: 401, json: {} } }]);
 
-    const res = await requestPath("/settings?return_to=https%3A%2F%2Fapp-local.daybook.cloud%2Faccount");
+    const res = await requestPath("/settings?return_to=https%3A%2F%2Fclient.example%2Faccount");
     const location = new URL(String(res.headers.location), "https://auth-local.idnest.cloud");
 
     expect(res.status).toBe(302);
     expect(location.pathname).toBe("/login");
     expect(location.searchParams.get("return_to")).toBe(
-      "https://auth-local.idnest.cloud/settings?return_to=https%3A%2F%2Fapp-local.daybook.cloud%2Faccount",
+      "https://auth-local.idnest.cloud/settings?return_to=https%3A%2F%2Fclient.example%2Faccount",
     );
   });
 
@@ -127,36 +127,88 @@ describe("settings pages", () => {
       { match: "/sessions/whoami", result: { ok: true, json: { identity: { id: "kratos-id-1", traits: {} } } } },
     ]);
 
-    const res = await requestPath("/settings?return_to=https%3A%2F%2Fapp-local.daybook.cloud%2Faccount");
+    const res = await requestPath("/settings?return_to=https%3A%2F%2Fclient.example%2Faccount");
     const location = new URL(String(res.headers.location));
 
     expect(res.status).toBe(302);
     expect(location.origin).toBe("https://kratos-local.idnest.cloud");
     expect(location.pathname).toBe("/self-service/settings/browser");
     expect(location.searchParams.get("return_to")).toBe(
-      "https://auth-local.idnest.cloud/settings/return?return_to=https%3A%2F%2Fapp-local.daybook.cloud%2Faccount",
+      "https://auth-local.idnest.cloud/settings/return?return_to=https%3A%2F%2Fclient.example%2Faccount",
     );
   });
 
+  it("accepts an exact return URI registered on the OAuth client", async () => {
+    process.env.AUTH_RETURN_TO_ALLOWED_ORIGINS = "https://admin-local.idnest.cloud";
+    mockFetchByUrl([
+      {
+        match: "/admin/clients/example-spa",
+        result: {
+          ok: true,
+          json: {
+            client_id: "example-spa",
+            metadata: {
+              allowed_return_uris: ["https://client.example/account/security"],
+            },
+          },
+        },
+      },
+      { match: "/sessions/whoami", result: { ok: true, json: { identity: { id: "kratos-id-1", traits: {} } } } },
+    ]);
+
+    const res = await requestPath(
+      "/settings?client_id=example-spa&return_to=https%3A%2F%2Fclient.example%2Faccount%2Fsecurity",
+    );
+    const location = new URL(String(res.headers.location));
+
+    expect(res.status).toBe(302);
+    expect(location.searchParams.get("return_to")).toContain("client_id=example-spa");
+  });
+
+  it("rejects a different path on an otherwise registered client origin", async () => {
+    process.env.AUTH_RETURN_TO_ALLOWED_ORIGINS = "https://admin-local.idnest.cloud";
+    mockFetchByUrl([
+      {
+        match: "/admin/clients/example-spa",
+        result: {
+          ok: true,
+          json: {
+            client_id: "example-spa",
+            metadata: {
+              allowed_return_uris: ["https://client.example/account/security"],
+            },
+          },
+        },
+      },
+    ]);
+
+    const res = await requestPath(
+      "/settings?client_id=example-spa&return_to=https%3A%2F%2Fclient.example%2Fother",
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body).toContain("invalid_return_to");
+  });
+
   it("starts a settings browser flow with a wildcard product return target", async () => {
-    process.env.CORS_ALLOWED_ORIGINS = "https://*.idnest.cloud,https://*.daybook.cloud";
+    process.env.AUTH_RETURN_TO_ALLOWED_ORIGINS = "https://*.idnest.cloud,https://*.example.com";
     mockFetchByUrl([
       { match: "/sessions/whoami", result: { ok: true, json: { identity: { id: "kratos-id-1", traits: {} } } } },
     ]);
 
-    const res = await requestPath("/settings?return_to=https%3A%2F%2Fapp-dev.daybook.cloud%2Faccount");
+    const res = await requestPath("/settings?return_to=https%3A%2F%2Ftenant.example.com%2Faccount");
     const location = new URL(String(res.headers.location));
 
     expect(res.status).toBe(302);
     expect(location.searchParams.get("return_to")).toBe(
-      "https://auth-local.idnest.cloud/settings/return?return_to=https%3A%2F%2Fapp-dev.daybook.cloud%2Faccount",
+      "https://auth-local.idnest.cloud/settings/return?return_to=https%3A%2F%2Ftenant.example.com%2Faccount",
     );
   });
 
   it("renders OIDC settings controls from the Kratos settings flow", async () => {
     mockFetchByUrl([{ match: "/self-service/settings/flows", result: { ok: true, json: settingsFlow } }]);
 
-    const res = await requestPath("/settings?flow=settings-flow-1&return_to=https%3A%2F%2Fapp-local.daybook.cloud%2Faccount");
+    const res = await requestPath("/settings?flow=settings-flow-1&return_to=https%3A%2F%2Fclient.example%2Faccount");
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('name="csrf_token" value="settings-csrf"');
@@ -166,10 +218,10 @@ describe("settings pages", () => {
   });
 
   it("redirects settings return to an allowlisted product app", async () => {
-    const res = await requestPath("/settings/return?return_to=https%3A%2F%2Fapp-local.daybook.cloud%2Faccount");
+    const res = await requestPath("/settings/return?return_to=https%3A%2F%2Fclient.example%2Faccount");
 
     expect(res.status).toBe(302);
-    expect(res.headers.location).toBe("https://app-local.daybook.cloud/account");
+    expect(res.headers.location).toBe("https://client.example/account");
   });
 
   it("allows settings return to continue a trusted OAuth completion URL", async () => {
@@ -185,12 +237,12 @@ describe("settings pages", () => {
 
   it("allows login return to continue an internal settings handoff", async () => {
     const res = await requestPath(
-      "/login/return?return_to=https%3A%2F%2Fauth-local.idnest.cloud%2Fsettings%3Freturn_to%3Dhttps%253A%252F%252Fapp-local.daybook.cloud%252Faccount",
+      "/login/return?return_to=https%3A%2F%2Fauth-local.idnest.cloud%2Fsettings%3Freturn_to%3Dhttps%253A%252F%252Fclient.example%252Faccount",
     );
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe(
-      "https://auth-local.idnest.cloud/settings?return_to=https%3A%2F%2Fapp-local.daybook.cloud%2Faccount",
+      "https://auth-local.idnest.cloud/settings?return_to=https%3A%2F%2Fclient.example%2Faccount",
     );
   });
 

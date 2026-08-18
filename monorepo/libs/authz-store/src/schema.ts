@@ -368,9 +368,6 @@ CREATE INDEX IF NOT EXISTS auth_audit_events_identity_created_idx
 INSERT INTO auth_brands(key, status)
 VALUES
   ('idnest-default', 'active'),
-  ('daybook', 'active'),
-  ('daybook-admin', 'active'),
-  ('taskmesh', 'active'),
   ('idnest-admin', 'active')
 ON CONFLICT (key) DO NOTHING;
 
@@ -388,39 +385,6 @@ FROM (
       "consentHeading":"Review access","supportUrl":"https://idnest.cloud/support",
       "privacyUrl":"/privacy","termsUrl":"/terms","copyrightText":"Tociva Technologies",
       "defaultLocale":"en"
-    }'::jsonb),
-    ('daybook', '{
-      "key":"daybook","displayName":"Daybook.Cloud","legalName":"Tociva Technologies",
-      "productName":"Daybook.Cloud","primaryColor":"#367588","secondaryColor":"#2c606f",
-      "surfaceColor":"#ffffff","textColor":"#17252a","mutedTextColor":"#52666d",
-      "errorColor":"#b42318","borderRadius":"16px","fontFamily":"roboto",
-      "loginHeading":"Sign in to Daybook.Cloud","loginDescription":"Continue to your Daybook workspace.",
-      "registrationHeading":"Create your Daybook account","recoveryHeading":"Recover your Daybook account",
-      "consentHeading":"Review Daybook access","supportUrl":"https://daybook.cloud/support",
-      "privacyUrl":"https://daybook.cloud/privacy","termsUrl":"https://daybook.cloud/terms",
-      "copyrightText":"Daybook.Cloud","defaultLocale":"en"
-    }'::jsonb),
-    ('daybook-admin', '{
-      "key":"daybook-admin","displayName":"Daybook Admin","legalName":"Tociva Technologies",
-      "productName":"Daybook Admin","primaryColor":"#273f7a","secondaryColor":"#1e315f",
-      "surfaceColor":"#ffffff","textColor":"#172033","mutedTextColor":"#667085",
-      "errorColor":"#b42318","borderRadius":"12px","fontFamily":"roboto",
-      "loginHeading":"Sign in to Daybook Admin","loginDescription":"Administrative access is restricted.",
-      "registrationHeading":"Registration unavailable","recoveryHeading":"Recover your administrator account",
-      "consentHeading":"Review administrative access","supportUrl":"https://daybook.cloud/support",
-      "privacyUrl":"https://daybook.cloud/privacy",
-      "termsUrl":"https://daybook.cloud/terms","copyrightText":"Daybook.Cloud","defaultLocale":"en"
-    }'::jsonb),
-    ('taskmesh', '{
-      "key":"taskmesh","displayName":"Taskmesh","legalName":"Tociva Technologies",
-      "productName":"Taskmesh","primaryColor":"#6d4aff","secondaryColor":"#5235d4",
-      "surfaceColor":"#ffffff","textColor":"#201a33","mutedTextColor":"#6f6880",
-      "errorColor":"#b42318","borderRadius":"14px","fontFamily":"system",
-      "loginHeading":"Sign in to Taskmesh","loginDescription":"Continue to the Taskmesh console.",
-      "registrationHeading":"Join Taskmesh","recoveryHeading":"Recover your Taskmesh account",
-      "consentHeading":"Review Taskmesh access","supportUrl":"https://taskme.sh",
-      "privacyUrl":"https://taskme.sh/privacy",
-      "termsUrl":"https://taskme.sh/terms","copyrightText":"Taskmesh","defaultLocale":"en"
     }'::jsonb),
     ('idnest-admin', '{
       "key":"idnest-admin","displayName":"Idnest Admin","legalName":"Tociva Technologies",
@@ -446,11 +410,8 @@ WITH policy_renames(old_name, new_name, identity_gate) AS (
     ('Restricted Google sign-in', 'Approved Users', 'existing-identity'),
     ('Invitation-only Google sign-in', 'Invite Only', 'invitation'),
     ('Restricted Google + TOTP sign-in', 'Staff MFA', 'existing-identity'),
-    -- Also cover pre-v3 slug names if a DB somehow skipped that rename.
+    -- Also cover Idnest-owned pre-v3 slug names if a DB skipped that rename.
     ('default-public', 'Public Social', 'public'),
-    ('daybook-public', 'Public Access', 'public'),
-    ('daybook-admin', 'Approved Users', 'existing-identity'),
-    ('taskmesh-console', 'Invite Only', 'invitation'),
     ('idnest-admin', 'Staff MFA', 'existing-identity')
 ), current_definitions AS (
   SELECT p.id, p.current_version, pv.definition, renames.new_name, renames.identity_gate
@@ -645,19 +606,46 @@ FROM oauth_client_auth_configs c
 WHERE c.hydra_client_id = 'idnest-admin-client'
 ON CONFLICT (hydra_client_id, version) DO NOTHING;
 
--- Drop previously seeded product-client placeholders once. Later admin-created
--- mappings for these IDs are preserved after version 4 is recorded.
-DELETE FROM oauth_client_auth_config_versions
-WHERE hydra_client_id IN (
-  'daybook-web', 'daybook-admin', 'taskmesh-console', 'idnest-admin'
-)
-AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = 4);
+-- Drop obsolete system-created client placeholders once while preserving
+-- administrator-created mappings and the Idnest administration client.
+DELETE FROM oauth_client_auth_configs c
+WHERE c.hydra_client_id <> 'idnest-admin-client'
+  AND EXISTS (
+    SELECT 1
+    FROM oauth_client_auth_config_versions v
+    WHERE v.hydra_client_id = c.hydra_client_id
+      AND v.version = 1
+      AND v.created_by = 'system'
+      AND v.reason = 'Initial OAuth client auth configuration seed'
+  )
+  AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = 4);
 
-DELETE FROM oauth_client_auth_configs
-WHERE hydra_client_id IN (
-  'daybook-web', 'daybook-admin', 'taskmesh-console', 'idnest-admin'
-)
-AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = 4);
+DELETE FROM oauth_client_auth_config_versions v
+WHERE v.hydra_client_id <> 'idnest-admin-client'
+  AND v.version = 1
+  AND v.created_by = 'system'
+  AND v.reason = 'Initial OAuth client auth configuration seed'
+  AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = 4);
+
+-- Archive unused non-Idnest brands that came from historical system seeds.
+-- Brands attached to active clients remain untouched for administrator review.
+UPDATE auth_brands b
+SET status = 'archived', updated_at = now()
+WHERE b.key NOT IN ('idnest-default', 'idnest-admin')
+  AND EXISTS (
+    SELECT 1
+    FROM auth_brand_versions v
+    WHERE v.brand_id = b.id
+      AND v.version = 1
+      AND v.created_by = 'system'
+      AND v.reason = 'Initial trusted brand seed'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM oauth_client_auth_configs c
+    WHERE c.brand_id = b.id AND c.status = 'active'
+  )
+  AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = 7);
 
 INSERT INTO schema_migrations(version, name)
 VALUES
@@ -666,7 +654,8 @@ VALUES
   (3, 'behavior-based login policy names'),
   (4, 'seed only idnest-admin-client mapping'),
   (5, 'rename login policy to authentication policy'),
-  (6, 'intent-based authentication policy names without IdP identity')
+  (6, 'intent-based authentication policy names without IdP identity'),
+  (7, 'archive unused historical system brands')
 ON CONFLICT (version) DO NOTHING;
 `;
 

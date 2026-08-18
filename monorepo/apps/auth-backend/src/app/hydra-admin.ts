@@ -3,6 +3,7 @@ import {
   isHydraLoginRequest,
   isHydraRedirectResponse,
   type HydraConsentRequest,
+  type HydraClient,
   type HydraLoginRequest,
   type KratosUserClaims,
 } from "@idnest/shared-types";
@@ -11,6 +12,21 @@ import { getHydraAdminUrl } from "./config";
 function endpoint(path: string, challengeName: string, challenge: string): string {
   const base = getHydraAdminUrl().replace(/\/+$/, "");
   return `${base}${path}?${challengeName}=${encodeURIComponent(challenge)}`;
+}
+
+export async function getHydraClient(clientId: string): Promise<HydraClient> {
+  const base = getHydraAdminUrl().replace(/\/+$/, "");
+  const response = await fetch(`${base}/admin/clients/${encodeURIComponent(clientId)}`, {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`Hydra client lookup failed (${response.status}): ${await errorText(response)}`);
+  }
+  const body: unknown = await response.json();
+  if (!body || typeof body !== "object" || (body as { client_id?: unknown }).client_id !== clientId) {
+    throw new Error("Hydra returned an invalid OAuth client");
+  }
+  return body as HydraClient;
 }
 
 async function errorText(response: Response): Promise<string> {
@@ -144,4 +160,3 @@ export async function rejectHydraConsent(challenge: string, description: string)
   }
   return body.redirect_to;
 }
-

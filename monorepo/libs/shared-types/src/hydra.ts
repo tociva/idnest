@@ -13,6 +13,9 @@ export interface HydraClient {
   tos_uri?: string;
   contacts?: string[];
   audience?: string[];
+  redirect_uris?: string[];
+  post_logout_redirect_uris?: string[];
+  allowed_cors_origins?: string[];
   metadata?: HydraClientMetadata | null;
   [key: string]: unknown;
 }
@@ -23,6 +26,7 @@ export interface HydraClientMetadata {
   trust_tier?: HydraClientTrustTier;
   consent_version?: number;
   remember_offline_access?: boolean;
+  allowed_return_uris?: string[];
   [key: string]: unknown;
 }
 

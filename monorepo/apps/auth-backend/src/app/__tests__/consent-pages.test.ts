@@ -80,7 +80,7 @@ async function requestPath(path: string): Promise<RouteResult> {
 
 afterEach(() => {
   vi.clearAllMocks();
-  delete process.env.CORS_ALLOWED_ORIGINS;
+  delete process.env.AUTH_RETURN_TO_ALLOWED_ORIGINS;
   delete process.env.ADMIN_PUBLIC_ORIGIN;
 });
 
@@ -118,8 +118,12 @@ describe("consent page route", () => {
         ...loaded,
         identity: { traits: { email: "other@example.com" } },
         client: {
+          client_id: "idnest-admin-client",
           client_name: "Idnest Admin Console",
           client_uri: "https://admin-local.idnest.cloud",
+          metadata: {
+            allowed_return_uris: ["https://admin-local.idnest.cloud/"],
+          },
         },
       } as LoadedConsent,
       hasAccess: false,
@@ -134,7 +138,7 @@ describe("consent page route", () => {
     expect(res.body).toContain("Use a different account");
     expect(res.body).toContain("Try again");
     expect(res.body).toContain(
-      "/logout?return_to=https%3A%2F%2Fadmin-local.idnest.cloud%2F",
+      "/logout?return_to=https%3A%2F%2Fadmin-local.idnest.cloud%2F&amp;client_id=idnest-admin-client",
     );
     expect(res.body).toContain('href="https://admin-local.idnest.cloud/"');
   });

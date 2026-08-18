@@ -75,7 +75,7 @@ case "$kind" in
       printf '%s\n' 'KRATOS_ADMIN_URL=http://idnest-kratos:4434'
       printf '%s\n' 'KRATOS_PUBLIC_URL=https://kratos-dev.idnest.cloud'
       printf '%s\n' 'KRATOS_INTERNAL_URL=https://kratos-dev.idnest.cloud:4433'
-      printf '%s\n' 'CORS_ALLOWED_ORIGINS=https://*.idnest.cloud,https://*.daybook.cloud'
+      printf '%s\n' 'AUTH_RETURN_TO_ALLOWED_ORIGINS=https://admin-dev.idnest.cloud'
       printf '%s\n' 'ADMIN_CORS_ALLOWED_ORIGINS=https://admin-dev.idnest.cloud'
       printf 'AUTHZ_DATABASE_URL=%s\n' "$AUTHZ_DATABASE_URL"
       printf '%s\n' 'CONSENT_GATE_MODE=observe'
@@ -86,7 +86,6 @@ case "$kind" in
       printf 'AUTH_TRANSACTION_SECRET=%s\n' "$AUTH_TRANSACTION_SECRET"
       printf 'AUTH_AUDIT_HASH_SECRET=%s\n' "$AUTH_AUDIT_HASH_SECRET"
       printf '%s\n' 'AUTH_ASSET_ALLOWED_ORIGINS=https://assets.idnest.cloud'
-      printf '%s\n' 'AUTH_LINK_ALLOWED_ORIGINS=https://idnest.cloud,https://daybook.cloud,https://taskme.sh'
       printf '%s\n' 'AUTH_BASE_URL=https://auth-dev.idnest.cloud'
       printf '%s\n' 'ADMIN_PUBLIC_ORIGIN=https://admin-dev.idnest.cloud'
       printf 'ADMIN_BOOTSTRAP_EMAILS=%s\n' "$ADMIN_BOOTSTRAP_EMAILS"
@@ -103,7 +102,6 @@ case "$kind" in
       printf 'ADMIN_CSRF_SECRET=%s\n' "$ADMIN_CSRF_SECRET"
       printf 'AUTHZ_DATABASE_URL=%s\n' "$AUTHZ_DATABASE_URL"
       printf '%s\n' 'AUTH_ASSET_ALLOWED_ORIGINS=https://assets.idnest.cloud'
-      printf '%s\n' 'AUTH_LINK_ALLOWED_ORIGINS=https://idnest.cloud,https://daybook.cloud,https://taskme.sh'
       printf '%s\n' 'ADMIN_PUBLIC_ORIGIN=https://admin-dev.idnest.cloud'
       printf 'ADMIN_BOOTSTRAP_EMAILS=%s\n' "$ADMIN_BOOTSTRAP_EMAILS"
       printf 'ADMIN_OIDC_CLIENT_SECRET=%s\n' "$ADMIN_OIDC_CLIENT_SECRET"

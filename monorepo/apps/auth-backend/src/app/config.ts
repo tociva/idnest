@@ -37,13 +37,9 @@ export const getAuthBaseUrl = (): string =>
 
 export const getPort = (): number => Number(process.env.AUTH_BACKEND_PORT ?? 4000);
 
-/** Comma-separated allowlist of browser origins permitted to call this API. */
-export const getCorsOrigins = (): string[] =>
-  [
-    process.env.CORS_ALLOWED_ORIGINS,
-    process.env.ADMIN_CORS_ALLOWED_ORIGINS,
-    process.env.ADMIN_PUBLIC_ORIGIN,
-  ]
+/** Transitional platform-level origins for standalone return destinations. */
+export const getReturnToOrigins = (): string[] =>
+  [process.env.AUTH_RETURN_TO_ALLOWED_ORIGINS, process.env.ADMIN_PUBLIC_ORIGIN]
     .filter(Boolean)
     .join(",")
     .split(",")

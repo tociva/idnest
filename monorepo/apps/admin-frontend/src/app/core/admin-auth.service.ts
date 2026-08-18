@@ -1,5 +1,6 @@
 import { inject, Injectable } from "@angular/core";
 import { ADMIN_CONFIG } from "./admin-config";
+import { IDNEST_ADMIN_CLIENT_ID } from "./admin-types";
 
 interface AdminMeResponse {
   csrfToken?: string;
@@ -84,6 +85,7 @@ export class AdminAuthService {
       : this.config.authLogoutUrl;
     const logoutUrl = new URL(configuredLogoutUrl || defaultAuthLogoutUrl(), window.location.origin);
     logoutUrl.searchParams.set("return_to", returnTo.toString());
+    logoutUrl.searchParams.set("client_id", IDNEST_ADMIN_CLIENT_ID);
     return logoutUrl.toString();
   }
 }

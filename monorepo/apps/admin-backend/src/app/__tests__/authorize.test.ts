@@ -85,7 +85,7 @@ describe("authorize (admin BFF session authorization)", () => {
 
   it("rejects sessions for the wrong client", async () => {
     const res = await authorize(
-      cfg(dbWith({ session: adminSession({ client_id: "daybook-user-client" }), grant: adminGrant() })),
+      cfg(dbWith({ session: adminSession({ client_id: "example-user-client" }), grant: adminGrant() })),
       "session-token",
     );
     expect(res).toMatchObject({ ok: false, status: 403, error: "Invalid admin session client" });
