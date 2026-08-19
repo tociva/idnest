@@ -1,0 +1,135 @@
+name: Build dependency base (development)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - development
+    paths:
+      - scripts/docker/Dockerfile.builder-base
+      - scripts/docker/builder-image-key.sh
+      - scripts/docker/ensure-builder-image.sh
+      - scripts/docker/test-builder-contract.sh
+      - monorepo/package.json
+      - monorepo/pnpm-lock.yaml
+      - monorepo/pnpm-workspace.yaml
+      - monorepo/.npmrc
+      - monorepo/nx.json
+      - monorepo/tsconfig.base.json
+      - monorepo/apps/*/package.json
+      - monorepo/libs/*/package.json
+
+concurrency:
+  group: idnest-development-builder-base-arm64
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Ensure ARM64 dependency base
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    environment: ecr-build
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Require the development branch
+        env:
+          BUILDER_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "${BUILDER_REF}" == refs/heads/development ]]
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate ECR configuration
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_BUILD_ROLE_ARN: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          BUILDER_ECR_REPOSITORY: ${{ vars.BUILDER_ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          [[ "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]
+          [[ "${AWS_REGION}" =~ ^[a-z0-9-]+$ ]]
+          [[ "${AWS_BUILD_ROLE_ARN}" == arn:aws:iam::${AWS_ACCOUNT_ID}:role/* ]]
+          [[ "${BUILDER_ECR_REPOSITORY}" =~ ^[a-z0-9][a-z0-9._/-]*$ ]]
+          bash -n scripts/docker/ensure-builder-image.sh
+          sh -n scripts/docker/builder-image-key.sh
+          scripts/docker/test-builder-contract.sh
+
+      - name: Configure short-lived AWS build credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          role-session-name: idnest-builder-base-${{ github.run_id }}
+          mask-aws-account-id: true
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@19d944daaa35f0fa1d3f7f8af1d3f2e5de25c5b7 # v2.1.4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Ensure immutable builder image
+        id: builder
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          BUILDER_ECR_REPOSITORY: ${{ vars.BUILDER_ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          output_file="${RUNNER_TEMP}/builder-image.env"
+          scripts/docker/ensure-builder-image.sh \
+            "${AWS_ACCOUNT_ID}" \
+            "${AWS_REGION}" \
+            "${BUILDER_ECR_REPOSITORY}" \
+            "${output_file}"
+          source "${output_file}"
+          [[ "${BUILDER_IMAGE}" =~ @sha256:[a-f0-9]{64}$ ]]
+          [[ "${BUILDER_KEY}" =~ ^[a-f0-9]{64}$ ]]
+          [[ "${BUILDER_CACHE_HIT}" == true || "${BUILDER_CACHE_HIT}" == false ]]
+          {
+            printf 'image=%s\n' "${BUILDER_IMAGE}"
+            printf 'key=%s\n' "${BUILDER_KEY}"
+            printf 'cache_hit=%s\n' "${BUILDER_CACHE_HIT}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Verify ARM64 builder image
+        env:
+          BUILDER_IMAGE: ${{ steps.builder.outputs.image }}
+        run: |
+          set -euo pipefail
+          docker pull "${BUILDER_IMAGE}"
+          architecture=$(docker image inspect "${BUILDER_IMAGE}" --format '{{.Architecture}}')
+          [[ "${architecture}" == arm64 ]]
+          docker run --rm --entrypoint /bin/sh "${BUILDER_IMAGE}" -euc '
+            [ "$(node --version)" = "v22.22.0" ]
+            [ "$(pnpm --version)" = "9.15.0" ]
+            [ -d /workspace/monorepo/node_modules/.pnpm ]
+            [ ! -e /workspace/monorepo/apps/auth-backend/src ]
+            [ ! -e /workspace/monorepo/apps/admin-backend/src ]
+            [ ! -e /workspace/.env ]
+          '
+
+      - name: Publish builder summary
+        env:
+          BUILDER_IMAGE: ${{ steps.builder.outputs.image }}
+          BUILDER_KEY: ${{ steps.builder.outputs.key }}
+          BUILDER_CACHE_HIT: ${{ steps.builder.outputs.cache_hit }}
+        run: |
+          {
+            echo '## ARM64 dependency builder'
+            echo
+            echo "- Image: \`${BUILDER_IMAGE}\`"
+            echo "- Dependency key: \`${BUILDER_KEY}\`"
+            echo "- Existing image reused: \`${BUILDER_CACHE_HIT}\`"
+          } >>"${GITHUB_STEP_SUMMARY}"

@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=docker.io/library/node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
+
+FROM ${NODE_IMAGE}
+
+ARG BUILDER_KEY=unknown
+ARG BUILDER_SOURCE=https://github.com/tociva/idnest
+
+LABEL org.opencontainers.image.title="Idnest ARM64 Builder Base" \
+      org.opencontainers.image.description="Pinned Node, pnpm, and workspace dependencies for Idnest application builds" \
+      org.opencontainers.image.version="${BUILDER_KEY}" \
+      org.opencontainers.image.revision="${BUILDER_KEY}" \
+      org.opencontainers.image.source="${BUILDER_SOURCE}"
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:${PATH} \
+    NX_DAEMON=false \
+    NX_ISOLATE_PLUGINS=false
+
+WORKDIR /workspace
+
+RUN npm install --global corepack@0.34.7 \
+    && corepack enable \
+    && corepack install --global pnpm@9.15.0
+
+COPY monorepo/package.json monorepo/pnpm-lock.yaml monorepo/pnpm-workspace.yaml ./monorepo/
+COPY monorepo/.npmrc monorepo/nx.json monorepo/tsconfig.base.json ./monorepo/
+COPY monorepo/libs/authz-store/package.json ./monorepo/libs/authz-store/package.json
+COPY monorepo/libs/shared-types/package.json ./monorepo/libs/shared-types/package.json
+
+RUN --mount=type=cache,id=idnest-builder-pnpm,target=/pnpm/store,sharing=locked \
+    pnpm --dir=monorepo install --frozen-lockfile

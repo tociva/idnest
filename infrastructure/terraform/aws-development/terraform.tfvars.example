@@ -13,6 +13,7 @@ ecr_repository_names = {
   auth  = "idnest/auth-app"
   admin = "idnest/admin-app"
 }
+builder_ecr_repository_name = "idnest/builder-base"
 
 build_role_name = "idnest-development-build"
 deploy_role_names = {

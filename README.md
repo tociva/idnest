@@ -16,6 +16,7 @@ development, development deployment, common workflows, and security boundaries.
 - [Configuration](#configuration)
 - [Common commands](#common-commands)
 - [GitHub Actions development deployments](#github-actions-development-deployments)
+- [ARM64 dependency builder image](#arm64-dependency-builder-image)
 - [OAuth clients and access](#oauth-clients-and-access)
 - [Authentication flow](#authentication-flow)
 - [Troubleshooting](#troubleshooting)
@@ -307,7 +308,7 @@ docker compose -f scripts/docker/docker-compose.yml up -d --force-recreate krato
 ## GitHub Actions development deployments
 
 The development workflows submit signed auth, admin, and identity release
-requests to the VPS. Auth and admin build multi-architecture images and publish
+requests to the VPS. Auth and admin build native ARM64 images and publish
 immutable digests to Amazon ECR. The separate identity workflow renders
 `idnest.env`, migrates and starts Hydra and Kratos, and does not use AWS or ECR.
 The VPS runs the root-owned release processor; the `github-deploy` SSH account
@@ -373,6 +374,7 @@ ecr_repository_names = {
   auth  = "idnest/auth-app"
   admin = "idnest/admin-app"
 }
+builder_ecr_repository_name = "idnest/builder-base"
 
 build_role_name = "idnest-development-build"
 deploy_role_names = {
@@ -412,11 +414,12 @@ Terraform also applies the provider-level tags `Application=idnest`,
 resources. Values in `tags` are merged with those defaults.
 
 These defaults reuse the account's existing GitHub OIDC provider and create the
-two Idnest ECR repositories. AWS permits only one provider for
+two application ECR repositories plus the separate dependency-builder
+repository. AWS permits only one provider for
 `https://token.actions.githubusercontent.com` in an account, so it is shared
 with other projects. Set `create_github_oidc_provider=true` only in a new AWS
 account where that provider does not exist. Change `create_ecr_repositories` to
-`false` only if both named repositories already exist. Keep
+`false` only if all three named repositories already exist. Keep
 `force_delete_ecr_repositories=false` for normal operation.
 
 Idnest remains isolated through its own `idnest-*` IAM roles and ECR
@@ -623,6 +626,7 @@ AUTH_AWS_DEPLOY_ROLE_ARN=replace-with-terraform-output
 ADMIN_AWS_DEPLOY_ROLE_ARN=replace-with-terraform-output
 AUTH_ECR_REPOSITORY=replace-with-terraform-output
 ADMIN_ECR_REPOSITORY=replace-with-terraform-output
+BUILDER_ECR_REPOSITORY=replace-with-terraform-output
 VPS_HOST=replace-with-terraform-output
 VPS_PORT=replace-with-terraform-output
 VPS_USER=replace-with-terraform-output
@@ -661,7 +665,7 @@ ADMIN_CSRF_SECRET=replace-with-a-long-random-secret
 ADMIN_OIDC_CLIENT_SECRET=replace-with-admin-client-secret
 ```
 
-Keep all 43 properties. Do not enter the first ten infrastructure values by
+Keep all 44 properties. Do not enter the first eleven infrastructure values by
 hand: `update-development-env-from-terraform.sh` replaces their
 `replace-with-terraform-output` placeholders from validated Terraform state.
 Replace every remaining placeholder with its real value. Leave all four
@@ -673,7 +677,7 @@ development defaults from tracked templates.
 
 #### Terraform-derived infrastructure properties
 
-These ten non-secret values are part of `tmp/development.env` so that it is the
+These eleven non-secret values are part of `tmp/development.env` so that it is the
 only key-value input to the GitHub bulk updater. Do not maintain them in two
 places. After applying Terraform, run the sync helper documented in step 7;
 it validates all four Terraform environment objects, verifies their shared
@@ -689,6 +693,7 @@ printing any value.
 | `ADMIN_AWS_DEPLOY_ROLE_ARN` | Pull-only admin deployment role. |
 | `AUTH_ECR_REPOSITORY` | Auth image repository name. |
 | `ADMIN_ECR_REPOSITORY` | Admin image repository name. |
+| `BUILDER_ECR_REPOSITORY` | ARM64 dependency-builder image repository name. |
 | `VPS_HOST` | Shared development deployment hostname. |
 | `VPS_PORT` | SSH port used by all three deployment workflows. |
 | `VPS_USER` | Unprivileged deployment account, normally `github-deploy`. |
@@ -808,7 +813,7 @@ and [creating a private key](https://developer.apple.com/help/account/capabiliti
 
 | GitHub Environment | GitHub secrets | GitHub variables |
 | --- | --- | --- |
-| `ecr-build` | None | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_BUILD_ROLE_ARN`, `AUTH_ECR_REPOSITORY`, `ADMIN_ECR_REPOSITORY` |
+| `ecr-build` | None | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_BUILD_ROLE_ARN`, `AUTH_ECR_REPOSITORY`, `ADMIN_ECR_REPOSITORY`, `BUILDER_ECR_REPOSITORY` |
 | `development-auth` | `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS` |
 | `development-admin` | `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, `ADMIN_OIDC_CLIENT_SECRET` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS` |
 | `development-identity` | `HYDRA_DSN`, `HYDRA_SECRETS_SYSTEM`, `KRATOS_DSN`, `KRATOS_CSRF_COOKIE_SECRET`, `KRATOS_CIPHER_SECRET`, `GOOGLE_CLIENT_SECRET`, optional `APPLE_PRIVATE_KEY_B64` | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `GOOGLE_CLIENT_ID`, optional `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, and `APPLE_PRIVATE_KEY_ID` |
@@ -1002,7 +1007,7 @@ admin `4434`, PostgreSQL `5432`, or Docker's socket to the public internet.
 
 The successful Terraform apply in step 1 records the
 `github_environment_variables` output, containing the four current environment
-variable maps, in state. Synchronize their ten normalized non-secret AWS and
+variable maps, in state. Synchronize their eleven normalized non-secret AWS and
 VPS values into the protected combined file:
 
 ```bash
@@ -1019,14 +1024,14 @@ order:
 ```
 
 The sync is the only command in this flow that reads Terraform output. It
-validates cross-environment consistency and atomically updates only the ten
+validates cross-environment consistency and atomically updates only the eleven
 infrastructure properties in `tmp/development.env`; it preserves all
 application values and does not contact GitHub. Whenever Terraform inputs or
 outputs change later, repeat the plan/apply commands in step 1 before running
 this sync; do not run an unplanned second apply here.
 
 Review the protected file with your preferred editor, then validate the full
-42-property contract:
+44-property contract:
 
 ```bash
 ./scripts/deploy/vps/validate-app-env.sh \
@@ -1101,7 +1106,17 @@ gh workflow run deploy-identity-development.yml \
 gh run watch --repo tociva/idnest --exit-status
 ```
 
-After identity succeeds, run auth:
+After identity succeeds, bootstrap or verify the dependency-builder image. This
+is normally already created by changes to dependency inputs, and the auth/admin
+workflows also ensure it exists before compiling:
+
+```bash
+gh workflow run build-builder-base-development.yml \
+  --repo tociva/idnest --ref development
+gh run watch --repo tociva/idnest --exit-status
+```
+
+Then run auth:
 
 ```bash
 gh workflow run deploy-auth-development.yml \
@@ -1167,6 +1182,106 @@ database migrations. To restore a successful identity configuration, restore
 the approved previous individual GitHub settings and rerun the identity
 workflow; old plaintext identity environments are not retained on the VPS.
 
+## ARM64 dependency builder image
+
+The auth and admin image builds share a private dependency image in
+`idnest/builder-base`. It contains Node, Corepack, pnpm, and the frozen workspace
+dependency tree, but no application source, build output, environment file, or
+runtime secret. The Node 22.22.0 image is pinned by its Docker manifest digest,
+which includes the required Linux ARM64 variant. The builder is a build input
+only and is never deployed to the VPS.
+
+The development VPS reports `aarch64`, so application and builder jobs run on
+GitHub's native `ubuntu-24.04-arm` runner and publish only `linux/arm64`. QEMU and
+the unused AMD64 application build are intentionally absent. Validation still
+runs independently before the protected build job; the release compilation
+runs exactly once inside the ARM64 application-image build.
+
+### Provisioning and GitHub variables
+
+Terraform creates the separate immutable ECR repository, enables scan-on-push,
+and applies a lifecycle policy that removes untagged images after seven days and
+retains the latest twenty tagged dependency images. Only the `ecr-build` role
+can push or pull builder images; application deployment roles remain limited to
+their respective runtime repositories.
+
+After applying a reviewed Terraform plan, synchronize the repository name
+through the existing protected bulk-update path:
+
+```bash
+terraform -chdir=infrastructure/terraform/aws-development plan \
+  -out=idnest-builder.tfplan
+terraform -chdir=infrastructure/terraform/aws-development apply \
+  idnest-builder.tfplan
+
+./scripts/deploy/update-development-env-from-terraform.sh
+./scripts/deploy/update-development-github-environments.sh
+```
+
+This adds the non-secret `BUILDER_ECR_REPOSITORY` variable only to the protected
+`ecr-build` GitHub Environment. Do not maintain it manually in GitHub.
+
+### Image identity and rebuilds
+
+`scripts/docker/builder-image-key.sh` hashes the builder Dockerfile, its hashing
+schema, target platform, pnpm lockfile, workspace configuration, root manifest,
+and every workspace package manifest. Images use the immutable tag
+`deps-<sha256>`. Source-only changes reuse the existing image; dependency,
+toolchain, or builder-definition changes produce a new tag.
+
+The `build-builder-base-development.yml` workflow runs automatically on the
+`development` branch when any builder input changes. It can also be run
+manually:
+
+```bash
+gh workflow run build-builder-base-development.yml \
+  --repo tociva/idnest --ref development
+gh run watch --repo tociva/idnest --exit-status
+```
+
+The workflow uses short-lived GitHub OIDC credentials, checks ECR before
+building, builds only on a miss, publishes SBOM and maximum provenance
+attestations, resolves the immutable digest, and verifies Node, pnpm,
+`node_modules`, and the ARM64 architecture. Auth and admin call the same ensure
+helper as a fallback, preventing a deployment race when a new dependency image
+has not completed yet.
+
+Inspect the published images without printing credentials:
+
+```bash
+aws ecr describe-images \
+  --region ap-south-1 \
+  --repository-name idnest/builder-base \
+  --query 'reverse(sort_by(imageDetails,& imagePushedAt))[:5].[imageTags[0],imageDigest,imagePushedAt]' \
+  --output table
+```
+
+The application Dockerfiles receive the builder by `repository@sha256:digest`,
+copy the tracked source over its dependency workspace, compile once, and copy
+only the bundled server, browser assets, and migration bundle into the existing
+slim non-root runtime image.
+
+### Troubleshooting and rollback
+
+If the builder workflow reports a missing repository or variable, apply the
+Terraform changes and rerun both environment synchronization commands. If a
+builder push loses an immutable-tag race, the ensure helper re-queries ECR and
+uses the successfully published digest. A genuine build failure remains fatal.
+
+Changing only application source must not change the output of:
+
+```bash
+./scripts/docker/builder-image-key.sh
+```
+
+Changing `pnpm-lock.yaml`, a package manifest, or the builder Dockerfile must
+change it. Run `./scripts/docker/test-builder-contract.sh` to verify these key,
+Dockerfile, runner, and target-platform invariants together. Existing
+auth/admin images are self-contained and do not depend on a
+builder image after publication. Rollback therefore continues to select the
+previous application digest; deleting or rebuilding a builder image does not
+alter an already published runtime image.
+
 ## OAuth clients and access
 
 Manage product OAuth clients and identity access in the admin console.
@@ -1217,9 +1332,10 @@ without an identity-service restart. Client-identifiable token requests use
 that registration, while Hydra's global list remains an infrastructure-only
 non-empty baseline. True browser preflights carry no client identity, so this
 deployment does not support direct browser `/userinfo` calls. SPAs use ID-token
-claims or a same-origin backend instead. HTTP browser origins are accepted only
-for loopback clients outside production. Server web, native, and service clients
-default to no recorded browser origins.
+claims or a same-origin backend instead. Exact HTTP loopback origins are accepted
+for local browser clients in every runtime; non-loopback browser origins require
+HTTPS. Server web, native, and service clients default to no recorded browser
+origins.
 
 Existing installations must replace the former shared
 `CORS_ALLOWED_ORIGINS` value before restarting identity services:

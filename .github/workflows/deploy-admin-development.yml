@@ -55,15 +55,12 @@ jobs:
       - name: Validate and test CORS configuration
         run: pnpm test:cors
 
-      - name: Build release outputs
-        run: |
-          pnpm --dir=monorepo admin-backend:build
-          pnpm --dir=monorepo admin-frontend:build
-          pnpm --dir=monorepo authz:migrate:build
-
       - name: Validate deployment scripts
         run: |
           bash -n scripts/docker/smoke-test-admin-image.sh
+          bash -n scripts/docker/ensure-builder-image.sh
+          sh -n scripts/docker/builder-image-key.sh
+          scripts/docker/test-builder-contract.sh
           for script in scripts/deploy/vps/*.sh; do
             sh -n "${script}"
           done
@@ -71,7 +68,7 @@ jobs:
   build:
     name: Build and publish admin image
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     environment: ecr-build
     permissions:
@@ -92,12 +89,14 @@ jobs:
           AWS_REGION: ${{ vars.AWS_REGION }}
           AWS_BUILD_ROLE_ARN: ${{ vars.AWS_BUILD_ROLE_ARN }}
           ECR_REPOSITORY: ${{ vars.ADMIN_ECR_REPOSITORY }}
+          BUILDER_ECR_REPOSITORY: ${{ vars.BUILDER_ECR_REPOSITORY }}
         run: |
           set -euo pipefail
           [[ "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]
           [[ "${AWS_REGION}" =~ ^[a-z0-9-]+$ ]]
           [[ "${AWS_BUILD_ROLE_ARN}" == arn:aws:iam::${AWS_ACCOUNT_ID}:role/* ]]
           [[ "${ECR_REPOSITORY}" =~ ^[a-z0-9][a-z0-9._/-]*$ ]]
+          [[ "${BUILDER_ECR_REPOSITORY}" =~ ^[a-z0-9][a-z0-9._/-]*$ ]]
 
       - name: Configure short-lived AWS build credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
@@ -112,11 +111,6 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@19d944daaa35f0fa1d3f7f8af1d3f2e5de25c5b7 # v2.1.4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-        with:
-          platforms: arm64
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
@@ -126,16 +120,35 @@ jobs:
           set -euo pipefail
           printf 'created=%s\n' "$(git show -s --format=%cI "${GITHUB_SHA}")" >> "${GITHUB_OUTPUT}"
 
+      - name: Ensure immutable dependency builder
+        id: builder
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          BUILDER_ECR_REPOSITORY: ${{ vars.BUILDER_ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          output_file="${RUNNER_TEMP}/builder-image.env"
+          scripts/docker/ensure-builder-image.sh \
+            "${AWS_ACCOUNT_ID}" \
+            "${AWS_REGION}" \
+            "${BUILDER_ECR_REPOSITORY}" \
+            "${output_file}"
+          source "${output_file}"
+          [[ "${BUILDER_IMAGE}" =~ @sha256:[a-f0-9]{64}$ ]]
+          printf 'image=%s\n' "${BUILDER_IMAGE}" >>"${GITHUB_OUTPUT}"
+
       - name: Build and push immutable image
         id: image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
           file: scripts/docker/Dockerfile.admin-app
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
           push: true
           tags: ${{ steps.ecr.outputs.registry }}/${{ vars.ADMIN_ECR_REPOSITORY }}:git-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           build-args: |
+            BUILDER_IMAGE=${{ steps.builder.outputs.image }}
             APP_VERSION=${{ github.sha }}
             APP_REVISION=${{ github.sha }}
             APP_CREATED=${{ steps.metadata.outputs.created }}

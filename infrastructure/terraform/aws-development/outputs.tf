@@ -23,15 +23,31 @@ output "ecr_repositories" {
   description = "ECR repository names consumed by the workflows."
 }
 
+output "builder_ecr_repository_name" {
+  value       = var.builder_ecr_repository_name
+  description = "Private ECR repository name for the dependency builder image."
+}
+
+output "builder_ecr_repository_arn" {
+  value       = local.builder_ecr_repository_arn
+  description = "Private ECR repository ARN for the dependency builder image."
+}
+
+output "builder_ecr_repository_url" {
+  value       = local.builder_ecr_repository_url
+  description = "Private ECR repository URL for the dependency builder image."
+}
+
 output "github_environment_variables" {
   description = "Complete non-secret infrastructure values for the four development GitHub environments."
   value = {
     "ecr-build" = {
-      AWS_ACCOUNT_ID       = data.aws_caller_identity.current.account_id
-      AWS_REGION           = var.aws_region
-      AWS_BUILD_ROLE_ARN   = aws_iam_role.build.arn
-      AUTH_ECR_REPOSITORY  = var.ecr_repository_names.auth
-      ADMIN_ECR_REPOSITORY = var.ecr_repository_names.admin
+      AWS_ACCOUNT_ID         = data.aws_caller_identity.current.account_id
+      AWS_REGION             = var.aws_region
+      AWS_BUILD_ROLE_ARN     = aws_iam_role.build.arn
+      AUTH_ECR_REPOSITORY    = var.ecr_repository_names.auth
+      ADMIN_ECR_REPOSITORY   = var.ecr_repository_names.admin
+      BUILDER_ECR_REPOSITORY = var.builder_ecr_repository_name
     }
     "development-auth" = {
       AWS_ACCOUNT_ID      = data.aws_caller_identity.current.account_id

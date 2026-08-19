@@ -80,6 +80,17 @@ variable "ecr_repository_names" {
   }
 }
 
+variable "builder_ecr_repository_name" {
+  type        = string
+  description = "Private ECR repository containing CI builder dependency images."
+  default     = "idnest/builder-base"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9._/-]*$", var.builder_ecr_repository_name))
+    error_message = "builder_ecr_repository_name must be a valid ECR repository name."
+  }
+}
+
 variable "build_role_name" {
   type        = string
   description = "GitHub Actions role that builds and pushes both images."
@@ -137,7 +148,7 @@ variable "create_github_oidc_provider" {
 
 variable "create_ecr_repositories" {
   type        = bool
-  description = "Create both ECR repositories; false references existing repositories."
+  description = "Create the application and builder ECR repositories; false references existing repositories."
   default     = true
 }
 

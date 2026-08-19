@@ -41,6 +41,63 @@ data "aws_ecr_repository" "app" {
   name     = each.value
 }
 
+resource "aws_ecr_repository" "builder" {
+  count = var.create_ecr_repositories ? 1 : 0
+
+  name                 = var.builder_ecr_repository_name
+  image_tag_mutability = "IMMUTABLE"
+  force_delete         = var.force_delete_ecr_repositories
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+data "aws_ecr_repository" "builder" {
+  count = var.create_ecr_repositories ? 0 : 1
+  name  = var.builder_ecr_repository_name
+}
+
+resource "aws_ecr_lifecycle_policy" "builder" {
+  count      = var.create_ecr_repositories ? 1 : 0
+  repository = aws_ecr_repository.builder[0].name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Remove untagged builder images after seven days"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 7
+        }
+        action = {
+          type = "expire"
+        }
+      },
+      {
+        rulePriority = 2
+        description  = "Retain the latest twenty dependency builder images"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["deps-"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 20
+        }
+        action = {
+          type = "expire"
+        }
+      },
+    ]
+  })
+}
+
 locals {
   github_oidc_provider_arn = var.create_github_oidc_provider ? one(aws_iam_openid_connect_provider.github[*].arn) : one(data.aws_iam_openid_connect_provider.github[*].arn)
   github_repository_parts  = split("/", var.github_repository)
@@ -56,8 +113,10 @@ locals {
       var.create_ecr_repositories ? aws_ecr_repository.app[kind].arn : data.aws_ecr_repository.app[kind].arn
     )
   }
-  oidc_audience_key = "token.actions.githubusercontent.com:aud"
-  oidc_subject_key  = "token.actions.githubusercontent.com:sub"
+  builder_ecr_repository_arn = var.create_ecr_repositories ? one(aws_ecr_repository.builder[*].arn) : one(data.aws_ecr_repository.builder[*].arn)
+  builder_ecr_repository_url = var.create_ecr_repositories ? one(aws_ecr_repository.builder[*].repository_url) : one(data.aws_ecr_repository.builder[*].repository_url)
+  oidc_audience_key          = "token.actions.githubusercontent.com:aud"
+  oidc_subject_key           = "token.actions.githubusercontent.com:sub"
 }
 
 data "aws_iam_policy_document" "build_assume_role" {
@@ -107,7 +166,7 @@ data "aws_iam_policy_document" "deploy_assume_role" {
 
 resource "aws_iam_role" "build" {
   name                  = var.build_role_name
-  description           = "GitHub Actions build/push role for Idnest auth and admin images"
+  description           = "GitHub Actions build/push role for Idnest application and builder images"
   assume_role_policy    = data.aws_iam_policy_document.build_assume_role.json
   max_session_duration  = 3600
   force_detach_policies = true
@@ -131,7 +190,7 @@ data "aws_iam_policy_document" "build_ecr" {
     resources = ["*"]
   }
   statement {
-    sid    = "PushAndPullApplicationImages"
+    sid    = "PushAndPullBuildImages"
     effect = "Allow"
     actions = [
       "ecr:BatchCheckLayerAvailability",
@@ -143,7 +202,7 @@ data "aws_iam_policy_document" "build_ecr" {
       "ecr:PutImage",
       "ecr:UploadLayerPart",
     ]
-    resources = values(local.ecr_repository_arns)
+    resources = concat(values(local.ecr_repository_arns), [local.builder_ecr_repository_arn])
   }
 }
 

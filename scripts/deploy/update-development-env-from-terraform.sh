@@ -123,6 +123,7 @@ AUTH_AWS_DEPLOY_ROLE_ARN=$(dotenv_value "$auth_file" AWS_DEPLOY_ROLE_ARN)
 ADMIN_AWS_DEPLOY_ROLE_ARN=$(dotenv_value "$admin_file" AWS_DEPLOY_ROLE_ARN)
 AUTH_ECR_REPOSITORY=$(dotenv_value "$ecr_file" AUTH_ECR_REPOSITORY)
 ADMIN_ECR_REPOSITORY=$(dotenv_value "$ecr_file" ADMIN_ECR_REPOSITORY)
+BUILDER_ECR_REPOSITORY=$(dotenv_value "$ecr_file" BUILDER_ECR_REPOSITORY)
 VPS_HOST=$(dotenv_value "$identity_file" VPS_HOST)
 VPS_PORT=$(dotenv_value "$identity_file" VPS_PORT)
 VPS_USER=$(dotenv_value "$identity_file" VPS_USER)
@@ -155,6 +156,7 @@ done
   printf 'ADMIN_AWS_DEPLOY_ROLE_ARN=%s\n' "$ADMIN_AWS_DEPLOY_ROLE_ARN"
   printf 'AUTH_ECR_REPOSITORY=%s\n' "$AUTH_ECR_REPOSITORY"
   printf 'ADMIN_ECR_REPOSITORY=%s\n' "$ADMIN_ECR_REPOSITORY"
+  printf 'BUILDER_ECR_REPOSITORY=%s\n' "$BUILDER_ECR_REPOSITORY"
   printf 'VPS_HOST=%s\n' "$VPS_HOST"
   printf 'VPS_PORT=%s\n' "$VPS_PORT"
   printf 'VPS_USER=%s\n' "$VPS_USER"
