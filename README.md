@@ -1133,6 +1133,25 @@ gh workflow run deploy-admin-development.yml \
 gh run watch --repo tociva/idnest --exit-status
 ```
 
+To redeploy an existing auth or admin image without rebuilding, list published
+tags and run the rollback workflow. `version` may be the immutable ECR tag
+`git-<sha>-<run_id>-<attempt>` or a `sha256:...` digest. Host deploy still runs
+the selected image's migrations and does not reverse a newer schema:
+
+```bash
+aws ecr describe-images --region ap-south-1 --repository-name idnest/auth-app \
+  --query 'reverse(sort_by(imageDetails,&imagePushedAt))[:10].[imageTags[0],imageDigest]' \
+  --output table
+
+gh workflow run rollback-development.yml \
+  --repo tociva/idnest --ref development \
+  -f component=auth \
+  -f version=git-60675f30240111395d473c27a4db3cbcef143357-32227106470-1
+gh run watch --repo tociva/idnest --exit-status
+```
+
+Use `idnest/admin-app` and `component=admin` to roll back admin.
+
 Then provision the confidential admin OAuth client once from the trusted
 checkout on the VPS. The secret comes from the pipeline-installed
 `admin-app.env`, the container joins the private Idnest network, and Node trusts
@@ -1163,11 +1182,11 @@ curl --fail https://hydra-dev.idnest.cloud/health/ready
 curl --fail https://kratos-dev.idnest.cloud/health/ready
 ```
 
-Run the matching workflow explicitly when a development release is ready. All
-three workflows use the `idnest-vps-development` concurrency group. A DSN,
-Hydra/Kratos secret, social-provider credential, or tracked Kratos configuration
-change requires only the identity workflow. For VPS
-diagnostics or rollback:
+Run the matching workflow explicitly when a development release is ready. The
+identity, auth, admin, and rollback workflows share the `idnest-vps-development`
+concurrency group. A DSN, Hydra/Kratos secret, social-provider credential, or
+tracked Kratos configuration change requires only the identity workflow. For VPS
+diagnostics or a one-generation previous-image rollback:
 
 ```bash
 sudo systemctl status idnest-release-queue.path --no-pager
@@ -1177,10 +1196,12 @@ sudo /usr/local/sbin/rollback-idnest-auth
 sudo /usr/local/sbin/rollback-idnest-admin
 ```
 
-Application rollback restores the previous image digest but does not reverse
-database migrations. To restore a successful identity configuration, restore
-the approved previous individual GitHub settings and rerun the identity
-workflow; old plaintext identity environments are not retained on the VPS.
+The VPS command restores only the immediately previous image digest. The
+GitHub rollback workflow can select any image that still exists in ECR. Neither
+path reverses database migrations. To restore a successful identity
+configuration, restore the approved previous individual GitHub settings and
+rerun the identity workflow; old plaintext identity environments are not
+retained on the VPS.
 
 ## ARM64 dependency builder image
 
