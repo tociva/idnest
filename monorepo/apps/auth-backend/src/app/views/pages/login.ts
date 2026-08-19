@@ -4,7 +4,7 @@ import type { FlowHiddenInput, FlowSubmitButton } from "./flow-controls";
 import { renderOidcForm } from "./oidc-form";
 
 export interface LoginViewModel {
-  /** Same-origin login action URL (auth app proxies the POST to Kratos). */
+  /** Kratos login action URL the form POSTs to (full-page, browser → Kratos). */
   actionUrl: string;
   /** Hidden inputs from the Kratos flow, including csrf_token. */
   hiddenInputs: FlowHiddenInput[];
@@ -13,8 +13,9 @@ export interface LoginViewModel {
 }
 
 /**
- * The login page posts a normal browser form to this app, which forwards it to
- * Kratos and returns a 200 continue page. No client-side JS required.
+ * The login page posts a normal browser form to Kratos, which then redirects to
+ * the selected upstream provider. No client-side JS required — Kratos needs a
+ * real navigation, not XHR.
  */
 export function renderLogin(vm: LoginViewModel): string {
   const body = `<div class="page-center">

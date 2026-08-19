@@ -27,14 +27,12 @@ import {
   permissionForScope,
   renderAccessDenied,
   renderConsent,
-  renderContinue,
   renderError,
   renderLogin,
   renderPrivacy,
   renderSettings,
   renderTerms,
 } from "./views";
-import { browserKratosFormAction, parseAllowedKratosContinueUrl } from "./kratos-form-action";
 import { getConsentActionSecret } from "./config";
 import {
   factorSettingsNodesFromFlow,
@@ -192,45 +190,6 @@ function sendError(
 export function createPagesRouter(): Router {
   const router = Router();
 
-  async function handleKratosFormPost(req: Request, res: Response): Promise<void> {
-    const path = req.path;
-    if (path !== "/self-service/login" && path !== "/self-service/settings") {
-      res.status(404).end();
-      return;
-    }
-    try {
-      const result = await kratos.submitKratosFormPost(path, req);
-      for (const cookie of result.setCookies) res.append("Set-Cookie", cookie);
-      const redirected = result.status >= 300 && result.status < 400;
-      const continueUrl = result.location ? parseAllowedKratosContinueUrl(result.location) : null;
-      if (!redirected || !continueUrl) {
-        sendError(
-          res,
-          {
-            error: "login_continue_error",
-            error_description: "Could not continue sign-in.",
-          },
-          502,
-        );
-        return;
-      }
-      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-      res.status(200).type("html").send(renderContinue(continueUrl.toString()));
-    } catch {
-      sendError(
-        res,
-        {
-          error: "login_continue_error",
-          error_description: "Could not continue sign-in.",
-        },
-        502,
-      );
-    }
-  }
-
-  router.post("/self-service/login", handleKratosFormPost);
-  router.post("/self-service/settings", handleKratosFormPost);
-
   router.get("/privacy", (_req: Request, res: Response): void => {
     res.type("html").send(renderPrivacy());
   });
@@ -274,7 +233,7 @@ export function createPagesRouter(): Router {
       // rather than reconstructing it from KRATOS_PUBLIC_URL.
       res.type("html").send(
         renderLogin({
-          actionUrl: browserKratosFormAction(flowData.ui.action),
+          actionUrl: flowData.ui.action,
           hiddenInputs: withExtraHiddenInput(hiddenInputsFromFlow(flowData), "login_hint", loginHint),
           providers: oidcSubmitButtonsFromFlow(flowData, "Continue with"),
         }),
@@ -392,7 +351,7 @@ export function createPagesRouter(): Router {
       const flowData = await kratos.getSettingsFlow(flow, req);
       res.type("html").send(
         renderSettings({
-          actionUrl: browserKratosFormAction(flowData.ui.action),
+          actionUrl: flowData.ui.action,
           hiddenInputs: hiddenInputsFromFlow(flowData),
           providers: oidcSubmitButtonsFromFlow(flowData, "Link"),
           factorNodes: factorSettingsNodesFromFlow(flowData),

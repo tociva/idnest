@@ -44,7 +44,8 @@ export function createServer() {
     "script-src 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
-    "form-action 'self'",
+    // Chrome applies form-action to Kratos's OIDC redirect, not only the form action.
+    `form-action 'self'${kratosOrigin ? ` ${kratosOrigin}` : ""} https://accounts.google.com https://appleid.apple.com`,
   ].join("; ");
 
   app.get("/health", (_req, res) => {

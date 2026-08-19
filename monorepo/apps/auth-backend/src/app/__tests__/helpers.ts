@@ -7,8 +7,6 @@ type FetchResult = {
   json?: unknown;
   /** Text body returned by res.text() */
   text?: string;
-  headers?: Record<string, string>;
-  setCookie?: string[];
 };
 
 /**
@@ -21,21 +19,11 @@ export function mockFetchByUrl(matchers: Array<{ match: string; result: FetchRes
     const u = String(url);
     const hit = matchers.find((m) => u.includes(m.match));
     const r: FetchResult = hit?.result ?? { ok: false, status: 500, json: { error: "unmatched" } };
-    const status = r.status ?? (r.ok ? 200 : 500);
-    const headerLookup = new Map(
-      Object.entries(r.headers ?? {}).map(([key, value]) => [key.toLowerCase(), value]),
-    );
     return {
       ok: r.ok,
-      status,
+      status: r.status ?? (r.ok ? 200 : 500),
       json: async () => r.json,
       text: async () => r.text ?? JSON.stringify(r.json ?? ""),
-      headers: {
-        get(name: string) {
-          return headerLookup.get(name.toLowerCase()) ?? null;
-        },
-        getSetCookie: () => r.setCookie ?? [],
-      },
     } as unknown as Response;
   });
   vi.stubGlobal("fetch", fn);

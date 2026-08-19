@@ -49,7 +49,6 @@ import {
   getKratosPublicUrl,
   getStrictUnmappedClients,
 } from "./config";
-import { browserKratosFormAction } from "./kratos-form-action";
 import {
   acceptHydraConsent,
   acceptHydraLogin,
@@ -310,7 +309,11 @@ function allowedGroup(group: string, policy: AuthPolicyDefinition): boolean {
 }
 
 function publicFlow(flow: KratosFlow, policy: AuthPolicyDefinition): KratosFlow {
-  const action = browserKratosFormAction(flow.ui.action);
+  const kratosOrigin = new URL(getKratosPublicUrl()).origin;
+  const action = new URL(flow.ui.action);
+  if (action.origin !== kratosOrigin || !action.pathname.startsWith("/self-service/")) {
+    throw new Error("Kratos returned an untrusted flow action");
+  }
   const nodes = flow.ui.nodes.filter((node) => {
     if (node.attributes.type === "hidden") return true;
     if (!allowedGroup(node.group, policy)) return false;
@@ -322,7 +325,7 @@ function publicFlow(flow: KratosFlow, policy: AuthPolicyDefinition): KratosFlow 
     }
     return true;
   });
-  return { ...flow, ui: { ...flow.ui, action, nodes } };
+  return { ...flow, ui: { ...flow.ui, nodes } };
 }
 
 async function rejectLoginAndRedirect(
