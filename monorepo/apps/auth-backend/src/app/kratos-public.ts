@@ -114,6 +114,13 @@ export function logoutTokenUrl(token: string): string {
   return `${getKratosInternalUrl()}/self-service/logout?token=${encodeURIComponent(token)}`;
 }
 
+function setCookiesFromResponse(res: { headers: Headers }): string[] {
+  const anyHeaders = res.headers as Headers & { getSetCookie?: () => string[] };
+  if (typeof anyHeaders.getSetCookie === "function") return anyHeaders.getSetCookie();
+  const single = res.headers.get("set-cookie");
+  return single ? [single] : [];
+}
+
 /**
  * Perform the Kratos logout server-side. Kratos clears `ory_kratos_session` via
  * a `Set-Cookie` on its response; we capture it (redirect: "manual") so the
@@ -124,10 +131,44 @@ export async function performLogout(url: string, req: Request): Promise<string[]
     headers: { cookie: cookieHeader(req) },
     redirect: "manual",
   });
-  const anyHeaders = res.headers as Headers & { getSetCookie?: () => string[] };
-  if (typeof anyHeaders.getSetCookie === "function") return anyHeaders.getSetCookie();
-  const single = res.headers.get("set-cookie");
-  return single ? [single] : [];
+  return setCookiesFromResponse(res);
+}
+
+export type KratosFormPostPath = "/self-service/login" | "/self-service/settings";
+
+/**
+ * Browser form POST to Kratos, without following the 303. The caller returns a
+ * 200 continue page so Chrome does not treat later OIDC hops as form-action.
+ */
+export async function submitKratosFormPost(
+  path: KratosFormPostPath,
+  req: Request,
+): Promise<{ status: number; location: string | null; setCookies: string[] }> {
+  const target = new URL(path, `${getKratosInternalUrl().replace(/\/$/, "")}/`);
+  for (const [key, value] of Object.entries(req.query)) {
+    if (typeof value === "string") target.searchParams.set(key, value);
+  }
+  const body = new URLSearchParams();
+  if (req.body && typeof req.body === "object" && !Array.isArray(req.body)) {
+    for (const [key, value] of Object.entries(req.body as Record<string, unknown>)) {
+      if (typeof value === "string") body.append(key, value);
+    }
+  }
+  const res = await fetch(target, {
+    method: "POST",
+    headers: {
+      cookie: cookieHeader(req),
+      "content-type": "application/x-www-form-urlencoded",
+      accept: "text/html",
+    },
+    body: body.toString(),
+    redirect: "manual",
+  });
+  return {
+    status: res.status,
+    location: res.headers.get("location"),
+    setCookies: setCookiesFromResponse(res),
+  };
 }
 
 /** Fetch a Kratos self-service error payload by id (for the error page). */

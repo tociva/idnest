@@ -1,5 +1,6 @@
 export { renderError } from "./error";
 export { renderPrivacy, renderTerms } from "./legal";
+export { renderContinue } from "./continue";
 export { renderLogin } from "./login";
 export { permissionForScope, renderAccessDenied, renderConsent } from "./consent";
 export { renderSettings } from "./settings";

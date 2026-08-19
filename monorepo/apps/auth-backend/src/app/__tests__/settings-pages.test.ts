@@ -9,7 +9,7 @@ const originalEnv = { ...process.env };
 const settingsFlow: KratosFlow = {
   id: "settings-flow-1",
   ui: {
-    action: "https://kratos/self-service/settings?flow=settings-flow-1",
+    action: "https://kratos-local.idnest.cloud/self-service/settings?flow=settings-flow-1",
     method: "POST",
     nodes: [
       { type: "input", group: "default", attributes: { name: "csrf_token", value: "settings-csrf", type: "hidden" } },
@@ -215,6 +215,10 @@ describe("settings pages", () => {
     expect(res.body).toContain('name="link" value="apple"');
     expect(res.body).toContain("Link Apple");
     expect(res.body).toContain("Back to app");
+    expect(res.body).toContain(
+      'action="https://auth-local.idnest.cloud/self-service/settings?flow=settings-flow-1"',
+    );
+    expect(res.body).not.toContain("https://kratos-local.idnest.cloud/self-service/settings");
   });
 
   it("redirects settings return to an allowlisted product app", async () => {

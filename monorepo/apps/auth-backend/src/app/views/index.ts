@@ -2,6 +2,7 @@ export {
   permissionForScope,
   renderAccessDenied,
   renderConsent,
+  renderContinue,
   renderError,
   renderLogin,
   renderPrivacy,
