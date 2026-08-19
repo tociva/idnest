@@ -358,8 +358,10 @@ Open `infrastructure/terraform/aws-development/terraform.tfvars` with any
 editor. The checked-in example contains the complete development configuration:
 
 ```hcl
-aws_region        = "ap-south-1"
-github_repository = "tociva/idnest"
+aws_region                 = "ap-south-1"
+github_repository          = "tociva/idnest"
+github_repository_owner_id = "217876362"
+github_repository_id       = "1016627095"
 
 build_environment_name = "ecr-build"
 deploy_environment_names = {
@@ -418,8 +420,10 @@ account where that provider does not exist. Change `create_ecr_repositories` to
 `force_delete_ecr_repositories=false` for normal operation.
 
 Idnest remains isolated through its own `idnest-*` IAM roles and ECR
-repositories. Each role's trust policy also restricts tokens to the
-`tociva/idnest` repository and the exact GitHub environment used by that role.
+repositories. Each role's trust policy also restricts tokens to the immutable
+`tociva@217876362/idnest@1016627095` repository identity and the exact GitHub
+environment used by that role. Verify the immutable IDs before applying with
+`gh api repos/tociva/idnest --jq '{repository_owner_id: .owner.id, repository_id: .id}'`.
 
 `vps-dev.idnest.cloud` is the direct SSH endpoint and is not routed through
 Cloudflare. Auth, admin, and identity share this VPS but remain separate GitHub

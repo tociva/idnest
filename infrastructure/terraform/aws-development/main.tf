@@ -43,6 +43,14 @@ data "aws_ecr_repository" "app" {
 
 locals {
   github_oidc_provider_arn = var.create_github_oidc_provider ? one(aws_iam_openid_connect_provider.github[*].arn) : one(data.aws_iam_openid_connect_provider.github[*].arn)
+  github_repository_parts  = split("/", var.github_repository)
+  github_oidc_subject_prefix = format(
+    "repo:%s@%s/%s@%s",
+    local.github_repository_parts[0],
+    var.github_repository_owner_id,
+    local.github_repository_parts[1],
+    var.github_repository_id,
+  )
   ecr_repository_arns = {
     for kind in keys(var.ecr_repository_names) : kind => (
       var.create_ecr_repositories ? aws_ecr_repository.app[kind].arn : data.aws_ecr_repository.app[kind].arn
@@ -69,7 +77,7 @@ data "aws_iam_policy_document" "build_assume_role" {
     condition {
       test     = "StringEquals"
       variable = local.oidc_subject_key
-      values   = ["repo:${var.github_repository}:environment:${var.build_environment_name}"]
+      values   = ["${local.github_oidc_subject_prefix}:environment:${var.build_environment_name}"]
     }
   }
 }
@@ -92,7 +100,7 @@ data "aws_iam_policy_document" "deploy_assume_role" {
     condition {
       test     = "StringEquals"
       variable = local.oidc_subject_key
-      values   = ["repo:${var.github_repository}:environment:${each.value}"]
+      values   = ["${local.github_oidc_subject_prefix}:environment:${each.value}"]
     }
   }
 }

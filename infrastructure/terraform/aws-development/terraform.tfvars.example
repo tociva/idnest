@@ -1,5 +1,7 @@
-aws_region        = "ap-south-1"
-github_repository = "tociva/idnest"
+aws_region                 = "ap-south-1"
+github_repository          = "tociva/idnest"
+github_repository_owner_id = "217876362"
+github_repository_id       = "1016627095"
 
 build_environment_name = "ecr-build"
 deploy_environment_names = {

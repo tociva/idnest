@@ -18,6 +18,24 @@ variable "github_repository" {
   }
 }
 
+variable "github_repository_owner_id" {
+  type        = string
+  description = "Immutable numeric GitHub identifier for the repository owner."
+  validation {
+    condition     = can(regex("^[1-9][0-9]*$", var.github_repository_owner_id))
+    error_message = "github_repository_owner_id must be a positive numeric GitHub owner ID."
+  }
+}
+
+variable "github_repository_id" {
+  type        = string
+  description = "Immutable numeric GitHub identifier for the repository."
+  validation {
+    condition     = can(regex("^[1-9][0-9]*$", var.github_repository_id))
+    error_message = "github_repository_id must be a positive numeric GitHub repository ID."
+  }
+}
+
 variable "build_environment_name" {
   type        = string
   description = "Protected GitHub environment used to build and push both images."
