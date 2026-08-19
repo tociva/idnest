@@ -54,6 +54,8 @@ SIGNING_PUBLIC_KEY=$SCRIPT_DIR/host-release-signing-public.pem
 DEPLOY_SSH_PUBLIC_KEY=$SCRIPT_DIR/github-deploy-ed25519.pub
 REPOSITORY_DIR=$SCRIPT_DIR/repository
 SCRIPT_PATH=$SCRIPT_DIR/bootstrap-development-vps.sh
+RUNTIME_NETWORK=idnest-runtime-development
+RUNTIME_SUBNET=172.23.0.0/16
 
 [ -f "$SCRIPT_PATH" ] && [ ! -L "$SCRIPT_PATH" ] \
   || fail "the bootstrap script must be a regular file, not a symbolic link"
@@ -82,6 +84,13 @@ if [ "$MODE" = validate-config ]; then
     /etc/idnest/idnest.conf; do
     sudo "$VALIDATOR" "$config_file"
   done
+
+  actual_runtime_subnet=$(sudo docker network inspect \
+    --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' \
+    "$RUNTIME_NETWORK") \
+    || fail "the development Docker runtime network is unavailable"
+  [ "$actual_runtime_subnet" = "$RUNTIME_SUBNET" ] \
+    || fail "development Docker runtime subnet is $actual_runtime_subnet; expected $RUNTIME_SUBNET"
 
   echo "Development VPS configuration validation passed."
   exit 0
@@ -215,7 +224,8 @@ fi
 
 sudo "$REPOSITORY_DIR/scripts/deploy/vps/provision-host.sh" \
   github-deploy \
-  idnest-runtime-development \
+  "$RUNTIME_NETWORK" \
+  "$RUNTIME_SUBNET" \
   "$SIGNING_PUBLIC_KEY" \
   "$DEPLOY_SSH_PUBLIC_KEY"
 
@@ -223,6 +233,7 @@ sudo systemctl is-active --quiet idnest-release-queue.path \
   || fail "the development release queue watcher is not active"
 
 echo "Development VPS host bootstrap complete."
+echo "Docker runtime network $RUNTIME_NETWORK uses pinned subnet $RUNTIME_SUBNET."
 echo "Review the three VPS-owned *.conf files under /etc/idnest."
 echo "Signed GitHub deployments install idnest.env, auth-app.env, and admin-app.env."
 echo "Then run: $SCRIPT_DIR/bootstrap-development-vps.sh --validate-config"

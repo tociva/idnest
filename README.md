@@ -565,7 +565,10 @@ packages and Docker when missing, checks Docker Engine and the Compose plugin,
 creates `github-deploy` when needed, provisions the release processor, and
 installs missing development configuration templates. It invokes `sudo` only
 for operations that require host privileges and refuses direct execution as
-`root`.
+`root`. The bootstrap creates `idnest-runtime-development` with the explicit
+subnet `172.23.0.0/16`. If the network already exists, provisioning verifies
+that it still uses exactly this subnet and fails instead of silently accepting
+network drift.
 
 ### 4. Configure development runtime and databases
 
@@ -719,6 +722,26 @@ URL-safe password for each role, then place it in the matching DSN. When
 PostgreSQL runs on the VPS, `host.docker.internal` is the container-to-host
 address configured by the deployment Compose files. For a managed database,
 replace the host, port, and `sslmode` with values supplied by that provider.
+
+The development Docker runtime subnet is pinned to `172.23.0.0/16`. When
+PostgreSQL runs on the same VPS and the development DSNs use
+`sslmode=disable`, add these narrowly scoped records to the active
+`pg_hba.conf`, validate `pg_hba_file_rules`, and reload PostgreSQL before the
+first identity deployment:
+
+```text
+# Idnest development runtime network (pinned by bootstrap)
+hostnossl  hydra   hydrau   172.23.0.0/16   scram-sha-256
+hostnossl  kratos  kratosu  172.23.0.0/16   scram-sha-256
+hostnossl  authz   authzu   172.23.0.0/16   scram-sha-256
+```
+
+Do not copy this CIDR blindly to another environment. The generic host
+provisioner requires an explicit `RUNTIME_SUBNET` argument and verifies the
+created or existing network against it. Reserve a different, non-overlapping
+CIDR for staging and production, then configure only that environment's
+database access for its reserved CIDR. Check existing Docker networks, host
+routes, VPC routes, and VPN routes before assigning a new subnet.
 
 | Property | How to obtain or generate it |
 | --- | --- |

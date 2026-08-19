@@ -6,13 +6,17 @@ fail() {
   exit 1
 }
 
-[ "$#" -eq 4 ] || fail "usage: provision-host.sh DEPLOY_USER RUNTIME_NETWORK RELEASE_SIGNING_PUBLIC_KEY DEPLOY_SSH_PUBLIC_KEY"
+[ "$#" -eq 5 ] || fail "usage: provision-host.sh DEPLOY_USER RUNTIME_NETWORK RUNTIME_SUBNET RELEASE_SIGNING_PUBLIC_KEY DEPLOY_SSH_PUBLIC_KEY"
 DEPLOY_USER=$1
 RUNTIME_NETWORK=$2
-RELEASE_SIGNING_PUBLIC_KEY=$3
-DEPLOY_SSH_PUBLIC_KEY=$4
+RUNTIME_SUBNET=$3
+RELEASE_SIGNING_PUBLIC_KEY=$4
+DEPLOY_SSH_PUBLIC_KEY=$5
 printf '%s\n' "$DEPLOY_USER" | grep -Eq '^[a-z_][a-z0-9_-]*$' || fail "invalid deployment user"
 printf '%s\n' "$RUNTIME_NETWORK" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_.-]*$' || fail "invalid runtime network"
+printf '%s\n' "$RUNTIME_SUBNET" \
+  | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$' \
+  || fail "runtime subnet must be an IPv4 CIDR"
 [ "$(id -u)" -eq 0 ] || fail "run provisioning as root"
 id "$DEPLOY_USER" >/dev/null 2>&1 || fail "deployment user does not exist"
 DEPLOY_GROUP=$(id -gn "$DEPLOY_USER")
@@ -74,9 +78,13 @@ install -o root -g root -m 644 "$SCRIPT_DIR/idnest-release-queue.service" /etc/s
 [ -e /etc/idnest/idnest.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/idnest.conf.example" /etc/idnest/idnest.conf
 
 if ! docker network inspect "$RUNTIME_NETWORK" >/dev/null 2>&1; then
-  docker network create --attachable "$RUNTIME_NETWORK" >/dev/null
+  docker network create --attachable --subnet "$RUNTIME_SUBNET" "$RUNTIME_NETWORK" >/dev/null
 fi
 [ "$(docker network inspect --format '{{.Attachable}}' "$RUNTIME_NETWORK")" = true ] || fail "runtime network is not attachable"
+ACTUAL_RUNTIME_SUBNET=$(docker network inspect \
+  --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' "$RUNTIME_NETWORK")
+[ "$ACTUAL_RUNTIME_SUBNET" = "$RUNTIME_SUBNET" ] \
+  || fail "runtime network subnet is $ACTUAL_RUNTIME_SUBNET; expected $RUNTIME_SUBNET"
 
 systemctl daemon-reload
 systemctl enable --now idnest-release-queue.path
