@@ -31,5 +31,5 @@
       "executor": "@nx/eslint:lint"
     }
   },
-  "tags": ["scope:auth", "type:app"]
+  "tags": ["scope:auth", "type:app", "platform:server"]
 }
