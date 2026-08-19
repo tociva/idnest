@@ -4,6 +4,8 @@ import { basename, resolve } from "node:path";
 import { startDirectServers } from "@idnest/server-runtime";
 import express from "express";
 import { getPort, validateAuthRuntimeConfiguration } from "./app/config";
+import { applyHtmlFormActionCsp } from "./app/apply-form-action-csp";
+import { buildAuthCsp } from "./app/form-action-csp";
 import { createOrchestratorRouter } from "./app/orchestrator";
 import { createPagesRouter } from "./app/pages";
 import { startAuthTransactionMaintenance } from "./app/transaction-maintenance";
@@ -25,29 +27,6 @@ function configureStaticCaching(res: express.Response, filePath: string): void {
 export function createServer() {
   const app = express();
 
-  const kratosOrigin = (() => {
-    try {
-      return new URL(process.env.KRATOS_PUBLIC_URL ?? "").origin;
-    } catch {
-      return "";
-    }
-  })();
-  const assetOrigins = (process.env.AUTH_ASSET_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-  const contentSecurityPolicy = [
-    "default-src 'self'",
-    `connect-src 'self'${kratosOrigin ? ` ${kratosOrigin}` : ""}`,
-    `img-src 'self' data:${assetOrigins.length ? ` ${assetOrigins.join(" ")}` : ""}`,
-    "style-src 'self' 'unsafe-inline'",
-    "script-src 'self'",
-    "frame-ancestors 'none'",
-    "base-uri 'self'",
-    // Chrome applies form-action to Kratos's OIDC redirect, not only the form action.
-    `form-action 'self'${kratosOrigin ? ` ${kratosOrigin}` : ""} https://accounts.google.com https://appleid.apple.com`,
-  ].join("; ");
-
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
   });
@@ -59,7 +38,7 @@ export function createServer() {
     res.set("Referrer-Policy", "strict-origin-when-cross-origin");
     res.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     res.set("X-Frame-Options", "DENY");
-    res.set("Content-Security-Policy", contentSecurityPolicy);
+    res.set("Content-Security-Policy", buildAuthCsp());
     if (process.env.NODE_ENV === "production") {
       res.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     }
@@ -86,11 +65,12 @@ export function createServer() {
         setHeaders: configureStaticCaching,
       }),
     );
-    app.get(/^\/auth(?:\/.*)?$/, (req, res, next) => {
+    app.get(/^\/auth(?:\/.*)?$/, async (req, res, next) => {
       if (req.path === "/auth/v1" || req.path.startsWith("/auth/v1/")) {
         next();
         return;
       }
+      await applyHtmlFormActionCsp(req, res);
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       res.sendFile(frontendIndex);
     });

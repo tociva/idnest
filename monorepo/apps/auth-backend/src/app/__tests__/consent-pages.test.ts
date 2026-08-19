@@ -69,6 +69,10 @@ async function requestPath(path: string): Promise<RouteResult> {
       result.headers.location = target;
       return this;
     },
+    set(name: string, value: string) {
+      result.headers[name.toLowerCase()] = value;
+      return this;
+    },
   } as unknown as Response;
 
   await handler(req, res, (err?: unknown) => {

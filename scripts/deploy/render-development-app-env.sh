@@ -75,6 +75,7 @@ case "$kind" in
       printf '%s\n' 'KRATOS_ADMIN_URL=http://idnest-kratos:4434'
       printf '%s\n' 'KRATOS_PUBLIC_URL=https://kratos-dev.idnest.cloud'
       printf '%s\n' 'KRATOS_INTERNAL_URL=https://kratos-dev.idnest.cloud:4433'
+      printf '%s\n' 'HYDRA_URLS_SELF_ISSUER=https://hydra-dev.idnest.cloud/'
       printf '%s\n' 'AUTH_RETURN_TO_ALLOWED_ORIGINS=https://admin-dev.idnest.cloud'
       printf '%s\n' 'ADMIN_CORS_ALLOWED_ORIGINS=https://admin-dev.idnest.cloud'
       printf 'AUTHZ_DATABASE_URL=%s\n' "$AUTHZ_DATABASE_URL"

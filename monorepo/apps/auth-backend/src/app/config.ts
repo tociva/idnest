@@ -5,6 +5,14 @@
  */
 
 export const getHydraAdminUrl = (): string => process.env.HYDRA_ADMIN_URL ?? "";
+
+/**
+ * Hydra *public* origin the browser is redirected to after login/consent.
+ * Must be the issuer URL (port 443), not HYDRA_ADMIN_URL (admin port).
+ */
+export const getHydraPublicUrl = (): string =>
+  process.env.HYDRA_URLS_SELF_ISSUER ?? "";
+
 export const getKratosAdminUrl = (): string => process.env.KRATOS_ADMIN_URL ?? "";
 
 /**

@@ -34,6 +34,8 @@ import {
   renderTerms,
 } from "./views";
 import { getConsentActionSecret } from "./config";
+import { applyAuthCsp, clientOriginsFromLoginFlow } from "./apply-form-action-csp";
+import { clientRedirectOrigins } from "./form-action-csp";
 import {
   factorSettingsNodesFromFlow,
   hiddenInputsFromFlow,
@@ -231,6 +233,7 @@ export function createPagesRouter(): Router {
       // Use the flow's own `ui.action` (Kratos builds it from its public
       // base_url, so it's always the correct browser-reachable submit URL)
       // rather than reconstructing it from KRATOS_PUBLIC_URL.
+      applyAuthCsp(res, await clientOriginsFromLoginFlow(flowData));
       res.type("html").send(
         renderLogin({
           actionUrl: flowData.ui.action,
@@ -437,6 +440,7 @@ export function createPagesRouter(): Router {
 
       await auditDecision(loaded, "prompt", decision.reasons.join(","));
       const secret = getConsentActionSecret();
+      applyAuthCsp(res, clientRedirectOrigins(loaded.client.redirect_uris));
       res.type("html").send(
         renderConsent({
           clientName: loaded.client.client_name ?? loaded.clientId,

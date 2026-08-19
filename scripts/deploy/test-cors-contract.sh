@@ -127,6 +127,8 @@ ADMIN_BOOTSTRAP_EMAILS='cors-contract@idnest.cloud' \
 
 require_line "$temporary_directory/auth.env" \
   'AUTH_RETURN_TO_ALLOWED_ORIGINS=https://admin-dev.idnest.cloud'
+require_line "$temporary_directory/auth.env" \
+  'HYDRA_URLS_SELF_ISSUER=https://hydra-dev.idnest.cloud/'
 reject_legacy_key "$temporary_directory/auth.env"
 
 echo "Hydra, Kratos, and auth application CORS configuration contracts are aligned."
