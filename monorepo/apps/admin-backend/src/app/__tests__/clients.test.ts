@@ -172,13 +172,13 @@ describe("oauth client management", () => {
   });
 
   it.each([
-    "http://client.example",
     "http://localhost:4200",
     "http://tenant.localhost:4200",
     "http://127.0.0.1:4200",
-    "http://[::1]:4200",
-  ])("rejects HTTP browser origin in production: %s", async (origin) => {
-    const fetchMock = mockFetchByUrl([]);
+  ])("accepts an exact HTTP loopback browser origin in a production runtime: %s", async (origin) => {
+    const fetchMock = mockFetchByUrl([
+      { match: "/admin/clients", result: { ok: true, status: 201, json: { client_id: "spa" } } },
+    ]);
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     try {
@@ -188,8 +188,30 @@ describe("oauth client management", () => {
         redirect_uris: ["https://client.example/callback"],
         allowed_cors_origins: [origin],
       });
-      expect(res).toMatchObject({ status: 400 });
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(res).toMatchObject({ status: 201 });
+      expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).allowed_cors_origins).toEqual([origin]);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
+  it("accepts local development and deployed HTTPS origins together in a production runtime", async () => {
+    const fetchMock = mockFetchByUrl([
+      { match: "/admin/clients", result: { ok: true, status: 201, json: { client_id: "spa" } } },
+    ]);
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const origins = ["http://localhost:5200", "https://app-dev.digitalsmartads.com"];
+      const res = await createClient({
+        client_id: "spa",
+        client_type: "spa",
+        redirect_uris: ["https://app-dev.digitalsmartads.com/auth/callback"],
+        allowed_cors_origins: origins,
+      });
+      expect(res).toMatchObject({ status: 201 });
+      expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).allowed_cors_origins).toEqual(origins);
     } finally {
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;

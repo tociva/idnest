@@ -44,7 +44,7 @@ export interface ClientPayload {
 }
 
 const MAX_CLIENT_ORIGINS = 20;
-const allowHttpLoopback = (): boolean => process.env.NODE_ENV !== "production";
+const CORS_ORIGIN_OPTIONS = { allowHttpLoopback: true } as const;
 
 function normalizeCorsOrigins(values: string[] | undefined): string[] {
   if (!values) return [];
@@ -53,10 +53,10 @@ function normalizeCorsOrigins(values: string[] | undefined): string[] {
   }
   const normalized = values.map((value) => {
     if (typeof value !== "string") throw new Error("allowed_cors_origins entries must be strings");
-    const origin = normalizeClientCorsOrigin(value, { allowHttpLoopback: allowHttpLoopback() });
+    const origin = normalizeClientCorsOrigin(value, CORS_ORIGIN_OPTIONS);
     if (!origin) {
       throw new Error(
-        "allowed_cors_origins entries must be exact supported HTTPS origins without paths, credentials, queries, fragments, wildcards, or IPv6 literals",
+        "allowed_cors_origins entries must be exact supported HTTPS or HTTP loopback origins without paths, credentials, queries, fragments, wildcards, or IPv6 literals",
       );
     }
     return origin;
@@ -74,7 +74,11 @@ function normalizeReturnUris(values: string[] | undefined): string[] {
     try {
       const url = new URL(value.trim());
       if (url.username || url.password || url.hash) throw new Error("invalid");
-      if (!normalizeClientCorsOrigin(url.origin, { allowHttpLoopback: allowHttpLoopback() })) {
+      if (
+        !normalizeClientCorsOrigin(url.origin, {
+          allowHttpLoopback: process.env.NODE_ENV !== "production",
+        })
+      ) {
         throw new Error("invalid");
       }
       return url.toString();
