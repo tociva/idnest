@@ -191,6 +191,89 @@ grep -q '^APPLE_PRIVATE_KEY_B64=' "$prepared_directory/development-identity.secr
   exit 1
 }
 
+expected_variables_for_environment() {
+  case "$1" in
+    ecr-build)
+      printf '%s\n' "AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY"
+      ;;
+    development-auth)
+      printf '%s\n' "AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS DELEGATION_ENABLED"
+      ;;
+    development-admin)
+      printf '%s\n' "AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS"
+      ;;
+    development-identity)
+      expected="VPS_HOST VPS_PORT VPS_USER GOOGLE_CLIENT_ID"
+      if grep -Eq '^APPLE_(CLIENT_ID|TEAM_ID|PRIVATE_KEY_ID)=' "$prepared_directory/development-identity.vars.env"; then
+        expected="$expected APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID"
+      fi
+      printf '%s\n' "$expected"
+      ;;
+    *)
+      echo "Unsupported GitHub variable environment: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+expected_secrets_for_environment() {
+  case "$1" in
+    ecr-build)
+      printf '\n'
+      ;;
+    development-auth)
+      printf '%s\n' "VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET DELEGATION_SIGNING_PRIVATE_KEY_B64"
+      ;;
+    development-admin)
+      printf '%s\n' "VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 AUTHZ_DATABASE_URL ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET"
+      ;;
+    development-identity)
+      expected="VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 HYDRA_DSN HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_SECRET"
+      if grep -q '^APPLE_PRIVATE_KEY_B64=' "$prepared_directory/development-identity.secrets.env"; then
+        expected="$expected APPLE_PRIVATE_KEY_B64"
+      fi
+      printf '%s\n' "$expected"
+      ;;
+    *)
+      echo "Unsupported GitHub secret environment: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+key_is_expected() {
+  expected_keys=$1
+  candidate_key=$2
+  case " $expected_keys " in
+    *" $candidate_key "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+prune_unexpected_variables() {
+  environment=$1
+  expected_keys=$(expected_variables_for_environment "$environment")
+  gh variable list --repo "$repository" --env "$environment" --json name --jq '.[].name' \
+    | while IFS= read -r key; do
+        if ! key_is_expected "$expected_keys" "$key"; then
+          gh variable delete "$key" --repo "$repository" --env "$environment"
+          echo "Removed unneeded variable $key from $environment."
+        fi
+      done
+}
+
+prune_unexpected_secrets() {
+  environment=$1
+  expected_keys=$(expected_secrets_for_environment "$environment")
+  gh secret list --repo "$repository" --env "$environment" --json name --jq '.[].name' \
+    | while IFS= read -r key; do
+        if ! key_is_expected "$expected_keys" "$key"; then
+          gh secret delete "$key" --repo "$repository" --env "$environment"
+          echo "Removed unneeded secret $key from $environment."
+        fi
+      done
+}
+
 for environment in ecr-build development-auth development-admin development-identity; do
   if ! gh api "repos/$repository/environments/$environment" >/dev/null 2>&1; then
     gh api --method PUT "repos/$repository/environments/$environment" >/dev/null
@@ -199,38 +282,15 @@ for environment in ecr-build development-auth development-admin development-iden
   gh variable set --repo "$repository" --env "$environment" \
     --env-file "$prepared_directory/$environment.vars.env"
   echo "Updated variables for $environment."
+  prune_unexpected_variables "$environment"
 done
 
 for environment in development-auth development-admin development-identity; do
   gh secret set --repo "$repository" --env "$environment" \
     --env-file "$prepared_directory/$environment.secrets.env"
   echo "Updated secrets for $environment."
-  existing_secrets=$(gh secret list --repo "$repository" --env "$environment")
-  if [ "$environment" != development-identity ]; then
-    if printf '%s\n' "$existing_secrets" \
-      | awk '$1 == "APP_ENV_B64" { found = 1 } END { exit !found }'; then
-      gh secret delete APP_ENV_B64 --repo "$repository" --env "$environment"
-      echo "Removed obsolete whole-file secret APP_ENV_B64 from $environment."
-    fi
-  fi
+  prune_unexpected_secrets "$environment"
 done
-
-identity_variables="$prepared_directory/development-identity.vars.env"
-existing_identity_variables=$(gh variable list --repo "$repository" --env development-identity)
-for key in APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID; do
-  if ! grep -q "^${key}=" "$identity_variables" && printf '%s\n' "$existing_identity_variables" \
-    | awk -v wanted="$key" '$1 == wanted { found = 1 } END { exit !found }'; then
-    gh variable delete "$key" --repo "$repository" --env development-identity
-    echo "Removed disabled Apple variable $key from development-identity."
-  fi
-done
-
-identity_secrets="$prepared_directory/development-identity.secrets.env"
-existing_identity_secrets=$(gh secret list --repo "$repository" --env development-identity)
-if ! grep -q '^APPLE_PRIVATE_KEY_B64=' "$identity_secrets" && printf '%s\n' "$existing_identity_secrets" \
-  | awk '$1 == "APPLE_PRIVATE_KEY_B64" { found = 1 } END { exit !found }'; then
-  gh secret delete APPLE_PRIVATE_KEY_B64 --repo "$repository" --env development-identity
-  echo "Removed disabled Apple private key from development-identity."
-fi
+prune_unexpected_secrets ecr-build
 
 echo "Development GitHub environments were updated without printing secret values."

@@ -185,6 +185,61 @@ unexpected, empty required, partial Apple, or placeholder values. Only
 configurable values are uploaded; each workflow regenerates current
 development defaults from tracked templates.
 
+`CLOUDFLARE_TUNNEL_TOKEN` is required only for
+`transfer-development-vps-bootstrap.sh`. It is not uploaded to GitHub and is not
+placed in any application runtime environment.
+
+### Generate development values
+
+Generate independent values for each placeholder. The commands below are
+reviewed against the validators and renderers in this repository:
+
+```bash
+HYDRA_DB_PASSWORD=$(openssl rand -hex 24)
+KRATOS_DB_PASSWORD=$(openssl rand -hex 24)
+AUTHZ_DB_PASSWORD=$(openssl rand -hex 24)
+
+HYDRA_SECRETS_SYSTEM=$(openssl rand -hex 32)
+KRATOS_CSRF_COOKIE_SECRET=$(openssl rand -hex 32)
+KRATOS_CIPHER_SECRET=$(openssl rand -hex 16)
+CONSENT_ACTION_SECRET=$(openssl rand -hex 32)
+AUTH_TRANSACTION_SECRET=$(openssl rand -hex 32)
+AUTH_AUDIT_HASH_SECRET=$(openssl rand -hex 32)
+ADMIN_CSRF_SECRET=$(openssl rand -hex 32)
+ADMIN_OIDC_CLIENT_SECRET=$(openssl rand -hex 32)
+
+openssl genpkey -algorithm EC \
+  -pkeyopt ec_paramgen_curve:P-256 \
+  -out delegation-private.pem
+DELEGATION_SIGNING_PRIVATE_KEY_B64=$(openssl base64 -A -in delegation-private.pem)
+```
+
+The database passwords use hexadecimal output so they are URL-safe in the DSNs
+without percent-encoding. `KRATOS_CIPHER_SECRET` uses `openssl rand -hex 16`
+because Kratos requires exactly 32 characters. The delegated authorization key
+is a dedicated P-256 PKCS#8 private key; do not reuse the release-signing key,
+Hydra secrets, or any Apple private key.
+
+After generating values, build the three development DSNs with the generated
+passwords:
+
+```bash
+HYDRA_DSN="postgres://hydrau:${HYDRA_DB_PASSWORD}@host.docker.internal:5432/hydra?sslmode=disable"
+KRATOS_DSN="postgres://kratosu:${KRATOS_DB_PASSWORD}@host.docker.internal:5432/kratos?sslmode=disable"
+AUTHZ_DATABASE_URL="postgres://authzu:${AUTHZ_DB_PASSWORD}@host.docker.internal:5432/authz?sslmode=disable"
+```
+
+For Apple login, keep all four `APPLE_*` values empty unless it is enabled. If
+enabled, encode the downloaded `.p8` private key as one JSON string:
+
+```bash
+jq -Rs . < AuthKey_KEY_ID.p8
+```
+
+Paste the quoted output as the complete `APPLE_PRIVATE_KEY` value. The GitHub
+Environment updater validates it and stores only `APPLE_PRIVATE_KEY_B64` in
+`development-identity`.
+
 ### Terraform-derived infrastructure properties
 
 These eleven non-secret values are part of `tmp/development.env` so that it is the
@@ -242,6 +297,30 @@ URL-safe password for each role, then place it in the matching DSN. When
 PostgreSQL runs on the VPS, `host.docker.internal` is the container-to-host
 address configured by the deployment Compose files. For a managed database,
 replace the host, port, and `sslmode` with values supplied by that provider.
+The VPS bootstrap installs Docker and cloudflared; it does not install or
+manage PostgreSQL.
+
+For PostgreSQL running on the development VPS, run these commands as a
+PostgreSQL administrator after generating the three database passwords above:
+
+```bash
+sudo -u postgres psql \
+  --set=hydra_password="$HYDRA_DB_PASSWORD" \
+  --set=kratos_password="$KRATOS_DB_PASSWORD" \
+  --set=authz_password="$AUTHZ_DB_PASSWORD" <<'SQL'
+CREATE ROLE hydrau LOGIN PASSWORD :'hydra_password';
+CREATE DATABASE hydra OWNER hydrau;
+
+CREATE ROLE kratosu LOGIN PASSWORD :'kratos_password';
+CREATE DATABASE kratos OWNER kratosu;
+
+CREATE ROLE authzu LOGIN PASSWORD :'authz_password';
+CREATE DATABASE authz OWNER authzu;
+SQL
+```
+
+If PostgreSQL is managed by a provider, create equivalent roles/databases in
+that provider and update the DSN host, port, and `sslmode` accordingly.
 
 The development Docker runtime subnet is pinned to `172.23.0.0/16`. When
 PostgreSQL runs on the same VPS and the development DSNs use
@@ -254,6 +333,14 @@ first identity deployment:
 hostnossl  hydra   hydrau   172.23.0.0/16   scram-sha-256
 hostnossl  kratos  kratosu  172.23.0.0/16   scram-sha-256
 hostnossl  authz   authzu   172.23.0.0/16   scram-sha-256
+```
+
+Locate and validate the active host-based authentication file with:
+
+```bash
+sudo -u postgres psql -tAc 'SHOW hba_file;'
+sudo -u postgres psql -c "SELECT line_number, type, database, user_name, address, auth_method, error FROM pg_hba_file_rules WHERE database && ARRAY['hydra','kratos','authz'];"
+sudo systemctl reload postgresql
 ```
 
 Do not copy this CIDR blindly to another environment. The generic host
@@ -324,17 +411,22 @@ outside the repository. See Apple's official guides for
 [web configuration](https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/)
 and [creating a private key](https://developer.apple.com/help/account/capabilities/create-a-sign-in-with-apple-private-key).
 
+### GitHub Environment contract
+
+These are the exact GitHub Environment variables and secrets prepared from
+`tmp/development.env` and `../idnest-secure`. Values not listed here are not
+required by the development workflows.
+
 | GitHub Environment | GitHub secrets | GitHub variables |
 | --- | --- | --- |
 | `ecr-build` | None | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_BUILD_ROLE_ARN`, `AUTH_ECR_REPOSITORY`, `ADMIN_ECR_REPOSITORY`, `BUILDER_ECR_REPOSITORY` |
-| `development-auth` | `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET`, `DELEGATION_SIGNING_PRIVATE_KEY_B64` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS`, `DELEGATION_ENABLED` |
-| `development-admin` | `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, `ADMIN_OIDC_CLIENT_SECRET` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS` |
-| `development-identity` | `HYDRA_DSN`, `HYDRA_SECRETS_SYSTEM`, `KRATOS_DSN`, `KRATOS_CSRF_COOKIE_SECRET`, `KRATOS_CIPHER_SECRET`, `GOOGLE_CLIENT_SECRET`, optional `APPLE_PRIVATE_KEY_B64` | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `GOOGLE_CLIENT_ID`, optional `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, and `APPLE_PRIVATE_KEY_ID` |
+| `development-auth` | `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, `HOST_RELEASE_SIGNING_PRIVATE_KEY_B64`, `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET`, `DELEGATION_SIGNING_PRIVATE_KEY_B64` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS`, `DELEGATION_ENABLED` |
+| `development-admin` | `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, `HOST_RELEASE_SIGNING_PRIVATE_KEY_B64`, `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, `ADMIN_OIDC_CLIENT_SECRET` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS` |
+| `development-identity` | `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, `HOST_RELEASE_SIGNING_PRIVATE_KEY_B64`, `HYDRA_DSN`, `HYDRA_SECRETS_SYSTEM`, `KRATOS_DSN`, `KRATOS_CSRF_COOKIE_SECRET`, `KRATOS_CIPHER_SECRET`, `GOOGLE_CLIENT_SECRET`, optional `APPLE_PRIVATE_KEY_B64` | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `GOOGLE_CLIENT_ID`, optional `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, and `APPLE_PRIVATE_KEY_ID` |
 
-All three deployment environments also receive the SSH private key, pinned
-known-hosts file, and release-signing private key as separate base64 transport
-secrets. Identity receives the shared VPS target but no AWS role because it
-does not pull application images from ECR.
+Identity receives the shared VPS target but no AWS role because it does not
+pull application images from ECR. `CLOUDFLARE_TUNNEL_TOKEN` remains local-only
+after VPS bootstrap and is not a GitHub variable or secret.
 
 The single `AUTHZ_DATABASE_URL` and `ADMIN_BOOTSTRAP_EMAILS` values are uploaded
 to both application environments. Generate independent random values for every
@@ -472,7 +564,8 @@ tracked property contract:
 Finally run the bulk updater. It reads every key-value setting only from
 `tmp/development.env`, prepares the named secrets and variables, creates or
 updates `ecr-build`, `development-auth`, `development-admin`, and
-`development-identity`, and securely deletes its temporary dotenv files:
+`development-identity`, prunes unlisted variables and secrets from those
+development environments, and securely deletes its temporary dotenv files:
 
 ```bash
 ./scripts/deploy/update-development-github-environments.sh
@@ -517,9 +610,10 @@ stored as separate GitHub secrets or variables; no full dotenv file is stored
 in GitHub. The helpers validate file modes, key formats, exact
 variable/secret names, and application environment contracts without printing
 secret values. The bulk updater deletes its generated directory even when an
-intermediate command fails. The configuration helper deletes obsolete
-whole-file application secrets and removes stale optional Apple settings when
-Apple login is disabled. After changing any protected local source file, rerun
+intermediate command fails. The configuration helper removes obsolete
+whole-file application secrets, stale optional Apple settings when Apple login
+is disabled, and any other unlisted environment variable or secret in the four
+development environments. After changing any protected local source file, rerun
 the single bulk updater; the next matching deployment generates and installs
 the new root-owned file on the VPS.
 
