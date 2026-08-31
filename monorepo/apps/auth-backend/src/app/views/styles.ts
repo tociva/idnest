@@ -205,6 +205,51 @@ html, body {
 .alert-success { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
 .flow-messages .alert:last-child { margin-bottom: 1rem; }
 
+.auto-consent-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.875rem;
+  text-align: center;
+}
+.auto-consent-title {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+.auto-consent-spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid var(--border-subtle);
+  border-top-color: var(--brand);
+  border-radius: 999px;
+  animation: auto-consent-spin 800ms linear infinite;
+}
+.auto-consent-progress {
+  position: relative;
+  width: 100%;
+  height: 0.375rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border-subtle);
+}
+.auto-consent-progress::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  border-radius: inherit;
+  background: var(--brand);
+  animation: auto-consent-progress 1s ease-in-out infinite;
+}
+@keyframes auto-consent-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes auto-consent-progress {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(230%); }
+}
+
 .link { color: var(--brand); text-decoration: underline; background: none; border: none; cursor: pointer; font: inherit; padding: 0; }
 .link:hover { opacity: 0.75; }
 

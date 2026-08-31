@@ -10,7 +10,6 @@ export {
   renderTerms,
 } from "./pages";
 export type {
-  AutoConsentReason,
   ErrorViewModel,
   LoginViewModel,
   SettingsViewModel,

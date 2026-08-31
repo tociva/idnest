@@ -82,7 +82,13 @@ import {
   hashOpaqueValue,
   verifyActionToken,
 } from "./transaction-crypto";
-import { renderAutoConsentRedirect, renderError, type AutoConsentReason } from "./views";
+import { renderAutoConsentRedirect, renderError } from "./views";
+
+type AutoConsentReason =
+  | "same_verified_email"
+  | "trusted_first_party"
+  | "remembered_authorization"
+  | "verified_email_subject";
 
 function first(value: unknown): string | undefined {
   if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : undefined;
@@ -148,14 +154,12 @@ function sendAutoConsentTransition(
   res: Response,
   resolved: ResolvedAuthConfiguration,
   redirectTo: string,
-  reason: AutoConsentReason,
 ): void {
   noStore(res);
   res.status(200).type("html").send(renderAutoConsentRedirect({
     clientDisplayName: resolved.client.clientDisplayName || resolved.client.hydraClientId,
     productName: resolved.brand.productName || DEFAULT_IDNEST_BRAND.productName || "Idnest",
     redirectTo,
-    reason,
   }));
 }
 
@@ -164,13 +168,12 @@ function completeAutoConsent(
   resolved: ResolvedAuthConfiguration,
   request: HydraConsentRequest,
   redirectTo: string,
-  reason: AutoConsentReason,
 ): void {
   if (request.skip) {
     res.redirect(redirectTo);
     return;
   }
-  sendAutoConsentTransition(res, resolved, redirectTo, reason);
+  sendAutoConsentTransition(res, resolved, redirectTo);
 }
 
 function publicUiUrl(path: string, params: Record<string, string> = {}): string {
@@ -1199,7 +1202,7 @@ export function createOrchestratorRouter(): Router {
             subjectSource: emailSubjectConsentSource,
           },
         });
-        completeAutoConsent(res, resolved, hydraRequest, redirectTo, emailSubjectConsentReason);
+        completeAutoConsent(res, resolved, hydraRequest, redirectTo);
         return;
       }
 
@@ -1237,7 +1240,7 @@ export function createOrchestratorRouter(): Router {
             autoConsentReason: consentReason,
           },
         });
-        completeAutoConsent(res, resolved, hydraRequest, redirectTo, consentReason);
+        completeAutoConsent(res, resolved, hydraRequest, redirectTo);
         return;
       }
 

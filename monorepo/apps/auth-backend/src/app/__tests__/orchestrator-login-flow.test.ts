@@ -183,16 +183,19 @@ async function getRoute(path: string, params: Record<string, string> = {}): Prom
 function expectAutoConsentRedirectPage(
   result: RouteJsonResult,
   redirectTo: string,
-  expectedReason: string,
 ) {
   expect(result.status).toBe(200);
   expect(result.headers.location).toBeUndefined();
   expect(result.headers["content-type"]).toBe("html");
   const body = String(result.body);
-  expect(body).toContain("Access approved automatically");
+  expect(body).toContain("Completing sign-in");
+  expect(body).toContain('role="progressbar"');
+  expect(body).toContain("auto-consent-spinner");
   expect(body).toContain('http-equiv="refresh"');
-  expect(body).toContain(expectedReason);
   expect(body).toContain(redirectTo);
+  expect(body).not.toContain("same verified email address");
+  expect(body).not.toContain("trusted first-party application");
+  expect(body).not.toContain("already carries a verified email identity");
 }
 
 function expectDirectRedirect(result: RouteJsonResult, redirectTo: string) {
@@ -889,11 +892,7 @@ describe("orchestrator login flow context", () => {
 
     const result = await getRoute("/oauth2/consent?consent_challenge=consent-challenge-1");
 
-    expectAutoConsentRedirectPage(
-      result,
-      "https://daybook/callback",
-      "same verified email address",
-    );
+    expectAutoConsentRedirectPage(result, "https://daybook/callback");
     const acceptCall = fetchMock.mock.calls.find((call) =>
       String(call[0]).includes("/oauth2/auth/requests/consent/accept"),
     );
