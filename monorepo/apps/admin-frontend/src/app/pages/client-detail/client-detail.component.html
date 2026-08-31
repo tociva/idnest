@@ -233,6 +233,10 @@
                       [readonly]="protectedAdminClient"
                       placeholder="https://client.example/auth/logout"
                     />
+                    <p class="field-help">
+                      Must share an origin with a login redirect URI. For a BFF, use a BFF logout callback here;
+                      redirect to the application UI from that callback.
+                    </p>
                   </tng-form-field>
                 }
                 @if (showBrowserOrigins) {

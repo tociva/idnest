@@ -18,6 +18,12 @@
     "url": "/clients/new"
   },
   {
+    "title": "Delegated Access",
+    "description": "Configure generic resource audiences, authorized service actors, scopes, and delegation activity",
+    "keywords": ["delegation", "trusted services", "token exchange", "actors", "resources", "scopes"],
+    "url": "/delegation"
+  },
+  {
     "title": "Auth Brands",
     "description": "Manage authentication journey branding, copy, colors, logos, and legal links",
     "keywords": ["authentication", "auth", "brands", "branding", "login", "copy"],

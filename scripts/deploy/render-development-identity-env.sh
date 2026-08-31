@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+APPLE_KEY_VALIDATOR="$SCRIPT_DIR/validate-apple-private-key.sh"
+
 fail() {
   echo "Development identity environment rendering failed: $*" >&2
   exit 1
@@ -60,8 +63,8 @@ if [ "$apple_value_count" -eq 4 ]; then
   apple_key_file=$(mktemp "$output_directory/.apple-private-key.XXXXXX")
   printf '%s' "$APPLE_PRIVATE_KEY_B64" | openssl base64 -d -A >"$apple_key_file" 2>/dev/null \
     || fail "APPLE_PRIVATE_KEY_B64 is not valid base64"
-  openssl pkey -in "$apple_key_file" -noout >/dev/null 2>&1 \
-    || fail "APPLE_PRIVATE_KEY_B64 does not contain a valid PEM private key"
+  "$APPLE_KEY_VALIDATOR" "$apple_key_file" >/dev/null \
+    || fail "APPLE_PRIVATE_KEY_B64 must contain an Apple PKCS#8 P-256 private key"
   apple_private_key_yaml=$(awk '
     BEGIN { printf "\"" }
     {
@@ -111,7 +114,6 @@ trap cleanup EXIT HUP INT TERM
   printf "APPLE_PRIVATE_KEY='%s'\n" "$apple_private_key_yaml"
 } >"$candidate"
 
-SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 "$SCRIPT_DIR/vps/validate-app-env.sh" "$candidate" identity >/dev/null
 chmod 600 "$candidate"
 mv -- "$candidate" "$output_file"

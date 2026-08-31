@@ -15,16 +15,16 @@ kind=${2:-}
 case "$kind" in
   "") expected_keys= ;;
   auth)
-    expected_keys='TLS_SERVER_NAME HYDRA_ADMIN_URL KRATOS_ADMIN_URL KRATOS_PUBLIC_URL KRATOS_INTERNAL_URL HYDRA_URLS_SELF_ISSUER AUTH_RETURN_TO_ALLOWED_ORIGINS ADMIN_CORS_ALLOWED_ORIGINS AUTHZ_DATABASE_URL CONSENT_GATE_MODE CONSENT_ACTION_SECRET AUTH_BRANDING_MODE AUTH_STRICT_UNMAPPED_CLIENTS AUTH_TRANSACTION_TTL_SECONDS AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET AUTH_ASSET_ALLOWED_ORIGINS AUTH_BASE_URL ADMIN_PUBLIC_ORIGIN ADMIN_BOOTSTRAP_EMAILS'
+    expected_keys='HYDRA_ADMIN_URL KRATOS_ADMIN_URL KRATOS_PUBLIC_URL KRATOS_INTERNAL_URL HYDRA_URLS_SELF_ISSUER AUTH_RETURN_TO_ALLOWED_ORIGINS ADMIN_CORS_ALLOWED_ORIGINS AUTHZ_DATABASE_URL CONSENT_GATE_MODE CONSENT_ACTION_SECRET AUTH_BRANDING_MODE AUTH_STRICT_UNMAPPED_CLIENTS AUTH_TRANSACTION_TTL_SECONDS AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET DELEGATION_ENABLED DELEGATION_TOKEN_ISSUER DELEGATION_BROKER_AUDIENCE DELEGATION_GRANT_TTL_SECONDS DELEGATION_SIGNING_KEY_ID DELEGATION_SIGNING_PRIVATE_KEY_B64 AUTH_ASSET_ALLOWED_ORIGINS AUTH_BASE_URL ADMIN_PUBLIC_ORIGIN ADMIN_BOOTSTRAP_EMAILS'
     ;;
   admin)
-    expected_keys='TLS_SERVER_NAME HYDRA_ADMIN_URL KRATOS_ADMIN_URL KRATOS_PUBLIC_URL KRATOS_INTERNAL_URL ADMIN_CORS_ALLOWED_ORIGINS ADMIN_CSRF_SECRET AUTHZ_DATABASE_URL AUTH_ASSET_ALLOWED_ORIGINS ADMIN_PUBLIC_ORIGIN ADMIN_BOOTSTRAP_EMAILS ADMIN_OIDC_CLIENT_SECRET ADMIN_OIDC_AUTHORITY ADMIN_OIDC_TOKEN_URL ADMIN_OIDC_REDIRECT_URIS ADMIN_AUTH_POST_LOGOUT_REDIRECT_URIS ADMIN_FRONTEND_API_BASE_URL ADMIN_FRONTEND_AUTH_LOGOUT_URL'
+    expected_keys='HYDRA_ADMIN_URL KRATOS_ADMIN_URL KRATOS_PUBLIC_URL KRATOS_INTERNAL_URL ADMIN_CORS_ALLOWED_ORIGINS ADMIN_CSRF_SECRET AUTHZ_DATABASE_URL AUTH_ASSET_ALLOWED_ORIGINS ADMIN_PUBLIC_ORIGIN ADMIN_BOOTSTRAP_EMAILS ADMIN_OIDC_CLIENT_SECRET ADMIN_OIDC_AUTHORITY ADMIN_OIDC_TOKEN_URL ADMIN_OIDC_REDIRECT_URIS ADMIN_AUTH_POST_LOGOUT_REDIRECT_URIS ADMIN_FRONTEND_API_BASE_URL ADMIN_FRONTEND_AUTH_LOGOUT_URL'
     ;;
   identity)
     expected_keys='AUTH_URL HYDRA_CORS_ALLOWED_ORIGINS KRATOS_CORS_ALLOWED_ORIGINS HYDRA_DSN HYDRA_URLS_SELF_ISSUER HYDRA_URLS_CONSENT HYDRA_URLS_LOGIN HYDRA_URLS_LOGOUT HYDRA_URLS_POST_LOGOUT_REDIRECT HYDRA_URLS_ERROR HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_SERVE_PUBLIC_BASE_URL KRATOS_ADMIN_URL KRATOS_URLS_LOGOUT KRATOS_COOKIES_DOMAIN KRATOS_LOG_LEVEL KRATOS_TOTP_ISSUER KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY'
     ;;
   development-source)
-    expected_keys='AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_AWS_DEPLOY_ROLE_ARN ADMIN_AWS_DEPLOY_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER AUTH_URL HYDRA_CORS_ALLOWED_ORIGINS KRATOS_CORS_ALLOWED_ORIGINS HYDRA_DSN HYDRA_URLS_SELF_ISSUER HYDRA_URLS_CONSENT HYDRA_URLS_LOGIN HYDRA_URLS_LOGOUT HYDRA_URLS_POST_LOGOUT_REDIRECT HYDRA_URLS_ERROR HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_SERVE_PUBLIC_BASE_URL KRATOS_ADMIN_URL KRATOS_URLS_LOGOUT KRATOS_COOKIES_DOMAIN KRATOS_LOG_LEVEL KRATOS_TOTP_ISSUER KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET ADMIN_BOOTSTRAP_EMAILS ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET'
+    expected_keys='AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_AWS_DEPLOY_ROLE_ARN ADMIN_AWS_DEPLOY_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER CLOUDFLARE_TUNNEL_TOKEN AUTH_URL HYDRA_CORS_ALLOWED_ORIGINS KRATOS_CORS_ALLOWED_ORIGINS HYDRA_DSN HYDRA_URLS_SELF_ISSUER HYDRA_URLS_CONSENT HYDRA_URLS_LOGIN HYDRA_URLS_LOGOUT HYDRA_URLS_POST_LOGOUT_REDIRECT HYDRA_URLS_ERROR HYDRA_SECRETS_SYSTEM KRATOS_DSN KRATOS_SERVE_PUBLIC_BASE_URL KRATOS_ADMIN_URL KRATOS_URLS_LOGOUT KRATOS_COOKIES_DOMAIN KRATOS_LOG_LEVEL KRATOS_TOTP_ISSUER KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET DELEGATION_ENABLED DELEGATION_SIGNING_PRIVATE_KEY_B64 ADMIN_BOOTSTRAP_EMAILS ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET'
     ;;
   *) fail "environment kind must be auth, admin, identity, or development-source" ;;
 esac
@@ -109,6 +109,35 @@ dotenv_value() {
   ' "$env_file"
 }
 
+if [ "$kind" = auth ]; then
+  [ "$(dotenv_value HYDRA_ADMIN_URL)" = 'http://idnest-hydra:4445' ] \
+    || fail "HYDRA_ADMIN_URL must use the private Hydra service"
+  [ "$(dotenv_value KRATOS_ADMIN_URL)" = 'http://idnest-kratos:4434' ] \
+    || fail "KRATOS_ADMIN_URL must use the private Kratos admin service"
+  [ "$(dotenv_value KRATOS_INTERNAL_URL)" = 'http://idnest-kratos:4433' ] \
+    || fail "KRATOS_INTERNAL_URL must use the private Kratos public service"
+  delegation_enabled=$(dotenv_value DELEGATION_ENABLED)
+  case "$delegation_enabled" in true|false) ;; *) fail "DELEGATION_ENABLED must be true or false" ;; esac
+  delegation_issuer=$(dotenv_value DELEGATION_TOKEN_ISSUER)
+  case "$delegation_issuer" in https://*) ;; *) fail "DELEGATION_TOKEN_ISSUER must use HTTPS" ;; esac
+  delegation_grant_ttl=$(dotenv_value DELEGATION_GRANT_TTL_SECONDS)
+  printf '%s\n' "$delegation_grant_ttl" | grep -Eq '^[0-9]{1,3}$' \
+    || fail "DELEGATION_GRANT_TTL_SECONDS must be an integer"
+  [ "$delegation_grant_ttl" -ge 1 ] && [ "$delegation_grant_ttl" -le 300 ] \
+    || fail "DELEGATION_GRANT_TTL_SECONDS must be between 1 and 300"
+fi
+
+if [ "$kind" = admin ]; then
+  [ "$(dotenv_value HYDRA_ADMIN_URL)" = 'http://idnest-hydra:4445' ] \
+    || fail "HYDRA_ADMIN_URL must use the private Hydra service"
+  [ "$(dotenv_value KRATOS_ADMIN_URL)" = 'http://idnest-kratos:4434' ] \
+    || fail "KRATOS_ADMIN_URL must use the private Kratos admin service"
+  [ "$(dotenv_value KRATOS_INTERNAL_URL)" = 'http://idnest-kratos:4433' ] \
+    || fail "KRATOS_INTERNAL_URL must use the private Kratos public service"
+  [ "$(dotenv_value ADMIN_OIDC_TOKEN_URL)" = 'http://idnest-hydra:4444/oauth2/token' ] \
+    || fail "ADMIN_OIDC_TOKEN_URL must use the private Hydra public service"
+fi
+
 if [ "$kind" = identity ] || [ "$kind" = development-source ]; then
   for identity_key in $expected_keys; do
     identity_value=$(dotenv_value "$identity_key")
@@ -137,7 +166,18 @@ if [ "$kind" = identity ] || [ "$kind" = development-source ]; then
     [ -z "$(dotenv_value "$apple_key")" ] || apple_count=$((apple_count + 1))
   done
   case "$apple_count" in
-    0|4) ;;
+    0) ;;
+    4)
+      apple_client_id=$(dotenv_value APPLE_CLIENT_ID)
+      apple_team_id=$(dotenv_value APPLE_TEAM_ID)
+      apple_private_key_id=$(dotenv_value APPLE_PRIVATE_KEY_ID)
+      printf '%s\n' "$apple_client_id" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]{2,254}$' \
+        || fail "APPLE_CLIENT_ID must be a valid Apple Services ID"
+      printf '%s\n' "$apple_team_id" | grep -Eq '^[A-Z0-9]{10}$' \
+        || fail "APPLE_TEAM_ID must be a 10-character Apple Team ID"
+      printf '%s\n' "$apple_private_key_id" | grep -Eq '^[A-Z0-9]{10}$' \
+        || fail "APPLE_PRIVATE_KEY_ID must be a 10-character Apple Key ID"
+      ;;
     *) fail "Apple login values must be either all configured or all empty" ;;
   esac
 fi
@@ -154,6 +194,7 @@ if [ "$kind" = development-source ]; then
   vps_host=$(dotenv_value VPS_HOST)
   vps_port=$(dotenv_value VPS_PORT)
   vps_user=$(dotenv_value VPS_USER)
+  tunnel_token=$(dotenv_value CLOUDFLARE_TUNNEL_TOKEN)
 
   printf '%s\n' "$aws_account_id" | grep -Eq '^[0-9]{12}$' \
     || fail "AWS_ACCOUNT_ID must be a 12-digit AWS account ID"
@@ -186,9 +227,14 @@ if [ "$kind" = development-source ]; then
     || fail "VPS_PORT is not a valid TCP port"
   printf '%s\n' "$vps_user" | grep -Eq '^[A-Za-z_][A-Za-z0-9._-]*$' \
     || fail "VPS_USER is not a valid SSH user"
+  [ "${#tunnel_token}" -ge 40 ] || fail "CLOUDFLARE_TUNNEL_TOKEN is too short"
+  printf '%s' "$tunnel_token" | grep -Eq '^[A-Za-z0-9._~!@%+=,:/-]+$' \
+    || fail "CLOUDFLARE_TUNNEL_TOKEN contains unsupported characters"
 
   authz_dsn=$(dotenv_value AUTHZ_DATABASE_URL)
   case "$authz_dsn" in postgres://*|postgresql://*) ;; *) fail "AUTHZ_DATABASE_URL must be a PostgreSQL DSN" ;; esac
+  delegation_enabled=$(dotenv_value DELEGATION_ENABLED)
+  case "$delegation_enabled" in true|false) ;; *) fail "DELEGATION_ENABLED must be true or false" ;; esac
 
   require_development_default() {
     default_key=$1

@@ -6,6 +6,7 @@ import {
   createAuthTransaction,
   findAuthConsentTransactionByTokenHash,
   findAuthTransactionByChallengeHash,
+  findAuthTransactionById,
   findAuthTransactionByKratosFlowId,
   findAuthTransactionByTokenHash,
   getAuthzPool,
@@ -24,6 +25,8 @@ import {
   DEFAULT_IDNEST_BRAND,
   identityGateRequiresClientGrant,
   normalizeClientHomeUrl,
+  normalizeEmailAddress,
+  oauthSubjectForKratosUser,
   publicAuthRecoveryForClient,
   toPublicPolicy,
   toUserClaims,
@@ -65,8 +68,10 @@ import {
   shouldRequireFreshLogin,
 } from "./authentication-policy";
 import {
+  classifyLoginFlowBinding,
   isSettingsPrivilegedReauthFlow,
   settingsResumeUrlFromFlow,
+  type LoginFlowBindingClassification,
   transactionTokenFromFlow as transactionTokenFromBoundFlow,
 } from "./login-flow-binding";
 import {
@@ -77,7 +82,7 @@ import {
   hashOpaqueValue,
   verifyActionToken,
 } from "./transaction-crypto";
-import { renderError } from "./views";
+import { renderAutoConsentRedirect, renderError, type AutoConsentReason } from "./views";
 
 function first(value: unknown): string | undefined {
   if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : undefined;
@@ -137,6 +142,35 @@ function sendNeutralError(
     hint: status >= 500 ? "Authentication is temporarily unavailable. Please try again." : description,
     recovery,
   }));
+}
+
+function sendAutoConsentTransition(
+  res: Response,
+  resolved: ResolvedAuthConfiguration,
+  redirectTo: string,
+  reason: AutoConsentReason,
+): void {
+  noStore(res);
+  res.status(200).type("html").send(renderAutoConsentRedirect({
+    clientDisplayName: resolved.client.clientDisplayName || resolved.client.hydraClientId,
+    productName: resolved.brand.productName || DEFAULT_IDNEST_BRAND.productName || "Idnest",
+    redirectTo,
+    reason,
+  }));
+}
+
+function completeAutoConsent(
+  res: Response,
+  resolved: ResolvedAuthConfiguration,
+  request: HydraConsentRequest,
+  redirectTo: string,
+  reason: AutoConsentReason,
+): void {
+  if (request.skip) {
+    res.redirect(redirectTo);
+    return;
+  }
+  sendAutoConsentTransition(res, resolved, redirectTo, reason);
 }
 
 function publicUiUrl(path: string, params: Record<string, string> = {}): string {
@@ -218,6 +252,12 @@ function requestedMaximumAge(request: HydraLoginRequest): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+function oauthSubjectForClient(session: KratosSession, clientId: string): string {
+  return clientId === getAdminOidcClientId()
+    ? session.identity.id
+    : oauthSubjectForKratosUser(session.identity);
+}
+
 function resolvedFromAuthTransaction(transaction: AuthTransactionRecord): ResolvedAuthConfiguration {
   return {
     client: transaction.client_config_snapshot,
@@ -256,14 +296,6 @@ function recoveryFromConsentTransaction(
 
 function transactionTokenFromFlow(flow: KratosFlow): string | null {
   return transactionTokenFromBoundFlow(flow, getAuthBaseUrl());
-}
-
-function isAal2StepUpFlow(flow: KratosFlow): boolean {
-  try {
-    return new URL(flow.request_url ?? "").searchParams.get("aal") === "aal2";
-  } catch {
-    return false;
-  }
 }
 
 /** Permissive policy for privileged settings re-auth (OIDC + any enrolled factors). */
@@ -348,6 +380,8 @@ type LoginCompletionResult =
   | { outcome: "denied"; redirectTo: string; failureCode: string }
   | { outcome: "aal2_required"; subject: string };
 
+type AccountLinkEmailLoginResult = { redirectTo: string } | { stale: true } | null;
+
 async function completeLoginWithSession(
   req: Request,
   transaction: AuthTransactionRecord,
@@ -355,6 +389,7 @@ async function completeLoginWithSession(
   session: KratosSession,
 ): Promise<LoginCompletionResult> {
   const resolved = resolvedFromAuthTransaction(transaction);
+  const subject = oauthSubjectForClient(session, request.client.client_id);
   const decision = evaluateAuthenticationPolicy(session, resolved.policy, {
     expectedSubject: request.skip ? request.subject : undefined,
     maximumAgeSeconds: requestedMaximumAge(request),
@@ -398,7 +433,7 @@ async function completeLoginWithSession(
   }
 
   const redirectTo = await acceptHydraLogin(request.challenge, {
-    subject: session.identity.id,
+    subject,
     acr: decision.acr,
     amr: decision.amr,
     claims: toUserClaims(session.identity),
@@ -408,7 +443,7 @@ async function completeLoginWithSession(
   await setAuthTransactionResult(database(), {
     id: transaction.id,
     status: "hydra-accepted",
-    subject: session.identity.id,
+    subject,
   });
   await audit(req, "auth.login.completed", resolved, {
     identityId: session.identity.id,
@@ -479,6 +514,113 @@ function publicContext(
   };
 }
 
+function verifiedEmailSession(input: {
+  email: string;
+  provider: string;
+  now?: number;
+}): KratosSession {
+  const completedAt = new Date(input.now ?? Date.now()).toISOString();
+  return {
+    id: `verified-email:${input.email}`,
+    active: true,
+    authenticated_at: completedAt,
+    authenticator_assurance_level: "aal1",
+    authentication_methods: [
+      {
+        method: "oidc",
+        provider: input.provider,
+        aal: "aal1",
+        completed_at: completedAt,
+      },
+    ],
+    identity: {
+      id: input.email,
+      traits: { email: input.email },
+      verifiable_addresses: [
+        { via: "email", value: input.email, verified: true },
+      ],
+      state: "active",
+    },
+  };
+}
+
+function verifiedEmailClaims(email: string) {
+  return toUserClaims(verifiedEmailSession({ email, provider: "oidc" }).identity);
+}
+
+async function tryCompleteAccountLinkEmailLogin(
+  req: Request,
+  transaction: AuthTransactionRecord,
+  tokenHash: string,
+  accountLink: NonNullable<LoginFlowBindingClassification["accountLink"]>,
+): Promise<AccountLinkEmailLoginResult> {
+  const challenge = decryptSensitiveValue(transaction.hydra_login_challenge_ciphertext);
+  const hydraRequest = await getHydraLoginRequest(challenge);
+  if (hydraRequest.client.client_id !== transaction.hydra_client_id) {
+    throw new Error("Hydra client changed during account-link email completion");
+  }
+
+  const emailSession = verifiedEmailSession({
+    email: accountLink.duplicateEmail,
+    provider: accountLink.provider,
+  });
+  const resolved = resolvedFromAuthTransaction(transaction);
+  const decision = evaluateAuthenticationPolicy(emailSession, resolved.policy, {
+    expectedSubject: hydraRequest.skip ? hydraRequest.subject : undefined,
+    maximumAgeSeconds: requestedMaximumAge(hydraRequest),
+  });
+  if (!decision.allowed || !decision.acr || !decision.amr) return null;
+  if (!(await accessAllowed(emailSession, resolved.policy, hydraRequest.client.client_id))) {
+    return null;
+  }
+
+  let claimed: AuthTransactionRecord | null = null;
+  try {
+    claimed = await claimAuthTransactionCompletion(database(), tokenHash);
+    if (!claimed) return { stale: true };
+    const redirectTo = await acceptHydraLogin(hydraRequest.challenge, {
+      subject: accountLink.duplicateEmail,
+      acr: decision.acr,
+      amr: decision.amr,
+      claims: toUserClaims(emailSession.identity),
+      rememberFor: Math.min(resolved.policy.sessionMaximumAgeSeconds, 3600),
+      transactionId: claimed.id,
+    });
+    await setAuthTransactionResult(database(), {
+      id: claimed.id,
+      status: "hydra-accepted",
+      subject: accountLink.duplicateEmail,
+    });
+    await audit(req, "auth.login.completed", resolved, {
+      identityId: accountLink.duplicateEmail,
+      result: "accepted-via-verified-email",
+      metadata: {
+        provider: accountLink.provider,
+        subjectSource: "kratos-account-link-duplicate-email",
+      },
+    });
+    return { redirectTo };
+  } catch (error) {
+    if (claimed) {
+      await setAuthTransactionResult(database(), {
+        id: claimed.id,
+        status: "failed",
+        failureCode: "account_link_email_completion_failed",
+      });
+      await audit(req, "auth.login.failed", resolved, {
+        identityId: accountLink.duplicateEmail,
+        result: "failed",
+        failureCode: "account_link_email_completion_failed",
+        metadata: {
+          provider: accountLink.provider,
+          subjectSource: "kratos-account-link-duplicate-email",
+        },
+      });
+    }
+    throw error;
+  }
+}
+
 function hasInteractiveAuthNodes(flow: KratosFlow): boolean {
   return flow.ui.nodes.some((node) => {
     if (node.type !== "input") return false;
@@ -515,10 +657,34 @@ function publicConsentContext(transaction: AuthConsentTransactionRecord, transac
 
 async function sessionForConsent(req: Request, request: HydraConsentRequest): Promise<KratosSession> {
   const session = await kratos.whoami(req);
-  if (session.identity.id !== request.subject) {
+  const expectedSubject = normalizeEmailAddress(request.subject) ?? request.subject;
+  if (
+    oauthSubjectForKratosUser(session.identity) !== expectedSubject &&
+    session.identity.id !== request.subject
+  ) {
     throw new Error("The active identity does not match the consent request");
   }
   return session;
+}
+
+async function findPriorAuthTransactionForConsent(
+  request: HydraConsentRequest,
+): Promise<AuthTransactionRecord | null> {
+  const byLoginChallenge = request.login_challenge
+    ? await findAuthTransactionByChallengeHash(
+        database(),
+        hashOpaqueValue(request.login_challenge),
+      )
+    : null;
+  if (byLoginChallenge) return byLoginChallenge;
+
+  const contextTransactionId =
+    typeof request.context?.["auth_transaction_id"] === "string"
+      ? request.context["auth_transaction_id"].trim()
+      : "";
+  if (!contextTransactionId) return null;
+
+  return findAuthTransactionById(database(), contextTransactionId);
 }
 
 export function createOrchestratorRouter(): Router {
@@ -707,11 +873,22 @@ export function createOrchestratorRouter(): Router {
           return;
         }
         const tokenHash = hashOpaqueValue(token);
+        const binding = classifyLoginFlowBinding(flow, getAuthBaseUrl());
+        if (!binding) {
+          const recoveryTransaction = await findAuthTransactionByTokenHash(database(), tokenHash);
+          res.status(502).json({
+            error: "login_flow_unavailable",
+            recovery: recoveryTransaction
+              ? recoveryFromAuthTransaction(recoveryTransaction)
+              : { kind: "request_context_unavailable" },
+          });
+          return;
+        }
         const transaction = await bindAuthTransactionFlow(
           database(),
           tokenHash,
           flow.id,
-          { allowStepUpRebind: isAal2StepUpFlow(flow) },
+          { reason: binding.reason, issuedAt: binding.issuedAt },
         );
         if (!transaction) {
           const staleTransaction = await findAuthTransactionByTokenHash(database(), tokenHash);
@@ -722,6 +899,37 @@ export function createOrchestratorRouter(): Router {
               : { kind: "request_context_unavailable" },
           });
           return;
+        }
+        if (binding.reason === "account-link-recovery") {
+          if (binding.accountLink) {
+            const emailLogin = await tryCompleteAccountLinkEmailLogin(
+              req,
+              transaction,
+              tokenHash,
+              binding.accountLink,
+            );
+            if (emailLogin && "stale" in emailLogin) {
+              const staleTransaction = await findAuthTransactionByTokenHash(database(), tokenHash);
+              res.status(410).json({
+                error: "expired_or_reused_transaction",
+                recovery: staleTransaction
+                  ? recoveryFromAuthTransaction(staleTransaction)
+                  : { kind: "request_context_unavailable" },
+              });
+              return;
+            }
+            if (emailLogin && "redirectTo" in emailLogin) {
+              res.json({ redirectTo: emailLogin.redirectTo });
+              return;
+            }
+          }
+          await audit(req, "auth.login.flow_rebound", resolvedFromAuthTransaction(transaction), {
+            result: "accepted",
+            metadata: {
+              reason: binding.reason,
+              kratosMessageId: binding.kratosMessageId,
+            },
+          });
         }
         const published = publicFlow(flow, transaction.policy_snapshot);
         const needsEnrollment =
@@ -922,12 +1130,7 @@ export function createOrchestratorRouter(): Router {
     try {
       const hydraRequest = await getHydraConsentRequest(challenge);
       const clientId = hydraRequest.client.client_id;
-      const prior = hydraRequest.login_challenge
-        ? await findAuthTransactionByChallengeHash(
-            database(),
-            hashOpaqueValue(hydraRequest.login_challenge),
-          )
-        : null;
+      const prior = await findPriorAuthTransactionForConsent(hydraRequest);
       if (prior && prior.hydra_client_id !== clientId) {
         throw new Error("Consent client does not match the frozen login transaction");
       }
@@ -960,6 +1163,46 @@ export function createOrchestratorRouter(): Router {
         res.redirect(redirectTo);
         return;
       }
+
+      const autoAccept =
+        (resolved.client.consentMode === "skip-for-first-party" && resolved.client.isFirstParty) ||
+        (resolved.client.consentMode === "follow-hydra" && hydraRequest.skip);
+      const hydraEmailSubject = normalizeEmailAddress(hydraRequest.subject);
+      const priorEmailSubject = prior?.status === "hydra-accepted"
+        ? normalizeEmailAddress(prior.subject)
+        : null;
+      const isDuplicateEmailSubjectConsent =
+        hydraEmailSubject !== null && hydraEmailSubject === priorEmailSubject;
+      const emailSubjectConsentReason: AutoConsentReason | null =
+        isDuplicateEmailSubjectConsent
+          ? "same_verified_email"
+          : !prior && autoAccept
+            ? "verified_email_subject"
+            : null;
+      const emailSubjectConsentSource =
+        isDuplicateEmailSubjectConsent
+          ? "kratos-account-link-duplicate-email"
+          : !prior && autoAccept
+            ? "hydra-consent-email-subject"
+            : null;
+      if (hydraEmailSubject && emailSubjectConsentReason && emailSubjectConsentSource) {
+        const redirectTo = await acceptHydraConsent(challenge, {
+          scopes: hydraRequest.requested_scope,
+          audiences: hydraRequest.requested_access_token_audience,
+          claims: verifiedEmailClaims(hydraEmailSubject),
+          rememberFor: 3600,
+        });
+        await audit(req, "auth.consent.accepted", resolved, {
+          identityId: hydraEmailSubject,
+          result: "auto-accepted-via-verified-email",
+          metadata: {
+            subjectSource: emailSubjectConsentSource,
+          },
+        });
+        completeAutoConsent(res, resolved, hydraRequest, redirectTo, emailSubjectConsentReason);
+        return;
+      }
+
       const session = await sessionForConsent(req, hydraRequest);
       const policyDecision = evaluateAuthenticationPolicy(session, resolved.policy, {
         expectedSubject: hydraRequest.subject,
@@ -976,9 +1219,6 @@ export function createOrchestratorRouter(): Router {
         return;
       }
 
-      const autoAccept =
-        (resolved.client.consentMode === "skip-for-first-party" && resolved.client.isFirstParty) ||
-        (resolved.client.consentMode === "follow-hydra" && hydraRequest.skip);
       if (autoAccept) {
         const redirectTo = await acceptHydraConsent(challenge, {
           scopes: hydraRequest.requested_scope,
@@ -986,11 +1226,18 @@ export function createOrchestratorRouter(): Router {
           claims: toUserClaims(session.identity),
           rememberFor: 3600,
         });
+        const consentReason: AutoConsentReason =
+          resolved.client.consentMode === "skip-for-first-party" && resolved.client.isFirstParty
+            ? "trusted_first_party"
+            : "remembered_authorization";
         await audit(req, "auth.consent.accepted", resolved, {
           identityId: session.identity.id,
           result: "auto-accepted",
+          metadata: {
+            autoConsentReason: consentReason,
+          },
         });
-        res.redirect(redirectTo);
+        completeAutoConsent(res, resolved, hydraRequest, redirectTo, consentReason);
         return;
       }
 

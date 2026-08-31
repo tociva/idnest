@@ -1,13 +1,14 @@
 import "dotenv/config";
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { startDirectServers } from "@idnest/server-runtime";
+import { startHttpServers } from "@idnest/server-runtime";
 import express from "express";
 import { getPort, validateAuthRuntimeConfiguration } from "./app/config";
 import { applyHtmlFormActionCsp } from "./app/apply-form-action-csp";
 import { buildAuthCsp } from "./app/form-action-csp";
 import { createOrchestratorRouter } from "./app/orchestrator";
 import { createPagesRouter } from "./app/pages";
+import { createDelegationRouter } from "./app/delegation-router";
 import { startAuthTransactionMaintenance } from "./app/transaction-maintenance";
 
 const AUTH_FRONTEND_DIST_DIR = process.env.AUTH_FRONTEND_DIST_DIR ?? "public/auth";
@@ -47,6 +48,10 @@ export function createServer() {
   app.use(express.json({ limit: "64kb" }));
   app.use(express.urlencoded({ extended: false }));
 
+  // Product-neutral delegated authorization endpoints. The feature is gated
+  // independently and uses service tokens, never browser session cookies.
+  app.use("/", createDelegationRouter());
+
   // Trusted Hydra/Kratos orchestration and browser-safe context APIs.
   app.use("/", createOrchestratorRouter());
 
@@ -82,9 +87,8 @@ export function createServer() {
 const port = getPort();
 validateAuthRuntimeConfiguration();
 startAuthTransactionMaintenance();
-startDirectServers({
+startHttpServers({
   app: createServer(),
   port,
   label: "auth-backend",
-  httpsEnabledVariable: "AUTH_HTTPS_ENABLED",
 });

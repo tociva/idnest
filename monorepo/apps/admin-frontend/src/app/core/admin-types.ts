@@ -4,6 +4,9 @@ import type {
   AuthClientConfigStatus,
   AuthPolicyDefinition,
   ConsentMode,
+  DelegationActorPolicyDefinition,
+  DelegationResourceDefinition,
+  DelegationStatus,
   KratosUser,
   KratosVerifiableAddress,
   OAuthClientType,
@@ -133,6 +136,59 @@ export interface AuthConfigurationVersion<T> {
   value: T;
   created_by?: string | null;
   reason?: string | null;
+  created_at: string;
+}
+
+export interface DelegationResourceRecord {
+  id: string;
+  status: DelegationStatus;
+  version: number;
+  definition: DelegationResourceDefinition;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DelegationActorPolicyRecord {
+  id: string;
+  resource_id: string;
+  status: DelegationStatus;
+  version: number;
+  definition: DelegationActorPolicyDefinition;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DelegationGrantActivity {
+  id: string;
+  resource_id: string;
+  resource_key: string;
+  audience: string;
+  authorizer_client_id: string;
+  actor_client_id: string;
+  subject_id: string;
+  scopes: string[];
+  authorization_context: string | null;
+  correlation_id: string | null;
+  expires_at: string;
+  consumed_at: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
+  created_at: string;
+}
+
+export interface DelegationAuditActivity {
+  id: string;
+  grant_id: string | null;
+  resource_id: string | null;
+  event_type: string;
+  subject_id: string | null;
+  authorizer_client_id: string | null;
+  actor_client_id: string | null;
+  scopes: string[];
+  result: "success" | "denied" | "error";
+  reason: string | null;
+  correlation_id: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
 

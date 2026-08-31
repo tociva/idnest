@@ -58,6 +58,35 @@ describe("accept-consent", () => {
     expect(sent.session.access_token.user).toEqual(expected);
   });
 
+  it("uses an email subject directly when login already normalized the OAuth subject", async () => {
+    const fetchMock = mockFetchByUrl([
+      {
+        match: "/requests/consent?",
+        result: {
+          ok: true,
+          json: {
+            ...consentRequest,
+            subject: "Ada@Example.COM",
+          },
+        },
+      },
+      { match: "/consent/accept", result: { ok: true, json: { redirect_to: "https://app/cb" } } },
+    ]);
+
+    const res = await acceptConsent({ consent_challenge: "cc_1" });
+
+    expect(res.status).toBe(200);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/identities/"))).toBe(false);
+    const acceptCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/consent/accept"))!;
+    const sent = JSON.parse((acceptCall[1] as RequestInit).body as string);
+    expect(sent.session.id_token.user).toEqual({
+      name: undefined,
+      email: "ada@example.com",
+      email_verified: true,
+      picture: undefined,
+    });
+  });
+
   it("returns 400 when consent_challenge is missing", async () => {
     happyPath();
     const res = await acceptConsent({});

@@ -40,11 +40,16 @@ case "$kind" in
     : "${CONSENT_ACTION_SECRET:?CONSENT_ACTION_SECRET is required}"
     : "${AUTH_TRANSACTION_SECRET:?AUTH_TRANSACTION_SECRET is required}"
     : "${AUTH_AUDIT_HASH_SECRET:?AUTH_AUDIT_HASH_SECRET is required}"
+    : "${DELEGATION_ENABLED:?DELEGATION_ENABLED is required}"
+    : "${DELEGATION_SIGNING_PRIVATE_KEY_B64:?DELEGATION_SIGNING_PRIVATE_KEY_B64 is required}"
     : "${ADMIN_BOOTSTRAP_EMAILS:?ADMIN_BOOTSTRAP_EMAILS is required}"
     safe_value AUTHZ_DATABASE_URL "$AUTHZ_DATABASE_URL"
     safe_value CONSENT_ACTION_SECRET "$CONSENT_ACTION_SECRET"
     safe_value AUTH_TRANSACTION_SECRET "$AUTH_TRANSACTION_SECRET"
     safe_value AUTH_AUDIT_HASH_SECRET "$AUTH_AUDIT_HASH_SECRET"
+    safe_value DELEGATION_ENABLED "$DELEGATION_ENABLED"
+    safe_value DELEGATION_SIGNING_PRIVATE_KEY_B64 "$DELEGATION_SIGNING_PRIVATE_KEY_B64"
+    case "$DELEGATION_ENABLED" in true|false) ;; *) fail "DELEGATION_ENABLED must be true or false" ;; esac
     safe_value ADMIN_BOOTSTRAP_EMAILS "$ADMIN_BOOTSTRAP_EMAILS"
     ;;
   admin)
@@ -70,11 +75,10 @@ trap cleanup EXIT HUP INT TERM
 case "$kind" in
   auth)
     {
-      printf '%s\n' 'TLS_SERVER_NAME=auth-dev.idnest.cloud'
-      printf '%s\n' 'HYDRA_ADMIN_URL=https://hydra-dev.idnest.cloud:4445'
+      printf '%s\n' 'HYDRA_ADMIN_URL=http://idnest-hydra:4445'
       printf '%s\n' 'KRATOS_ADMIN_URL=http://idnest-kratos:4434'
       printf '%s\n' 'KRATOS_PUBLIC_URL=https://kratos-dev.idnest.cloud'
-      printf '%s\n' 'KRATOS_INTERNAL_URL=https://kratos-dev.idnest.cloud:4433'
+      printf '%s\n' 'KRATOS_INTERNAL_URL=http://idnest-kratos:4433'
       printf '%s\n' 'HYDRA_URLS_SELF_ISSUER=https://hydra-dev.idnest.cloud/'
       printf '%s\n' 'AUTH_RETURN_TO_ALLOWED_ORIGINS=https://admin-dev.idnest.cloud'
       printf '%s\n' 'ADMIN_CORS_ALLOWED_ORIGINS=https://admin-dev.idnest.cloud'
@@ -86,6 +90,12 @@ case "$kind" in
       printf '%s\n' 'AUTH_TRANSACTION_TTL_SECONDS=600'
       printf 'AUTH_TRANSACTION_SECRET=%s\n' "$AUTH_TRANSACTION_SECRET"
       printf 'AUTH_AUDIT_HASH_SECRET=%s\n' "$AUTH_AUDIT_HASH_SECRET"
+      printf 'DELEGATION_ENABLED=%s\n' "$DELEGATION_ENABLED"
+      printf '%s\n' 'DELEGATION_TOKEN_ISSUER=https://auth-dev.idnest.cloud/delegation'
+      printf '%s\n' 'DELEGATION_BROKER_AUDIENCE=urn:idnest:delegation'
+      printf '%s\n' 'DELEGATION_GRANT_TTL_SECONDS=60'
+      printf '%s\n' 'DELEGATION_SIGNING_KEY_ID=delegation-development-1'
+      printf 'DELEGATION_SIGNING_PRIVATE_KEY_B64=%s\n' "$DELEGATION_SIGNING_PRIVATE_KEY_B64"
       printf '%s\n' 'AUTH_ASSET_ALLOWED_ORIGINS=https://assets.idnest.cloud'
       printf '%s\n' 'AUTH_BASE_URL=https://auth-dev.idnest.cloud'
       printf '%s\n' 'ADMIN_PUBLIC_ORIGIN=https://admin-dev.idnest.cloud'
@@ -94,11 +104,10 @@ case "$kind" in
     ;;
   admin)
     {
-      printf '%s\n' 'TLS_SERVER_NAME=admin-dev.idnest.cloud'
-      printf '%s\n' 'HYDRA_ADMIN_URL=https://hydra-dev.idnest.cloud:4445'
+      printf '%s\n' 'HYDRA_ADMIN_URL=http://idnest-hydra:4445'
       printf '%s\n' 'KRATOS_ADMIN_URL=http://idnest-kratos:4434'
       printf '%s\n' 'KRATOS_PUBLIC_URL=https://kratos-dev.idnest.cloud'
-      printf '%s\n' 'KRATOS_INTERNAL_URL=https://kratos-dev.idnest.cloud:4433'
+      printf '%s\n' 'KRATOS_INTERNAL_URL=http://idnest-kratos:4433'
       printf '%s\n' 'ADMIN_CORS_ALLOWED_ORIGINS=https://admin-dev.idnest.cloud'
       printf 'ADMIN_CSRF_SECRET=%s\n' "$ADMIN_CSRF_SECRET"
       printf 'AUTHZ_DATABASE_URL=%s\n' "$AUTHZ_DATABASE_URL"
@@ -107,7 +116,7 @@ case "$kind" in
       printf 'ADMIN_BOOTSTRAP_EMAILS=%s\n' "$ADMIN_BOOTSTRAP_EMAILS"
       printf 'ADMIN_OIDC_CLIENT_SECRET=%s\n' "$ADMIN_OIDC_CLIENT_SECRET"
       printf '%s\n' 'ADMIN_OIDC_AUTHORITY=https://hydra-dev.idnest.cloud/'
-      printf '%s\n' 'ADMIN_OIDC_TOKEN_URL=https://hydra-dev.idnest.cloud:4444/oauth2/token'
+      printf '%s\n' 'ADMIN_OIDC_TOKEN_URL=http://idnest-hydra:4444/oauth2/token'
       printf '%s\n' 'ADMIN_OIDC_REDIRECT_URIS=https://admin-dev.idnest.cloud/api/admin/auth/callback'
       printf '%s\n' 'ADMIN_AUTH_POST_LOGOUT_REDIRECT_URIS=https://admin-dev.idnest.cloud/auth/logout'
       printf '%s\n' 'ADMIN_FRONTEND_API_BASE_URL=/api'

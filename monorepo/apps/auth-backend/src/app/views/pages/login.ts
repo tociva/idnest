@@ -1,6 +1,7 @@
 import { layout } from "../layout";
 import { IDNEST_LOGO } from "../icons";
-import type { FlowHiddenInput, FlowSubmitButton } from "./flow-controls";
+import type { FlowHiddenInput, FlowMessage, FlowSubmitButton } from "./flow-controls";
+import { renderFlowMessages } from "./flow-messages";
 import { renderOidcForm } from "./oidc-form";
 
 export interface LoginViewModel {
@@ -10,6 +11,8 @@ export interface LoginViewModel {
   hiddenInputs: FlowHiddenInput[];
   /** OIDC provider submit buttons from the Kratos flow. */
   providers: FlowSubmitButton[];
+  /** Account-linking guidance and errors returned by Kratos. */
+  messages?: FlowMessage[];
 }
 
 /**
@@ -26,6 +29,8 @@ export function renderLogin(vm: LoginViewModel): string {
     </div>
 
     <hr class="divider" />
+
+    ${renderFlowMessages(vm.messages)}
 
     ${renderOidcForm({
       actionUrl: vm.actionUrl,

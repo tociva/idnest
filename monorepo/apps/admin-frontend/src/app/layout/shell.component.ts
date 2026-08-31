@@ -32,6 +32,7 @@ export class ShellComponent implements OnInit {
       children: [
         { label: "Identities", path: "/identities", icon: "users" },
         { label: "OAuth Clients", path: "/clients", icon: "key-round" },
+        { label: "Delegated Access", path: "/delegation", icon: "link" },
         { label: "Auth Brands", path: "/authentication/brands", icon: "palette" },
         {
           label: "Authentication Policies",
@@ -104,6 +105,10 @@ export class ShellComponent implements OnInit {
     const path = this.router.url.split("?")[0] ?? "";
     if (path.startsWith("/clients")) {
       this.pageTitle = "OAuth Clients";
+      return;
+    }
+    if (path.startsWith("/delegation")) {
+      this.pageTitle = "Delegated Access";
       return;
     }
     if (path.startsWith("/authentication/brands")) {

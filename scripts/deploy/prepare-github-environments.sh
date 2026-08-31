@@ -7,6 +7,7 @@ if [ "$#" -ne 5 ]; then
 fi
 
 SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+APPLE_KEY_VALIDATOR="$SCRIPT_DIR/validate-apple-private-key.sh"
 DEV_SSH_PRIVATE_KEY="$1"
 DEV_KNOWN_HOSTS="$2"
 DEV_RELEASE_SIGNING_PRIVATE_KEY="$3"
@@ -19,7 +20,7 @@ for file in "$DEV_SSH_PRIVATE_KEY" "$DEV_KNOWN_HOSTS" "$DEV_RELEASE_SIGNING_PRIV
     exit 1
   }
 done
-for command in awk base64 chmod dirname install jq mktemp mv openssl ssh-keygen stat tr uname; do
+for command in awk base64 chmod dirname grep install jq mktemp mv openssl rm ssh-keygen stat tr uname; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "Missing required command: $command" >&2
     exit 1
@@ -89,6 +90,8 @@ AUTH_AUTHZ_DATABASE_URL=$(dotenv_value "$DEVELOPMENT_ENV" AUTHZ_DATABASE_URL)
 AUTH_CONSENT_ACTION_SECRET=$(dotenv_value "$DEVELOPMENT_ENV" CONSENT_ACTION_SECRET)
 AUTH_TRANSACTION_SECRET_VALUE=$(dotenv_value "$DEVELOPMENT_ENV" AUTH_TRANSACTION_SECRET)
 AUTH_AUDIT_HASH_SECRET_VALUE=$(dotenv_value "$DEVELOPMENT_ENV" AUTH_AUDIT_HASH_SECRET)
+AUTH_DELEGATION_ENABLED=$(dotenv_value "$DEVELOPMENT_ENV" DELEGATION_ENABLED)
+AUTH_DELEGATION_SIGNING_PRIVATE_KEY_B64=$(dotenv_value "$DEVELOPMENT_ENV" DELEGATION_SIGNING_PRIVATE_KEY_B64)
 AUTH_ADMIN_BOOTSTRAP_EMAILS=$(dotenv_value "$DEVELOPMENT_ENV" ADMIN_BOOTSTRAP_EMAILS)
 ADMIN_AUTHZ_DATABASE_URL=$AUTH_AUTHZ_DATABASE_URL
 ADMIN_CSRF_SECRET_VALUE=$(dotenv_value "$DEVELOPMENT_ENV" ADMIN_CSRF_SECRET)
@@ -116,13 +119,28 @@ BUILDER_ECR_REPOSITORY=$(dotenv_value "$DEVELOPMENT_ENV" BUILDER_ECR_REPOSITORY)
 VPS_HOST=$(dotenv_value "$DEVELOPMENT_ENV" VPS_HOST)
 VPS_PORT=$(dotenv_value "$DEVELOPMENT_ENV" VPS_PORT)
 VPS_USER=$(dotenv_value "$DEVELOPMENT_ENV" VPS_USER)
+printf '%s' "$AUTH_DELEGATION_SIGNING_PRIVATE_KEY_B64" \
+  | openssl base64 -d -A \
+  | openssl pkey -text -noout 2>/dev/null \
+  | grep -Eq 'ASN1 OID: prime256v1|NIST CURVE: P-256' \
+  || { echo "DELEGATION_SIGNING_PRIVATE_KEY_B64 must contain a P-256 private key." >&2; exit 1; }
 IDENTITY_APPLE_PRIVATE_KEY=
 IDENTITY_APPLE_ENABLED=false
+IDENTITY_APPLE_PRIVATE_KEY_FILE=
+cleanup() {
+  [ -z "${IDENTITY_APPLE_PRIVATE_KEY_FILE:-}" ] || rm -f -- "$IDENTITY_APPLE_PRIVATE_KEY_FILE"
+}
+trap cleanup EXIT HUP INT TERM
 if [ -n "$IDENTITY_APPLE_PRIVATE_KEY_YAML" ]; then
   IDENTITY_APPLE_PRIVATE_KEY=$(printf '%s' "$IDENTITY_APPLE_PRIVATE_KEY_YAML" | jq -er 'select(type == "string" and length > 0)') \
     || { echo "APPLE_PRIVATE_KEY in $DEVELOPMENT_ENV must be a JSON-compatible double-quoted YAML string." >&2; exit 1; }
-  printf '%s' "$IDENTITY_APPLE_PRIVATE_KEY" | openssl pkey -noout >/dev/null 2>&1 \
-    || { echo "APPLE_PRIVATE_KEY in $DEVELOPMENT_ENV is not a valid PEM private key." >&2; exit 1; }
+  IDENTITY_APPLE_PRIVATE_KEY_FILE=$(mktemp "${TMPDIR:-/tmp}/idnest-apple-private-key.XXXXXX")
+  chmod 600 "$IDENTITY_APPLE_PRIVATE_KEY_FILE"
+  printf '%s' "$IDENTITY_APPLE_PRIVATE_KEY" >"$IDENTITY_APPLE_PRIVATE_KEY_FILE"
+  "$APPLE_KEY_VALIDATOR" "$IDENTITY_APPLE_PRIVATE_KEY_FILE" >/dev/null \
+    || { echo "APPLE_PRIVATE_KEY in $DEVELOPMENT_ENV must be an Apple PKCS#8 P-256 private key." >&2; exit 1; }
+  rm -f -- "$IDENTITY_APPLE_PRIVATE_KEY_FILE"
+  IDENTITY_APPLE_PRIVATE_KEY_FILE=
   IDENTITY_APPLE_ENABLED=true
 fi
 
@@ -166,6 +184,7 @@ write_variables() {
         printf 'VPS_PORT=%s\n' "$VPS_PORT"
         printf 'VPS_USER=%s\n' "$VPS_USER"
         printf 'ADMIN_BOOTSTRAP_EMAILS=%s\n' "$AUTH_ADMIN_BOOTSTRAP_EMAILS"
+        printf 'DELEGATION_ENABLED=%s\n' "$AUTH_DELEGATION_ENABLED"
       } >"$temporary"
       ;;
     development-admin)
@@ -229,6 +248,7 @@ write_secrets() {
         printf 'CONSENT_ACTION_SECRET=%s\n' "$AUTH_CONSENT_ACTION_SECRET"
         printf 'AUTH_TRANSACTION_SECRET=%s\n' "$AUTH_TRANSACTION_SECRET_VALUE"
         printf 'AUTH_AUDIT_HASH_SECRET=%s\n' "$AUTH_AUDIT_HASH_SECRET_VALUE"
+        printf 'DELEGATION_SIGNING_PRIVATE_KEY_B64=%s\n' "$AUTH_DELEGATION_SIGNING_PRIVATE_KEY_B64"
         ;;
       admin)
         printf 'AUTHZ_DATABASE_URL=%s\n' "$ADMIN_AUTHZ_DATABASE_URL"

@@ -30,6 +30,8 @@ describe("Social OIDC Kratos config", () => {
     expect(appleMapper).toContain("email_verified: false");
     expect(appleMapper).toContain("[if 'email' in claims && claims.email_verified then 'email' else null]");
     expect(appleMapper).toContain("verified_addresses");
+    expect(appleMapper).not.toMatch(/^\s*name:/m);
+    expect(appleMapper).not.toMatch(/^\s*picture:/m);
   });
 
   it("maps Google email only when Google marks it verified", () => {
@@ -92,6 +94,8 @@ describe("Social OIDC Kratos config", () => {
     expect(apple).toContain("issuer_url: https://appleid.apple.com");
     expect(apple).not.toContain("account_linking_mode");
     expect(apple).toContain("APPLE_CLIENT_ID");
+    expect(apple).toMatch(/scope:\n\s+- email/);
+    expect(apple).not.toMatch(/\n\s+- (?:name|profile)\s*$/m);
   });
 
   it("marks the Apple provider as optional for the render script", () => {

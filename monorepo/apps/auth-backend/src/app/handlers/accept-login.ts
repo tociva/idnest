@@ -1,4 +1,9 @@
-import { hasVerifiedEmailAddress, toUserClaims, type KratosUser } from "@idnest/shared-types";
+import {
+  hasVerifiedEmailAddress,
+  oauthSubjectForKratosUser,
+  toUserClaims,
+  type KratosUser,
+} from "@idnest/shared-types";
 import { getHydraAdminUrl, getKratosAdminUrl } from "../config";
 import { errorBody, type HandlerResult } from "./types";
 
@@ -47,7 +52,7 @@ export async function acceptLogin(input: AcceptLoginInput): Promise<HandlerResul
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          subject,
+          subject: oauthSubjectForKratosUser(kratosUser),
           remember: true,
           remember_for: 3600,
           acr: "aal1",

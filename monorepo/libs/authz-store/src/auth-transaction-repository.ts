@@ -30,6 +30,7 @@ export interface AuthTransactionRecord {
   brand_snapshot: AuthBrandDefinition;
   policy_snapshot: AuthPolicyDefinition;
   kratos_flow_id?: string | null;
+  kratos_flow_issued_at?: string | null;
   subject?: string | null;
   status: AuthTransactionStatus;
   created_at: string;
@@ -66,9 +67,12 @@ const AUTH_TRANSACTION_COLUMNS = `
   id::text, token_hash, hydra_login_challenge_hash, hydra_login_challenge_ciphertext,
   hydra_client_id, brand_id::text, brand_version, authentication_policy_id::text,
   authentication_policy_version, mapping_version, client_config_snapshot, brand_snapshot,
-  policy_snapshot, kratos_flow_id, subject, status, created_at::text, expires_at::text,
-  completion_started_at::text, completed_at::text, failure_code, redirect_to
+  policy_snapshot, kratos_flow_id, kratos_flow_issued_at::text, subject, status,
+  created_at::text, expires_at::text, completion_started_at::text, completed_at::text,
+  failure_code, redirect_to
 `;
+
+export type AuthFlowBindingReason = "initial" | "account-link-recovery" | "aal2-step-up";
 
 export async function createAuthTransaction(
   db: Db,
@@ -112,6 +116,7 @@ export async function createAuthTransaction(
          brand_snapshot = EXCLUDED.brand_snapshot,
          policy_snapshot = EXCLUDED.policy_snapshot,
          kratos_flow_id = NULL,
+         kratos_flow_issued_at = NULL,
          subject = NULL,
          status = 'created',
          created_at = now(),
@@ -170,6 +175,20 @@ export async function findAuthTransactionByChallengeHash(
   return res.rows[0] ?? null;
 }
 
+export async function findAuthTransactionById(
+  db: Db,
+  id: string,
+): Promise<AuthTransactionRecord | null> {
+  const res = await db.query<AuthTransactionRecord>(
+    `SELECT ${AUTH_TRANSACTION_COLUMNS}
+     FROM auth_transactions
+     WHERE id::text = $1
+     LIMIT 1`,
+    [id],
+  );
+  return res.rows[0] ?? null;
+}
+
 export async function findAuthTransactionByKratosFlowId(
   db: Db,
   flowId: string,
@@ -189,21 +208,34 @@ export async function bindAuthTransactionFlow(
   db: Db,
   tokenHash: string,
   flowId: string,
-  options: { allowStepUpRebind?: boolean } = {},
+  options: { reason: AuthFlowBindingReason; issuedAt: string },
 ): Promise<AuthTransactionRecord | null> {
   const res = await db.query<AuthTransactionRecord>(
     `UPDATE auth_transactions
-     SET kratos_flow_id = $2, status = 'awaiting-authentication'
+     SET kratos_flow_id = $2,
+         kratos_flow_issued_at = $3::timestamptz,
+         status = 'awaiting-authentication'
      WHERE token_hash = $1
        AND expires_at > now()
        AND status IN ('created', 'awaiting-authentication')
        AND (
          kratos_flow_id IS NULL
          OR kratos_flow_id = $2
-         OR ($3::boolean AND status = 'awaiting-authentication')
+         OR (
+           $4::text = 'account-link-recovery'
+           AND status = 'awaiting-authentication'
+           AND subject IS NULL
+           AND kratos_flow_issued_at IS NOT NULL
+           AND $3::timestamptz > kratos_flow_issued_at
+         )
+         OR (
+           $4::text = 'aal2-step-up'
+           AND status = 'awaiting-authentication'
+           AND $3::timestamptz >= COALESCE(kratos_flow_issued_at, '-infinity'::timestamptz)
+         )
        )
      RETURNING ${AUTH_TRANSACTION_COLUMNS}`,
-    [tokenHash, flowId, options.allowStepUpRebind === true],
+    [tokenHash, flowId, options.issuedAt, options.reason],
   );
   return res.rows[0] ?? null;
 }
@@ -238,6 +270,7 @@ export async function releaseAuthTransactionForStepUp(
      SET status = 'awaiting-authentication',
          subject = $2,
          kratos_flow_id = NULL,
+         kratos_flow_issued_at = NULL,
          completion_started_at = NULL,
          failure_code = NULL,
          redirect_to = NULL,

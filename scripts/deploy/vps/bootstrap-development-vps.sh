@@ -8,23 +8,17 @@ fail() {
 
 usage() {
   cat <<'EOF'
-Usage: bootstrap-development-vps.sh [--validate-config]
+Usage: bootstrap-development-vps.sh
 
-With no arguments, verifies and extracts the transferred development payload,
-installs the minimum host packages and templates, and provisions the deployment
-user and release processor.
-
-Use --validate-config after reviewing the three VPS-owned *.conf files under
-/etc/idnest. All three environment files are installed by signed GitHub
-deployments.
-Run this script as a non-root administrative account with sudo access.
+Run as a non-root administrative account with sudo access from the transferred
+~/idnest-bootstrap directory. The script verifies the complete payload,
+installs Docker and cloudflared, provisions the signed release queue, starts
+the Cloudflare Tunnel connector, and validates the fresh host.
 EOF
 }
 
-MODE=bootstrap
 case "${1:-}" in
   "") ;;
-  --validate-config) MODE=validate-config ;;
   -h|--help)
     usage
     exit 0
@@ -34,14 +28,14 @@ case "${1:-}" in
     exit 2
     ;;
 esac
-[ "$#" -le 1 ] || { usage >&2; exit 2; }
+[ "$#" -eq 0 ] || { usage >&2; exit 2; }
 
 [ "$(id -u)" -ne 0 ] \
   || fail "do not run this script as root; use a non-root account with sudo access"
 [ "$(id -un)" != github-deploy ] \
   || fail "github-deploy is deployment-only; use a separate non-root administrative account"
 
-for command in dirname id sha256sum sudo; do
+for command in awk dirname grep id sha256sum sudo tar tr wc; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
@@ -52,6 +46,7 @@ ARCHIVE_PATH=$SCRIPT_DIR/$ARCHIVE_NAME
 CHECKSUM_PATH=$SCRIPT_DIR/$CHECKSUM_NAME
 SIGNING_PUBLIC_KEY=$SCRIPT_DIR/host-release-signing-public.pem
 DEPLOY_SSH_PUBLIC_KEY=$SCRIPT_DIR/github-deploy-ed25519.pub
+CLOUDFLARED_TOKEN=$SCRIPT_DIR/cloudflared.token
 REPOSITORY_DIR=$SCRIPT_DIR/repository
 SCRIPT_PATH=$SCRIPT_DIR/bootstrap-development-vps.sh
 RUNTIME_NETWORK=idnest-runtime-development
@@ -63,7 +58,8 @@ for required_file in \
   "$ARCHIVE_PATH" \
   "$CHECKSUM_PATH" \
   "$SIGNING_PUBLIC_KEY" \
-  "$DEPLOY_SSH_PUBLIC_KEY"; do
+  "$DEPLOY_SSH_PUBLIC_KEY" \
+  "$CLOUDFLARED_TOKEN"; do
   [ -f "$required_file" ] && [ ! -L "$required_file" ] && [ -s "$required_file" ] \
     || fail "missing or invalid transferred file: $required_file"
 done
@@ -72,29 +68,50 @@ cd "$SCRIPT_DIR"
 sha256sum --check "$CHECKSUM_NAME" \
   || fail "transferred bootstrap checksum verification failed"
 
+required_members='scripts/deploy/vps/provision-host.sh
+scripts/deploy/vps/compose.auth.yaml
+scripts/deploy/vps/compose.admin.yaml
+scripts/deploy/vps/compose.idnest.yaml
+scripts/deploy/vps/Dockerfile.kratos
+scripts/deploy/vps/deploy-idnest-app.sh
+scripts/deploy/vps/deploy-idnest-infra.sh
+scripts/deploy/vps/deploy-idnest-auth.sh
+scripts/deploy/vps/deploy-idnest-admin.sh
+scripts/deploy/vps/rollback-idnest-app.sh
+scripts/deploy/vps/rollback-idnest-auth.sh
+scripts/deploy/vps/rollback-idnest-admin.sh
+scripts/deploy/vps/validate-app-env.sh
+scripts/deploy/vps/activate-host-release.sh
+scripts/deploy/vps/process-idnest-release-queue.sh
+scripts/deploy/vps/submit-idnest-release.sh
+scripts/deploy/vps/wait-idnest-release.sh
+scripts/deploy/vps/idnest-release-queue.path
+scripts/deploy/vps/idnest-release-queue.service
+scripts/deploy/vps/idnest-cloudflared.service
+scripts/deploy/vps/validate-development-host.sh
+scripts/deploy/vps/auth.conf.example
+scripts/deploy/vps/admin.conf.example
+scripts/deploy/vps/idnest.conf.example
+scripts/docker/render-kratos-config.sh
+config/kratos.tpl.yml
+config/kratos/identity.schema.json
+config/kratos/oidc.apple.mapper.jsonnet
+config/kratos/oidc.google.mapper.jsonnet'
+members=$(tar -tzf "$ARCHIVE_PATH") || fail "cannot list bootstrap archive"
+[ "$(printf '%s\n' "$members" | wc -l | tr -d ' ')" -eq 29 ] \
+  || fail "bootstrap archive must contain exactly 29 files"
+printf '%s\n' "$members" | while IFS= read -r member; do
+  printf '%s\n' "$required_members" | grep -Fx "$member" >/dev/null \
+    || fail "unexpected bootstrap archive member: $member"
+done
+printf '%s\n' "$required_members" | while IFS= read -r required; do
+  [ "$(printf '%s\n' "$members" | grep -Fxc "$required")" -eq 1 ] \
+    || fail "missing or duplicate bootstrap archive member: $required"
+done
+tar -tvzf "$ARCHIVE_PATH" | awk '$1 !~ /^-/ {exit 1}' \
+  || fail "bootstrap archive may contain only regular files"
+
 sudo -v
-
-if [ "$MODE" = validate-config ]; then
-  VALIDATOR=/usr/local/sbin/validate-idnest-app-env
-  [ -x "$VALIDATOR" ] || fail "host provisioning has not installed $VALIDATOR"
-
-  for config_file in \
-    /etc/idnest/auth.conf \
-    /etc/idnest/admin.conf \
-    /etc/idnest/idnest.conf; do
-    sudo "$VALIDATOR" "$config_file"
-  done
-
-  actual_runtime_subnet=$(sudo docker network inspect \
-    --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' \
-    "$RUNTIME_NETWORK") \
-    || fail "the development Docker runtime network is unavailable"
-  [ "$actual_runtime_subnet" = "$RUNTIME_SUBNET" ] \
-    || fail "development Docker runtime subnet is $actual_runtime_subnet; expected $RUNTIME_SUBNET"
-
-  echo "Development VPS configuration validation passed."
-  exit 0
-fi
 
 for command in apt-get env install mktemp mv rm stat tar; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
@@ -127,9 +144,9 @@ trap - 0 1 2 15
 
 sudo apt-get update
 sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  adduser ca-certificates coreutils curl grep openssl tar util-linux
+  adduser ca-certificates coreutils curl grep iproute2 openssl tar util-linux
 
-for command in cat curl grep systemctl; do
+for command in cat curl dpkg grep systemctl; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command after package installation: $command"
 done
 
@@ -216,6 +233,52 @@ fi
 sudo docker compose version >/dev/null 2>&1 \
   || fail "the Docker Compose plugin is not available to the administrative account"
 
+install_cloudflared() {
+  cloudflared_setup_dir=$(mktemp -d "$SCRIPT_DIR/.cloudflared-setup.XXXXXX")
+  cleanup_cloudflared_setup() {
+    case "${cloudflared_setup_dir:-}" in
+      "$SCRIPT_DIR"/.cloudflared-setup.*) rm -rf -- "$cloudflared_setup_dir" ;;
+    esac
+  }
+  trap cleanup_cloudflared_setup 0 1 2 15
+
+  curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+    -o "$cloudflared_setup_dir/cloudflare-main.gpg"
+  [ -s "$cloudflared_setup_dir/cloudflare-main.gpg" ] \
+    || fail "Cloudflare repository signing key download was empty"
+  {
+    printf 'Types: deb\n'
+    printf 'URIs: https://pkg.cloudflare.com/cloudflared\n'
+    printf 'Suites: any\n'
+    printf 'Components: main\n'
+    printf 'Signed-By: /usr/share/keyrings/cloudflare-main.gpg\n'
+  } >"$cloudflared_setup_dir/cloudflared.sources"
+
+  sudo install -d -o root -g root -m 755 /usr/share/keyrings
+  sudo test ! -L /usr/share/keyrings/cloudflare-main.gpg \
+    || fail "/usr/share/keyrings/cloudflare-main.gpg must not be a symbolic link"
+  sudo test ! -L /etc/apt/sources.list.d/cloudflared.sources \
+    || fail "/etc/apt/sources.list.d/cloudflared.sources must not be a symbolic link"
+  sudo install -o root -g root -m 644 \
+    "$cloudflared_setup_dir/cloudflare-main.gpg" /usr/share/keyrings/cloudflare-main.gpg
+  sudo install -o root -g root -m 644 \
+    "$cloudflared_setup_dir/cloudflared.sources" /etc/apt/sources.list.d/cloudflared.sources
+  sudo apt-get update
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y cloudflared
+
+  cleanup_cloudflared_setup
+  cloudflared_setup_dir=
+  trap - 0 1 2 15
+}
+
+if ! command -v cloudflared >/dev/null 2>&1; then
+  install_cloudflared
+fi
+cloudflared_version=$(cloudflared --version | awk 'NR == 1 {print $3}')
+[ -n "$cloudflared_version" ] || fail "cloudflared 2025.4.0 or newer is required"
+dpkg --compare-versions "$cloudflared_version" ge 2025.4.0 \
+  || fail "cloudflared 2025.4.0 or newer is required"
+
 if ! id github-deploy >/dev/null 2>&1; then
   sudo adduser --disabled-password --gecos '' github-deploy
 fi
@@ -229,11 +292,30 @@ sudo "$REPOSITORY_DIR/scripts/deploy/vps/provision-host.sh" \
   "$SIGNING_PUBLIC_KEY" \
   "$DEPLOY_SSH_PUBLIC_KEY"
 
+sudo test ! -L /etc/idnest/cloudflared.token \
+  || fail "/etc/idnest/cloudflared.token must not be a symbolic link"
+sudo install -o root -g root -m 600 \
+  "$CLOUDFLARED_TOKEN" /etc/idnest/cloudflared.token
+sudo systemctl daemon-reload
+sudo systemctl enable --now idnest-cloudflared.service
+
+tunnel_attempt=0
+until sudo curl --fail --silent --show-error \
+  http://127.0.0.1:20242/ready >/dev/null 2>&1; do
+  tunnel_attempt=$((tunnel_attempt + 1))
+  [ "$tunnel_attempt" -lt 30 ] \
+    || fail "Cloudflare Tunnel did not become ready"
+  sleep 2
+done
+
 sudo systemctl is-active --quiet idnest-release-queue.path \
   || fail "the development release queue watcher is not active"
+sudo /usr/local/sbin/validate-idnest-development-host
 
 echo "Development VPS host bootstrap complete."
 echo "Docker runtime network $RUNTIME_NETWORK uses pinned subnet $RUNTIME_SUBNET."
 echo "Review the three VPS-owned *.conf files under /etc/idnest."
 echo "Signed GitHub deployments install idnest.env, auth-app.env, and admin-app.env."
-echo "Then run: $SCRIPT_DIR/bootstrap-development-vps.sh --validate-config"
+echo "Cloudflare Tunnel is active; configure its four public hostname routes before deploying."
+
+sudo rm -f "$CLOUDFLARED_TOKEN"

@@ -1,3 +1,4 @@
+export { renderAutoConsentRedirect, type AutoConsentReason } from "./auto-consent";
 export { renderError } from "./error";
 export { renderPrivacy, renderTerms } from "./legal";
 export { renderLogin } from "./login";

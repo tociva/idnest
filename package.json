@@ -23,6 +23,8 @@
     "bootstrap:local": "./scripts/setup/bootstrap-local.sh",
     "clients:cors:backfill": "node scripts/setup/backfill-client-cors.js",
     "test:cors:config": "bash scripts/deploy/test-cors-contract.sh",
+    "test:deploy": "bash scripts/ci/test-deployment-contracts.sh",
+    "test:apple": "bash scripts/ci/test-apple-login-contracts.sh",
     "test:cors": "pnpm test:cors:config && pnpm test:client-cors:integration",
     "test:cors:live": "bash scripts/deploy/test-hydra-cors-live.sh",
     "test:client-cors:integration": "bash scripts/docker/test-client-cors-integration.sh"

@@ -11,6 +11,7 @@ const settingsFlow: KratosFlow = {
   ui: {
     action: "https://kratos/self-service/settings?flow=settings-flow-1",
     method: "POST",
+    messages: [{ type: "success", text: "Apple account linked." }],
     nodes: [
       { type: "input", group: "default", attributes: { name: "csrf_token", value: "settings-csrf", type: "hidden" } },
       {
@@ -18,6 +19,29 @@ const settingsFlow: KratosFlow = {
         group: "oidc",
         attributes: { name: "link", value: "apple", type: "submit" },
         meta: { label: { text: "Link Apple" } },
+      },
+    ],
+  },
+};
+
+const loginFlow: KratosFlow = {
+  id: "login-flow-1",
+  ui: {
+    action: "https://kratos-local.idnest.cloud/self-service/login?flow=login-flow-1",
+    method: "POST",
+    messages: [
+      {
+        type: "info",
+        text: 'Signing in will link your account to "person@example.com" at provider "apple".',
+      },
+    ],
+    nodes: [
+      { type: "input", group: "default", attributes: { name: "csrf_token", value: "login-csrf", type: "hidden" } },
+      {
+        type: "input",
+        group: "oidc",
+        attributes: { name: "provider", value: "apple", type: "submit" },
+        meta: { label: { text: "Continue with Apple" } },
       },
     ],
   },
@@ -77,6 +101,10 @@ async function requestPath(path: string): Promise<RouteResult> {
       result.headers[name.toLowerCase()] = value;
       return this;
     },
+    set(name: string, value: string) {
+      result.headers[name.toLowerCase()] = value;
+      return this;
+    },
   } as unknown as Response;
 
   await handler(req, res, (err?: unknown) => {
@@ -99,6 +127,20 @@ afterEach(() => {
 });
 
 describe("settings pages", () => {
+  it("renders Apple login and Kratos account-linking guidance", async () => {
+    mockFetchByUrl([{ match: "/self-service/login/flows", result: { ok: true, json: loginFlow } }]);
+
+    const res = await requestPath("/login?flow=login-flow-1");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('name="csrf_token" value="login-csrf"');
+    expect(res.body).toContain('name="provider" value="apple"');
+    expect(res.body).toContain('class="btn btn-apple"');
+    expect(res.body).toContain('class="alert alert-info"');
+    expect(res.body).toContain("Signing in will link your account");
+    expect(res.headers["content-security-policy"]).toContain("form-action 'self'");
+  });
+
   it("redirects unauthenticated users to login and preserves the settings return target", async () => {
     mockFetchByUrl([{ match: "/sessions/whoami", result: { ok: false, status: 401, json: {} } }]);
 
@@ -214,6 +256,8 @@ describe("settings pages", () => {
     expect(res.body).toContain('name="csrf_token" value="settings-csrf"');
     expect(res.body).toContain('name="link" value="apple"');
     expect(res.body).toContain("Link Apple");
+    expect(res.body).toContain('class="alert alert-success"');
+    expect(res.body).toContain("Apple account linked.");
     expect(res.body).toContain("Back to app");
   });
 
@@ -314,6 +358,7 @@ describe("settings pages", () => {
     expect(res.headers.location).toBe("https://hydra/continue");
     const acceptCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/requests/login/accept"))!;
     const sent = JSON.parse((acceptCall[1] as RequestInit).body as string);
+    expect(sent.subject).toBe("ada@example.com");
     expect(sent.context.id_token).toEqual({
       name: "Ada",
       email: "ada@example.com",

@@ -5,9 +5,12 @@ import { createCsrfToken, requireAdminCsrf } from "./auth/csrf";
 import { requireAdmin, type AuthedRequest } from "./auth/middleware";
 import {
   archiveBrandConfiguration,
+  archiveDelegationActorPolicyConfiguration,
+  archiveDelegationResourceConfiguration,
   archivePolicyConfiguration,
   createBrandConfiguration,
   createClient,
+  createDelegationResourceConfiguration,
   createPolicyConfiguration,
   deactivateIdentity,
   deleteClient,
@@ -18,6 +21,7 @@ import {
   getClient,
   getClientAuthConfiguration,
   getIdentity,
+  getDelegationResourceConfiguration,
   getPolicyConfiguration,
   listBrandConfigurations,
   listBrandConfigurationHistory,
@@ -25,18 +29,26 @@ import {
   listClientAuthConfigurationHistory,
   listClientIdentityGrants,
   listClients,
+  listDelegationActorPolicyConfigurations,
+  listDelegationAuditActivity,
+  listDelegationGrantActivity,
+  listDelegationResourceConfigurations,
+  listDelegationResourceHistory,
   listIdentities,
   listIdentityClientGrants,
   listIdentitySessions,
   listPolicyConfigurations,
   listPolicyConfigurationHistory,
   putClientAuthConfiguration,
+  putDelegationActorPolicyConfiguration,
   revokeIdentityClientAccess,
+  revokeDelegationGrantAsAdministrator,
   revokeIdentitySessions,
   revokeSession,
   setAdminRole,
   updateClient,
   updateBrandConfiguration,
+  updateDelegationResourceConfiguration,
   updatePolicyConfiguration,
   type HandlerResult,
 } from "./handlers";
@@ -266,6 +278,87 @@ export function createAdminRouter(): Router {
     adapt(deleteClientAuthConfiguration, (req) => ({
       clientId: req.params.clientId,
       actor: actorFrom(req),
+    })),
+  );
+
+  // --- Generic delegated authorization ---
+  router.get("/delegation/resources", adapt(listDelegationResourceConfigurations, () => ({})));
+  router.get(
+    "/delegation/resources/:id",
+    adapt(getDelegationResourceConfiguration, idFromParams),
+  );
+  router.get(
+    "/delegation/resources/:id/history",
+    adapt(listDelegationResourceHistory, idFromParams),
+  );
+  router.post(
+    "/delegation/resources",
+    configurationRateLimit,
+    adapt(createDelegationResourceConfiguration, (req) => ({
+      body: fromBody(req),
+      actor: actorFrom(req),
+    })),
+  );
+  router.patch(
+    "/delegation/resources/:id",
+    configurationRateLimit,
+    adapt(updateDelegationResourceConfiguration, (req) => ({
+      id: req.params.id,
+      body: fromBody(req),
+      actor: actorFrom(req),
+    })),
+  );
+  router.delete(
+    "/delegation/resources/:id",
+    configurationRateLimit,
+    adapt(archiveDelegationResourceConfiguration, (req) => ({
+      id: req.params.id,
+      actor: actorFrom(req),
+    })),
+  );
+  router.get(
+    "/delegation/resources/:id/actors",
+    adapt(listDelegationActorPolicyConfigurations, idFromParams),
+  );
+  router.put(
+    "/delegation/resources/:id/actors/:clientId",
+    configurationRateLimit,
+    adapt(putDelegationActorPolicyConfiguration, (req) => ({
+      id: req.params.id,
+      clientId: req.params.clientId,
+      body: fromBody(req),
+      actor: actorFrom(req),
+    })),
+  );
+  router.delete(
+    "/delegation/resources/:id/actors/:clientId",
+    configurationRateLimit,
+    adapt(archiveDelegationActorPolicyConfiguration, (req) => ({
+      id: req.params.id,
+      clientId: req.params.clientId,
+      actor: actorFrom(req),
+    })),
+  );
+  router.get(
+    "/delegation/grants",
+    adapt(listDelegationGrantActivity, (req) => ({
+      resourceId: typeof req.query.resource_id === "string" ? req.query.resource_id : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    })),
+  );
+  router.delete(
+    "/delegation/grants/:grantId",
+    configurationRateLimit,
+    adapt(revokeDelegationGrantAsAdministrator, (req) => ({
+      grantId: req.params.grantId,
+      actor: actorFrom(req),
+    })),
+  );
+  router.get(
+    "/delegation/audit",
+    adapt(listDelegationAuditActivity, (req) => ({
+      resourceId: typeof req.query.resource_id === "string" ? req.query.resource_id : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
     })),
   );
 

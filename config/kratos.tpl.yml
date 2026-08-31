@@ -3,13 +3,6 @@ dsn: ${KRATOS_DSN}
 serve:
   public:
     base_url: ${KRATOS_SERVE_PUBLIC_BASE_URL}
-    # BEGIN optional public tls
-    tls:
-      cert:
-        path: /run/idnest-tls/origin-cert.pem
-      key:
-        path: /run/idnest-tls/origin-key.pem
-    # END optional public tls
     cors:
       enabled: true
       allowed_origins: ${KRATOS_CORS_ALLOWED_ORIGINS_YAML}
@@ -86,9 +79,9 @@ selfservice:
             client_id: ${APPLE_CLIENT_ID}
             apple_team_id: ${APPLE_TEAM_ID}
             apple_private_key_id: ${APPLE_PRIVATE_KEY_ID}
-            # In .env, render APPLE_PRIVATE_KEY as a valid YAML string
-            # (for example, a double-quoted PEM with \n escapes).
-            apple_private_key: ${APPLE_PRIVATE_KEY}
+            # The renderer converts raw PEM or an existing YAML string into a
+            # safe double-quoted YAML scalar.
+            apple_private_key: ${APPLE_PRIVATE_KEY_YAML}
             issuer_url: https://appleid.apple.com
             scope:
               - email

@@ -1,7 +1,9 @@
 import {
   hasVerifiedEmailAddress,
+  normalizeEmailAddress,
   toUserClaims,
   type HydraConsentRequest,
+  type KratosUserClaims,
   type KratosUser,
 } from "@idnest/shared-types";
 import { getHydraAdminUrl, getKratosAdminUrl } from "../config";
@@ -32,28 +34,40 @@ export async function acceptConsent(input: AcceptConsentInput): Promise<HandlerR
     }
     const consentRequest = (await consentRequestRes.json()) as HydraConsentRequest;
 
-    // 2. Look up the Kratos identity (subject) to enrich the token claims.
-    const subject = consentRequest.subject; // user's Kratos ID
-    const kratosUserRes = await fetch(`${getKratosAdminUrl()}/identities/${subject}`);
-    if (!kratosUserRes.ok) {
-      const err = (await kratosUserRes.json().catch(() => null)) as { error?: unknown } | null;
-      return {
-        status: 500,
-        body: { error: err?.error || err || "Identity lookup failed" },
+    // 2. Enrich token claims. New logins use verified email as the OAuth subject;
+    // legacy sessions may still carry a Kratos identity id.
+    let user: KratosUserClaims;
+    const emailSubject = normalizeEmailAddress(consentRequest.subject);
+    if (emailSubject) {
+      user = {
+        name: undefined,
+        email: emailSubject,
+        email_verified: true,
+        picture: undefined,
       };
+    } else {
+      const kratosUserRes = await fetch(
+        `${getKratosAdminUrl()}/identities/${encodeURIComponent(consentRequest.subject)}`,
+      );
+      if (!kratosUserRes.ok) {
+        const err = (await kratosUserRes.json().catch(() => null)) as { error?: unknown } | null;
+        return {
+          status: 500,
+          body: { error: err?.error || err || "Identity lookup failed" },
+        };
+      }
+      const kratosUser = (await kratosUserRes.json()) as KratosUser;
+      if (!hasVerifiedEmailAddress(kratosUser)) {
+        return {
+          status: 403,
+          body: {
+            error: "email_not_verified",
+            error_description: "Please sign in with a provider account that has a verified email address.",
+          },
+        };
+      }
+      user = toUserClaims(kratosUser);
     }
-    const kratosUser = (await kratosUserRes.json()) as KratosUser;
-    if (!hasVerifiedEmailAddress(kratosUser)) {
-      return {
-        status: 403,
-        body: {
-          error: "email_not_verified",
-          error_description: "Please sign in with a provider account that has a verified email address.",
-        },
-      };
-    }
-
-    const user = toUserClaims(kratosUser);
 
     // 3. Accept consent, granting ONLY what this client actually requested.
     //    Echoing requested_scope / requested_access_token_audience keeps each

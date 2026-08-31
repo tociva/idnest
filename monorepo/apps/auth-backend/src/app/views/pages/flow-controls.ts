@@ -13,6 +13,11 @@ export interface FlowSubmitButton {
   disabled: boolean;
 }
 
+export interface FlowMessage {
+  text: string;
+  type: "info" | "error" | "success";
+}
+
 export type FactorSettingsNode =
   | { kind: "text"; text: string; messageType?: string }
   | { kind: "img"; src: string; alt: string }
@@ -80,6 +85,25 @@ export function oidcSubmitButtonsFromFlow(
       };
     })
     .filter((button): button is FlowSubmitButton => button !== null);
+}
+
+/** User-facing guidance and errors returned by Kratos for the current flow. */
+export function messagesFromFlow(flow: Pick<KratosFlow, "ui">): FlowMessage[] {
+  const candidates = [...(flow.ui.messages ?? []), ...flow.ui.nodes.flatMap((node) => node.messages ?? [])];
+  const seen = new Set<string>();
+  const messages: FlowMessage[] = [];
+
+  for (const candidate of candidates) {
+    const message = candidate.text?.trim();
+    if (!message) continue;
+    const type = candidate.type === "error" || candidate.type === "success" ? candidate.type : "info";
+    const key = `${type}:${message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    messages.push({ text: message, type });
+  }
+
+  return messages;
 }
 
 /** TOTP / lookup-secret nodes from a Kratos settings flow for enrollment UI. */

@@ -51,6 +51,7 @@ function session(overrides: Partial<KratosSession> = {}): KratosSession {
 describe("evaluateAuthenticationPolicy", () => {
   it("accepts an active, verified, fresh Google session", () => {
     const decision = evaluateAuthenticationPolicy(session(), policy, {
+      expectedSubject: "ada@example.com",
       now: Date.parse("2026-01-01T00:10:00.000Z"),
     });
     expect(decision).toEqual({

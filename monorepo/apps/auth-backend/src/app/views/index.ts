@@ -1,4 +1,5 @@
 export {
+  renderAutoConsentRedirect,
   permissionForScope,
   renderAccessDenied,
   renderConsent,
@@ -8,4 +9,9 @@ export {
   renderSettings,
   renderTerms,
 } from "./pages";
-export type { ErrorViewModel, LoginViewModel, SettingsViewModel } from "./pages";
+export type {
+  AutoConsentReason,
+  ErrorViewModel,
+  LoginViewModel,
+  SettingsViewModel,
+} from "./pages";

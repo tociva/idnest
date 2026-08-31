@@ -55,16 +55,55 @@ wait_for_url() {
 require_cmd node
 require_cmd docker
 require_cmd curl
+require_cmd mktemp
+require_cmd openssl
 require_cmd pnpm
+
+# shellcheck source=scripts/setup/load-project-env.sh
+. "$ENV_HELPER"
+load_project_env "$REPO_ROOT"
+
+apple_value_count=0
+for apple_key in APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY; do
+  eval "apple_value=\${$apple_key:-}"
+  [ -z "$apple_value" ] || apple_value_count=$((apple_value_count + 1))
+done
+case "$apple_value_count" in
+  0) ;;
+  4)
+    [[ "$APPLE_CLIENT_ID" =~ ^[A-Za-z0-9][A-Za-z0-9.-]{2,254}$ ]] || {
+      echo "Error: APPLE_CLIENT_ID must be a valid Apple Services ID." >&2
+      exit 1
+    }
+    [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || {
+      echo "Error: APPLE_TEAM_ID must be a 10-character Apple Team ID." >&2
+      exit 1
+    }
+    [[ "$APPLE_PRIVATE_KEY_ID" =~ ^[A-Z0-9]{10}$ ]] || {
+      echo "Error: APPLE_PRIVATE_KEY_ID must be a 10-character Apple Key ID." >&2
+      exit 1
+    }
+    apple_key_file=$(mktemp "${TMPDIR:-/tmp}/idnest-local-apple-key.XXXXXX")
+    cleanup_apple_key() {
+      rm -f -- "$apple_key_file"
+    }
+    trap cleanup_apple_key EXIT HUP INT TERM
+    chmod 600 "$apple_key_file"
+    printf '%b' "$APPLE_PRIVATE_KEY" >"$apple_key_file"
+    "$REPO_ROOT/scripts/deploy/validate-apple-private-key.sh" "$apple_key_file" >/dev/null
+    rm -f -- "$apple_key_file"
+    trap - EXIT HUP INT TERM
+    ;;
+  *)
+    echo "Error: Apple login requires APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_PRIVATE_KEY_ID, and APPLE_PRIVATE_KEY together." >&2
+    exit 1
+    ;;
+esac
 
 if ! docker network inspect "$IDNEST_RUNTIME_NETWORK" >/dev/null 2>&1; then
   docker network create --attachable "$IDNEST_RUNTIME_NETWORK" >/dev/null
 fi
 export IDNEST_RUNTIME_NETWORK
-
-# shellcheck source=scripts/setup/load-project-env.sh
-. "$ENV_HELPER"
-load_project_env "$REPO_ROOT"
 
 case "$(uname -s)" in
   Darwin) SETUP_SCRIPT="$REPO_ROOT/scripts/setup/setup-idnest-db-macos.sh" ;;

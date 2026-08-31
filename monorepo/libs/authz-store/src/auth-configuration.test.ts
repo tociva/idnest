@@ -9,6 +9,7 @@ import {
   bindAuthTransactionFlow,
   claimAuthTransactionCompletion,
   expireAuthTransactions,
+  findAuthTransactionById,
   releaseAuthTransactionForStepUp,
 } from "./auth-transaction-repository";
 import { AUTHZ_SCHEMA_SQL } from "./schema";
@@ -118,6 +119,14 @@ describe("authentication configuration schema", () => {
     expect(AUTHZ_SCHEMA_SQL).toContain("c.brand_id = b.id AND c.status = 'active'");
     expect(AUTHZ_SCHEMA_SQL).toContain("(7, 'archive unused historical system brands')");
   });
+
+  it("tracks Kratos flow issue time for monotonic rebinds", () => {
+    expect(AUTHZ_SCHEMA_SQL).toContain("kratos_flow_issued_at timestamptz");
+    expect(AUTHZ_SCHEMA_SQL).toContain(
+      "ADD COLUMN IF NOT EXISTS kratos_flow_issued_at timestamptz",
+    );
+    expect(AUTHZ_SCHEMA_SQL).toContain("(10, 'track kratos login flow issue time')");
+  });
 });
 
 describe("authentication transaction lifecycle repository", () => {
@@ -131,11 +140,47 @@ describe("authentication transaction lifecycle repository", () => {
     } as unknown as Db;
 
     await bindAuthTransactionFlow(db, "opaque-token-hash", "flow-aal2", {
-      allowStepUpRebind: true,
+      reason: "aal2-step-up",
+      issuedAt: "2026-08-31T06:27:00.000Z",
     });
 
-    expect(calls[0].sql).toContain("$3::boolean");
-    expect(calls[0].values).toEqual(["opaque-token-hash", "flow-aal2", true]);
+    expect(calls[0].sql).toContain("$4::text = 'aal2-step-up'");
+    expect(calls[0].sql).toContain(
+      "$3::timestamptz >= COALESCE(kratos_flow_issued_at, '-infinity'::timestamptz)",
+    );
+    expect(calls[0].values).toEqual([
+      "opaque-token-hash",
+      "flow-aal2",
+      "2026-08-31T06:27:00.000Z",
+      "aal2-step-up",
+    ]);
+  });
+
+  it("allows only newer account-link recovery flows to rebind active anonymous transactions", async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      query: async (sql: string, values: unknown[]) => {
+        calls.push({ sql, values });
+        return { rows: [{ id: "transaction-1", kratos_flow_id: "flow-successor" }] };
+      },
+    } as unknown as Db;
+
+    await bindAuthTransactionFlow(db, "opaque-token-hash", "flow-successor", {
+      reason: "account-link-recovery",
+      issuedAt: "2026-08-31T06:26:19.000Z",
+    });
+
+    expect(calls[0].sql).toContain("$4::text = 'account-link-recovery'");
+    expect(calls[0].sql).toContain("status = 'awaiting-authentication'");
+    expect(calls[0].sql).toContain("subject IS NULL");
+    expect(calls[0].sql).toContain("kratos_flow_issued_at IS NOT NULL");
+    expect(calls[0].sql).toContain("$3::timestamptz > kratos_flow_issued_at");
+    expect(calls[0].values).toEqual([
+      "opaque-token-hash",
+      "flow-successor",
+      "2026-08-31T06:26:19.000Z",
+      "account-link-recovery",
+    ]);
   });
 
   it("claims completion only through the guarded one-time SQL transition", async () => {
@@ -153,6 +198,22 @@ describe("authentication transaction lifecycle repository", () => {
     expect(calls[0].sql).toContain("expires_at > now()");
     expect(calls[0].sql).toContain("status IN ('created', 'awaiting-authentication', 'authenticated')");
     expect(calls[0].values).toEqual(["opaque-token-hash"]);
+  });
+
+  it("finds a login transaction by the Hydra login context transaction id", async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      query: async (sql: string, values: unknown[]) => {
+        calls.push({ sql, values });
+        return { rows: [{ id: "transaction-1", status: "hydra-accepted" }] };
+      },
+    } as unknown as Db;
+
+    const found = await findAuthTransactionById(db, "transaction-1");
+
+    expect(found?.id).toBe("transaction-1");
+    expect(calls[0].sql).toContain("WHERE id::text = $1");
+    expect(calls[0].values).toEqual(["transaction-1"]);
   });
 
   it("expires both login and consent transactions", async () => {
@@ -188,6 +249,7 @@ describe("authentication transaction lifecycle repository", () => {
     expect(released?.status).toBe("awaiting-authentication");
     expect(calls[0].sql).toContain("status = 'awaiting-authentication'");
     expect(calls[0].sql).toContain("kratos_flow_id = NULL");
+    expect(calls[0].sql).toContain("kratos_flow_issued_at = NULL");
     expect(calls[0].sql).toContain("status = 'completing'");
     expect(calls[0].values).toEqual(["transaction-1", "identity-1"]);
   });

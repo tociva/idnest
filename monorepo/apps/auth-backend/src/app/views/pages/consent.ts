@@ -37,7 +37,12 @@ export function permissionForScope(scope: string): ConsentPermission {
     case "email":
       return { scope, label: "View your email", description: "Read your email address and verification status." };
     case "offline_access":
-      return { scope, label: "Stay signed in", description: "Use refresh access so you do not need to sign in repeatedly.", caution: true };
+      return {
+        scope,
+        label: "Keep me signed in on this device",
+        description: "Use refresh access so you do not need to sign in repeatedly.",
+        caution: true,
+      };
     default:
       return { scope, label: scope, description: "This app requested a custom permission.", caution: true };
   }

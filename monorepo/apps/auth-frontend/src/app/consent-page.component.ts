@@ -9,7 +9,7 @@ const SCOPE_LABELS: Record<string, string> = {
   openid: "Confirm your identity",
   profile: "View your basic profile",
   email: "View your email address",
-  offline_access: "Stay signed in when you are away",
+  offline_access: "Keep me signed in on this device",
 };
 
 @Component({

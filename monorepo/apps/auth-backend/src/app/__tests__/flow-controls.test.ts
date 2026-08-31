@@ -3,6 +3,7 @@ import type { KratosFlow } from "@idnest/shared-types";
 import {
   factorSettingsNodesFromFlow,
   hiddenInputsFromFlow,
+  messagesFromFlow,
   oidcSubmitButtonsFromFlow,
 } from "../views/pages/flow-controls";
 import { renderError } from "../views/pages/error";
@@ -92,8 +93,67 @@ describe("OIDC flow controls", () => {
     expect(html).toContain('name="csrf_token" value="tok-123"');
     expect(html).toContain('name="provider" value="google"');
     expect(html).toContain('name="provider" value="apple"');
+    expect(html).toContain('class="btn btn-apple"');
     expect(html).toContain("Continue with Google");
     expect(html).toContain("Continue with Apple");
+  });
+
+  it("renders escaped Kratos account-linking guidance without duplicating node messages", () => {
+    const linkingFlow: KratosFlow = {
+      ...flow,
+      ui: {
+        ...flow.ui,
+        messages: [
+          {
+            id: 4000010,
+            type: "info",
+            text: 'Signing in will link your account to "person@example.com" at provider "apple".',
+          },
+        ],
+        nodes: [
+          ...flow.ui.nodes,
+          {
+            type: "input",
+            group: "oidc",
+            attributes: { name: "provider", value: "apple", type: "submit" },
+            messages: [
+              {
+                type: "error",
+                text: "Apple sign-in was cancelled. Try again <when ready>.",
+              },
+              {
+                type: "error",
+                text: "Apple sign-in was cancelled. Try again <when ready>.",
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const messages = messagesFromFlow(linkingFlow);
+    expect(messages).toEqual([
+      {
+        type: "info",
+        text: 'Signing in will link your account to "person@example.com" at provider "apple".',
+      },
+      {
+        type: "error",
+        text: "Apple sign-in was cancelled. Try again <when ready>.",
+      },
+    ]);
+
+    const html = renderLogin({
+      actionUrl: linkingFlow.ui.action,
+      hiddenInputs: hiddenInputsFromFlow(linkingFlow),
+      providers: oidcSubmitButtonsFromFlow(linkingFlow, "Continue with"),
+      messages,
+    });
+    expect(html).toContain('role="status" aria-live="polite"');
+    expect(html).toContain('class="alert alert-info"');
+    expect(html).toContain('class="alert alert-error"');
+    expect(html).toContain("Try again &lt;when ready&gt;.");
+    expect(html).not.toContain("Try again <when ready>.");
   });
 });
 

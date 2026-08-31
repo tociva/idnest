@@ -11,6 +11,10 @@ import type {
   AuthConfigurationVersion,
   ClientAccessGrant,
   ClientFormValue,
+  DelegationActorPolicyRecord,
+  DelegationAuditActivity,
+  DelegationGrantActivity,
+  DelegationResourceRecord,
   HydraClient,
   KratosSession,
   AuthPolicyRecord,
@@ -305,6 +309,76 @@ export class AdminApiService {
     clientId: string,
   ): Promise<{ archived: boolean; clientId: string }> {
     return this.delete(`/client-auth-configs/${encodeURIComponent(clientId)}`);
+  }
+
+  // --- Generic delegated authorization ---
+  listDelegationResources(): Promise<DelegationResourceRecord[]> {
+    return this.get<DelegationResourceRecord[]>("/delegation/resources");
+  }
+
+  createDelegationResource(
+    value: Omit<DelegationResourceRecord, "id" | "version" | "created_at" | "updated_at">,
+    reason?: string,
+  ): Promise<DelegationResourceRecord> {
+    return this.post<DelegationResourceRecord>("/delegation/resources", { ...value, reason });
+  }
+
+  updateDelegationResource(
+    resource: DelegationResourceRecord,
+    reason?: string,
+  ): Promise<DelegationResourceRecord> {
+    return this.patch<DelegationResourceRecord>(
+      `/delegation/resources/${encodeURIComponent(resource.id)}`,
+      {
+        expectedVersion: resource.version,
+        status: resource.status,
+        definition: resource.definition,
+        reason,
+      },
+    );
+  }
+
+  archiveDelegationResource(id: string): Promise<{ archived: boolean; id: string }> {
+    return this.delete(`/delegation/resources/${encodeURIComponent(id)}`);
+  }
+
+  listDelegationActorPolicies(resourceId: string): Promise<DelegationActorPolicyRecord[]> {
+    return this.get(`/delegation/resources/${encodeURIComponent(resourceId)}/actors`);
+  }
+
+  saveDelegationActorPolicy(
+    resourceId: string,
+    actorClientId: string,
+    value: Pick<DelegationActorPolicyRecord, "status" | "definition">,
+    reason?: string,
+  ): Promise<DelegationActorPolicyRecord> {
+    return this.put(
+      `/delegation/resources/${encodeURIComponent(resourceId)}/actors/${encodeURIComponent(actorClientId)}`,
+      { ...value, reason },
+    );
+  }
+
+  archiveDelegationActorPolicy(
+    resourceId: string,
+    actorClientId: string,
+  ): Promise<{ archived: boolean; clientId: string }> {
+    return this.delete(
+      `/delegation/resources/${encodeURIComponent(resourceId)}/actors/${encodeURIComponent(actorClientId)}`,
+    );
+  }
+
+  listDelegationGrants(resourceId?: string): Promise<DelegationGrantActivity[]> {
+    const query = resourceId ? `?resource_id=${encodeURIComponent(resourceId)}` : "";
+    return this.get(`/delegation/grants${query}`);
+  }
+
+  revokeDelegationGrant(id: string): Promise<{ revoked: boolean; id: string }> {
+    return this.delete(`/delegation/grants/${encodeURIComponent(id)}`);
+  }
+
+  listDelegationAudit(resourceId?: string): Promise<DelegationAuditActivity[]> {
+    const query = resourceId ? `?resource_id=${encodeURIComponent(resourceId)}` : "";
+    return this.get(`/delegation/audit${query}`);
   }
 }
 

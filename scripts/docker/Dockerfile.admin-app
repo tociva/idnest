@@ -29,14 +29,11 @@ LABEL org.opencontainers.image.title="Idnest Admin" \
 
 ENV NODE_ENV=production \
     ADMIN_BACKEND_PORT=3000 \
-    ADMIN_HTTPS_ENABLED=true \
     ADMIN_FRONTEND_DIST_DIR=/app/public/admin \
     ADMIN_FRONTEND_API_BASE_URL=/api \
     HOST=0.0.0.0 \
     INTERNAL_HEALTH_PORT=3001 \
     INTERNAL_HEALTH_SERVER_ENABLED=true \
-    TLS_CERT_PATH=/run/idnest-tls/origin-cert.pem \
-    TLS_KEY_PATH=/run/idnest-tls/origin-key.pem \
     APP_REVISION=${APP_REVISION}
 
 WORKDIR /app

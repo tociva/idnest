@@ -18,6 +18,7 @@ development, development deployment, common workflows, and security boundaries.
 - [GitHub Actions development deployments](#github-actions-development-deployments)
 - [ARM64 dependency builder image](#arm64-dependency-builder-image)
 - [OAuth clients and access](#oauth-clients-and-access)
+- [Delegated authorization](#delegated-authorization)
 - [Authentication flow](#authentication-flow)
 - [Troubleshooting](#troubleshooting)
 - [Security notes](#security-notes)
@@ -26,7 +27,7 @@ development, development deployment, common workflows, and security boundaries.
 
 | Component | Local endpoint | Direct port | Responsibility |
 | --- | --- | ---: | --- |
-| Auth backend | `https://auth-local.idnest.cloud` | `4000` | Trusted Hydra/Kratos orchestration |
+| Auth backend | `https://auth-local.idnest.cloud` | `4000` | Trusted Hydra/Kratos orchestration and delegated-token broker |
 | Auth frontend | `https://auth-local.idnest.cloud/auth/` | `4502` | Branded login, consent, and error UI |
 | Admin backend | `https://admin-local.idnest.cloud/api` | `4100` | Confidential BFF and administration API |
 | Admin frontend | `https://admin-local.idnest.cloud` | `4501` | Identity and OAuth administration console |
@@ -314,32 +315,35 @@ immutable digests to Amazon ECR. The separate identity workflow renders
 The VPS runs the root-owned release processor; the `github-deploy` SSH account
 does not receive Docker or sudo access.
 
-| Service | Public hostname | VPS HTTPS port |
+| Service | Public hostname | Loopback HTTP origin |
 | --- | --- | ---: |
-| Auth | `auth-dev.idnest.cloud` | `8444` |
-| Admin | `admin-dev.idnest.cloud` | `8445` |
-| Hydra public API | `hydra-dev.idnest.cloud` | `8446` |
-| Kratos public API | `kratos-dev.idnest.cloud` | `8447` |
+| Auth | `auth-dev.idnest.cloud` | `127.0.0.1:8444` |
+| Admin | `admin-dev.idnest.cloud` | `127.0.0.1:8445` |
+| Hydra public API | `hydra-dev.idnest.cloud` | `127.0.0.1:8446` |
+| Kratos public API | `kratos-dev.idnest.cloud` | `127.0.0.1:8447` |
 
 All public development services use the `idnest.cloud` zone. The development
 VPS SSH endpoint is `vps-dev.idnest.cloud`, while the four public service records
 above remain proxied through Cloudflare.
 
-Hydra admin `4445` and Kratos admin `4434` stay bound to loopback/private
-network interfaces. The application containers terminate origin TLS directly.
+Hydra admin `4445` and Kratos admin `4434` are also loopback-only. A
+root-managed `cloudflared` connector publishes the four public hostnames over
+one outbound-only named tunnel. Containers serve plain HTTP on the private
+Docker network; browsers still use normal Cloudflare HTTPS endpoints.
 
 Before starting, the development VPS must be running and reachable at
 `VPS_PUBLIC_IP:22`, where `VPS_PUBLIC_IP` is the address assigned by the VPS
 provider. Create a **DNS-only** Cloudflare `A` record for
 `vps-dev.idnest.cloud` pointing to that address; never proxy this SSH hostname.
-Keep the four proxied application records for step 6. Confirm that the
+The four application hostnames are tunnel routes and do not point to the VPS
+address. Confirm that the
 provider-created account can be reached with the workstation SSH key before
 continuing. Do not commit the actual address to this repository.
 
-The required order is: provision AWS, create deployment credentials, bootstrap
-the VPS, prepare runtime values and databases, install Origin CA TLS, configure
-public Cloudflare routing, upload GitHub settings, then deploy identity, auth,
-and admin in that order.
+The required order is: provision AWS, create deployment credentials, create
+the named Cloudflare Tunnel and protected local environment, bootstrap the VPS,
+prepare runtime values and databases, upload GitHub settings, then deploy
+identity, auth, and admin in that order.
 
 ### 1. Provision AWS with Terraform
 
@@ -527,14 +531,45 @@ the provider `root` account. It does not disable provider root access, allowing
 it to remain available for VPS recovery. Normal transfer, bootstrap, and GitHub
 Actions deployment paths continue to reject `root`.
 
+Before transferring the bootstrap, create one remotely managed named tunnel in
+Cloudflare Zero Trust, for example `idnest-development`. Add these public
+hostname routes to that tunnel:
+
+| Public hostname | Service URL |
+| --- | --- |
+| `auth-dev.idnest.cloud` | `http://127.0.0.1:8444` |
+| `admin-dev.idnest.cloud` | `http://127.0.0.1:8445` |
+| `hydra-dev.idnest.cloud` | `http://127.0.0.1:8446` |
+| `kratos-dev.idnest.cloud` | `http://127.0.0.1:8447` |
+
+The dashboard creates the proxied DNS records for these routes. Copy the
+connector token from the tunnel installation command; store the token itself,
+not the complete command. Initialize the protected local environment if it
+does not already exist, synchronize the Terraform-owned VPS values, and add the
+token as `CLOUDFLARE_TUNNEL_TOKEN`:
+
+```bash
+test -e tmp/development.env || {
+  install -d -m 700 tmp
+  install -m 600 scripts/deploy/env/development.env.example \
+    tmp/development.env
+}
+./scripts/deploy/update-development-env-from-terraform.sh
+```
+
+At this stage the other application placeholders may remain; the transfer
+script reads only `VPS_HOST`, `VPS_PORT`, and the tunnel token. Keep this file
+mode `0600`.
+
 On the trusted Mac, run the transfer script from the repository root. Supply
-the existing non-root administrative account and its workstation SSH private
-key:
+the existing non-root administrative account, its workstation SSH private key,
+and the protected environment file:
 
 ```bash
 ./scripts/deploy/transfer-development-vps-bootstrap.sh \
   idnest-admin \
-  /absolute/path/to/vps-admin-ssh-private-key
+  /absolute/path/to/vps-admin-ssh-private-key \
+  tmp/development.env
 ```
 
 The defaults are `vps-dev.idnest.cloud` and SSH port `22`. Pass a different
@@ -542,22 +577,23 @@ management endpoint after the required arguments when necessary:
 
 ```bash
 ./scripts/deploy/transfer-development-vps-bootstrap.sh \
-  VPS_ADMIN_USER VPS_ADMIN_SSH_KEY VPS_HOST VPS_PORT
+  VPS_ADMIN_USER VPS_ADMIN_SSH_KEY DEVELOPMENT_ENV VPS_HOST VPS_PORT
 ```
 
 The script creates the development-only archive and checksum under
 `../idnest-secure`, creates `~/idnest-bootstrap` on the VPS, and transfers the
-archive, checksum, VPS bootstrap runner, release-signing public key, and
-deployment SSH public key. It then verifies both the archive and runner on the
-VPS. Its explicit archive manifest excludes production files and local secrets.
+archive, checksum, VPS bootstrap runner, release-signing public key, deployment
+SSH public key, and a standalone tunnel-token file. It then verifies every
+upload on the VPS. Its explicit archive manifest excludes production files and
+all application and identity secrets.
 It rejects `root` and `github-deploy` as the administrative account; use a
 separate non-root account that already has `sudo` access. The administrative
 key is not the generated `github-deploy` key.
 
-Runtime secrets are never included in the bootstrap archive or transferred by
-this script. The GitHub preparation helper in step 7 uses the ignored
-`tmp/development.env` as the single protected source for configurable auth,
-admin, Hydra, Kratos, Google, and optional Apple settings.
+The tunnel token is never placed in the archive, GitHub, or an application
+container. Bootstrap installs it as root-owned mode `0600`, passes it to the
+hardened systemd service with `LoadCredential`, and removes the transferred
+copy after the connector is ready.
 
 On the VPS, execute the transferred runner as that same non-root administrative
 account:
@@ -568,25 +604,28 @@ account:
 
 The runner verifies all transferred checksums again before doing any
 privileged work. It extracts a fresh repository tree, installs the minimum host
-packages and Docker when missing, checks Docker Engine and the Compose plugin,
-creates `github-deploy` when needed, provisions the release processor, and
-installs missing development configuration templates. It invokes `sudo` only
+packages, Docker, and cloudflared from their official Apt repositories, checks
+cloudflared is new enough for `--token-file`, creates `github-deploy` when
+needed, provisions the release processor, and installs the development
+configuration templates. It invokes `sudo` only
 for operations that require host privileges and refuses direct execution as
 `root`. The bootstrap creates `idnest-runtime-development` with the explicit
 subnet `172.23.0.0/16`. If the network already exists, provisioning verifies
 that it still uses exactly this subnet and fails instead of silently accepting
-network drift.
+network drift. The final host check proves Docker, the signed release queue,
+and `idnest-cloudflared.service` are active and rejects any Idnest origin port
+that is listening on a public interface.
 
 ### 4. Configure development runtime and databases
 
-Perform this step after the VPS bootstrap and before installing TLS or starting
-any workflow. The VPS owns deployment settings and TLS material, while the
-trusted Mac owns the protected source used to populate GitHub settings.
+Perform this step after the VPS bootstrap and before starting any workflow. The
+VPS owns deployment settings and the tunnel connector, while the trusted Mac
+owns the protected source used to populate GitHub settings.
 
 #### Configure VPS-owned and GitHub-managed runtime files
 
-The VPS owns deployment settings and TLS material. Review these three
-root-owned configuration files after bootstrap:
+The VPS owns deployment settings. Review these three root-owned configuration
+files after bootstrap:
 
 - `/etc/idnest/auth.conf`
 - `/etc/idnest/admin.conf`
@@ -600,8 +639,9 @@ processor verifies the file and installs it as `root:root` mode `0600`.
 The protected local source remains on the trusted Mac and only seeds individual
 GitHub settings; the complete dotenv file is not stored as a GitHub secret.
 `tmp/development.env` is the single source of truth for development key-value
-settings. Create it now from the tracked example with mode `0600`. The command
-refuses to overwrite an existing protected file:
+settings. It was normally created before bootstrap. If it is still absent,
+create it from the tracked example with mode `0600`; never overwrite an
+existing protected file:
 
 ```bash
 test ! -e tmp/development.env || {
@@ -630,6 +670,7 @@ BUILDER_ECR_REPOSITORY=replace-with-terraform-output
 VPS_HOST=replace-with-terraform-output
 VPS_PORT=replace-with-terraform-output
 VPS_USER=replace-with-terraform-output
+CLOUDFLARE_TUNNEL_TOKEN=replace-with-cloudflare-tunnel-token
 AUTH_URL=https://auth-dev.idnest.cloud
 HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud
 KRATOS_CORS_ALLOWED_ORIGINS=https://auth-dev.idnest.cloud
@@ -660,12 +701,14 @@ AUTHZ_DATABASE_URL=postgres://authzu:replace-with-authz-password@host.docker.int
 CONSENT_ACTION_SECRET=replace-with-a-long-random-secret
 AUTH_TRANSACTION_SECRET=replace-with-a-32-byte-or-longer-random-secret
 AUTH_AUDIT_HASH_SECRET=replace-with-an-independent-long-random-secret
+DELEGATION_ENABLED=false
+DELEGATION_SIGNING_PRIVATE_KEY_B64=replace-with-base64-pkcs8-p256-private-key
 ADMIN_BOOTSTRAP_EMAILS=replace-with-real-admin-email-address
 ADMIN_CSRF_SECRET=replace-with-a-long-random-secret
 ADMIN_OIDC_CLIENT_SECRET=replace-with-admin-client-secret
 ```
 
-Keep all 44 properties. Do not enter the first eleven infrastructure values by
+Keep every tracked property. Do not enter the first eleven infrastructure values by
 hand: `update-development-env-from-terraform.sh` replaces their
 `replace-with-terraform-output` placeholders from validated Terraform state.
 Replace every remaining placeholder with its real value. Leave all four
@@ -763,12 +806,14 @@ routes, VPC routes, and VPN routes before assigning a new subnet.
 | `CONSENT_ACTION_SECRET` | Run `openssl rand -hex 32`; used to sign consent actions. |
 | `AUTH_TRANSACTION_SECRET` | Run `openssl rand -hex 32`; used to protect auth transaction state. |
 | `AUTH_AUDIT_HASH_SECRET` | Run `openssl rand -hex 32`; use an independent value for audit hashing. |
+| `DELEGATION_ENABLED` | Keep `false` while configuring resources and clients. Change to `true` only after the broker key and policies are ready. |
+| `DELEGATION_SIGNING_PRIVATE_KEY_B64` | Generate a dedicated P-256 PKCS#8 key with `openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out delegation-private.pem`, then run `openssl base64 -A -in delegation-private.pem`. Store the one-line result here; never reuse the Hydra or release-signing key. |
 | `ADMIN_CSRF_SECRET` | Run `openssl rand -hex 32`; used by the admin backend for CSRF protection. |
 | `ADMIN_OIDC_CLIENT_SECRET` | Run `openssl rand -hex 32`, then use this exact value when provisioning the confidential `idnest-admin` Hydra client after the first admin deployment. |
 | `ADMIN_BOOTSTRAP_EMAILS` | Enter the real, verified email allowed to receive initial system-admin access. Separate multiple emails with commas. |
 
 Never reuse a database password, the VPS sudo password, an SSH passphrase, the
-Cloudflare Origin CA private key, or another application secret. Do not rotate
+Cloudflare Tunnel token, or another application secret. Do not rotate
 Hydra/Kratos encryption secrets without first planning how existing encrypted
 data will be handled.
 
@@ -814,7 +859,7 @@ and [creating a private key](https://developer.apple.com/help/account/capabiliti
 | GitHub Environment | GitHub secrets | GitHub variables |
 | --- | --- | --- |
 | `ecr-build` | None | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_BUILD_ROLE_ARN`, `AUTH_ECR_REPOSITORY`, `ADMIN_ECR_REPOSITORY`, `BUILDER_ECR_REPOSITORY` |
-| `development-auth` | `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS` |
+| `development-auth` | `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET`, `DELEGATION_SIGNING_PRIVATE_KEY_B64` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS`, `DELEGATION_ENABLED` |
 | `development-admin` | `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, `ADMIN_OIDC_CLIENT_SECRET` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS` |
 | `development-identity` | `HYDRA_DSN`, `HYDRA_SECRETS_SYSTEM`, `KRATOS_DSN`, `KRATOS_CSRF_COOKIE_SECRET`, `KRATOS_CIPHER_SECRET`, `GOOGLE_CLIENT_SECRET`, optional `APPLE_PRIVATE_KEY_B64` | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `GOOGLE_CLIENT_ID`, optional `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, and `APPLE_PRIVATE_KEY_ID` |
 
@@ -831,7 +876,7 @@ file.
 
 The renderers hardcode development-only hostnames, internal service URLs, CORS
 origins, cookie domain, log level, frontend paths, consent/branding modes,
-transaction TTL, and boolean defaults from the tracked examples. Change the
+transaction TTL, delegation issuer/audience/key ID/grant TTL, and most boolean defaults from the tracked examples. Change the
 renderer and examples together when one of those defaults intentionally
 changes; these defaults are not GitHub settings.
 
@@ -848,16 +893,14 @@ The `.conf` defaults are already suitable for development:
 | `admin.conf` | Compose project `idnest-admin-development`, `PUBLIC_HEALTH_URL=https://admin-dev.idnest.cloud/health`, origin port `8445`, network `idnest-runtime-development` |
 | `idnest.conf` | Compose project `idnest-infra-development`, network `idnest-runtime-development`, Hydra origin `8446`, Hydra admin `4445`, Kratos origin `8447`, Kratos admin `4434` |
 
-The public health URLs intentionally use normal HTTPS port `443`; Cloudflare
-Origin Rules rewrite the origin connections to ports `8444` and `8445`. Change
-the resource limits or ports only when the VPS or Cloudflare configuration also
-changes.
-
-Confirm the three VPS-owned `.conf` files are appropriate for this VPS, then
-validate them:
+The public health URLs intentionally use normal HTTPS port `443`; cloudflared
+forwards each hostname to its loopback HTTP port. Change resource limits or
+ports only when the matching tunnel route and tracked host configuration also
+change. Confirm the three VPS-owned `.conf` files are appropriate, then rerun
+the host validator:
 
 ```bash
-~/idnest-bootstrap/bootstrap-development-vps.sh --validate-config
+sudo /usr/local/sbin/validate-idnest-development-host
 ```
 
 The signed identity workflow renders `idnest.env`, packages the tracked Kratos
@@ -866,7 +909,7 @@ the protected queue. The root processor verifies every checksum and Ed25519
 signature before installing anything. It atomically replaces the environment
 and configuration, runs both migrations in one-off containers on
 `idnest-runtime-development`, starts Hydra and Kratos, and checks their local
-TLS readiness endpoints. Migration connectivity therefore confirms both DSNs
+loopback HTTP readiness endpoints. Migration connectivity therefore confirms both DSNs
 are reachable from Docker. If migration, build, or readiness fails, the prior
 environment and Kratos configuration are restored together. A successful
 database migration is not automatically reversed.
@@ -892,82 +935,27 @@ and Kratos migrations, while the auth release runs the authorization migration;
 neither creates database roles or databases. A managed database should be
 prepared by its administrator.
 
-### 5. Create and install a Cloudflare Origin CA certificate
+### 5. Validate Cloudflare Tunnel routing
 
-In the Cloudflare dashboard, open **SSL/TLS → Origin Server → Create
-Certificate**. Let Cloudflare generate the private key and CSR, select PEM
-format, and create one Origin CA certificate containing these four exact SANs:
-
-```text
-auth-dev.idnest.cloud
-admin-dev.idnest.cloud
-hydra-dev.idnest.cloud
-kratos-dev.idnest.cloud
-```
-
-Save both values immediately: Cloudflare displays the generated private key
-only once. Use these filenames when transferring the files securely to the VPS:
-
-| File | Source | Secret? |
-| --- | --- | --- |
-| `origin-cert.pem` | Cloudflare-generated Origin CA certificate | No |
-| `origin-key.pem` | Cloudflare-generated matching private key | Yes |
-| `origin-ca.pem` | Cloudflare Origin CA root for the selected key type | No |
-
-Download the appropriate Origin CA root from Cloudflare's
-[Origin CA documentation](https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/).
-Do not commit these files or store the origin private key in GitHub. From the
-trusted Mac, install all three files with the same administrative account and
-SSH key used in step 3:
+The application hostnames must be public-hostname routes on the named tunnel,
+not `A` or `AAAA` records that expose the VPS. The separate DNS-only
+`vps-dev.idnest.cloud` record remains the SSH management endpoint. On the VPS,
+validate the connector and confirm all Idnest ports are loopback-only:
 
 ```bash
-./scripts/deploy/install-development-origin-ca.sh \
-  /absolute/path/to/cloudflare-downloads \
-  idnest-admin \
-  /absolute/path/to/vps-admin-ssh-private-key
+sudo systemctl status idnest-cloudflared.service --no-pager
+curl --fail http://127.0.0.1:20242/ready
+sudo /usr/local/sbin/validate-idnest-development-host
+sudo ss -ltnp
 ```
 
-The defaults are `vps-dev.idnest.cloud` and SSH port `22`. Pass a different
-management endpoint after the required arguments when necessary:
+The provider firewall needs inbound SSH only from approved administration and
+CI sources. No inbound rule is required for `8444`–`8447`; cloudflared makes
+outbound connections to Cloudflare. Never expose those origin ports, Hydra
+admin `4445`, Kratos admin `4434`, PostgreSQL `5432`, connector metrics `20242`,
+or the Docker socket.
 
-```bash
-./scripts/deploy/install-development-origin-ca.sh \
-  CLOUDFLARE_FILES_DIR VPS_ADMIN_USER VPS_ADMIN_SSH_KEY VPS_HOST VPS_PORT
-```
-
-The script validates the certificate, private key, CA chain, and matching
-public keys locally before transfer. It pins the VPS host with
-`../idnest-secure/vps-known-hosts`, installs the files with the required owner
-and permissions, verifies all four development hostnames on the VPS, and
-removes the staging copies after a successful installation. It may prompt for
-the administrative account's `sudo` password.
-
-Set the zone's SSL/TLS encryption mode to
-[**Full (strict)**](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/)
-only after the certificate and matching private key are installed. Origin CA
-certificates authenticate Cloudflare-to-origin traffic and are not publicly
-trusted browser certificates, so keep all four DNS records proxied.
-
-### 6. Configure Cloudflare DNS and origin port rewrites
-
-Confirm the DNS-only `vps-dev.idnest.cloud` management record created before
-step 1 still points directly to `VPS_PUBLIC_IP`. Create proxied `A` records for
-the four application hostnames pointing to the same address. Add `AAAA` records
-only when IPv6 is configured and reachable on the VPS. Then create four exact
-hostname rules under **Rules → Origin Rules**. For each rule, set **Destination
-port → Rewrite to**:
-
-| Rule expression | Destination port |
-| --- | ---: |
-| `http.host eq "auth-dev.idnest.cloud"` | `8444` |
-| `http.host eq "admin-dev.idnest.cloud"` | `8445` |
-| `http.host eq "hydra-dev.idnest.cloud"` | `8446` |
-| `http.host eq "kratos-dev.idnest.cloud"` | `8447` |
-
-Cloudflare documents destination-port overrides in
-[Origin Rules](https://developers.cloudflare.com/rules/origin-rules/examples/change-port/).
-Browser URLs remain normal `https://...` URLs on port `443`; only Cloudflare's
-connection to the VPS is rewritten.
+### 6. Configure Hydra discovery CORS
 
 OIDC discovery and signing keys are intentionally public and their requests do
 not contain a client ID. Under **Rules → Overview**, create one **Response
@@ -994,14 +982,8 @@ Configure three response-header operations:
 | Remove | `Access-Control-Allow-Credentials` | — |
 
 Use **Set static**, not **Add**, so an upstream header cannot produce a
-duplicate value. The hostname's proxied DNS record and existing origin-port
-rewrite remain unchanged. Do not broaden this expression to `/oauth2/token`,
+duplicate value. Do not broaden this expression to `/oauth2/token`,
 `/userinfo`, `/oauth2/revoke`, or `/oauth2/sessions/*`.
-
-Restrict VPS ports `8444`–`8447` to Cloudflare's current
-[published IP ranges](https://www.cloudflare.com/ips/). Permit SSH only from
-approved administration and CI sources. Never open Hydra admin `4445`, Kratos
-admin `4434`, PostgreSQL `5432`, or Docker's socket to the public internet.
 
 ### 7. Configure GitHub environments
 
@@ -1031,7 +1013,7 @@ outputs change later, repeat the plan/apply commands in step 1 before running
 this sync; do not run an unplanned second apply here.
 
 Review the protected file with your preferred editor, then validate the full
-44-property contract:
+tracked property contract:
 
 ```bash
 ./scripts/deploy/vps/validate-app-env.sh \
@@ -1067,9 +1049,11 @@ All three development deployment environments receive the transport secrets
 `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, and
 `HOST_RELEASE_SIGNING_PRIVATE_KEY_B64`. In addition:
 
-- `development-auth` receives four named application secrets:
+- `development-auth` receives five named application secrets:
   `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, and
-  `AUTH_AUDIT_HASH_SECRET`.
+  `AUTH_AUDIT_HASH_SECRET`, plus the independent
+  `DELEGATION_SIGNING_PRIVATE_KEY_B64`. It also receives the configurable
+  `DELEGATION_ENABLED` variable.
 - `development-admin` receives three named application secrets:
   `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, and
   `ADMIN_OIDC_CLIENT_SECRET`.
@@ -1154,16 +1138,13 @@ Use `idnest/admin-app` and `component=admin` to roll back admin.
 
 Then provision the confidential admin OAuth client once from the trusted
 checkout on the VPS. The secret comes from the pipeline-installed
-`admin-app.env`, the container joins the private Idnest network, and Node trusts
-the installed Origin CA root:
+`admin-app.env`, and the container joins the private Idnest network:
 
 ```bash
 cd ~/idnest-bootstrap/repository
 sudo docker run --rm \
   --network idnest-runtime-development \
   --env-file /etc/idnest/admin-app.env \
-  -e NODE_EXTRA_CA_CERTS=/run/idnest-tls/origin-ca.pem \
-  --mount type=bind,src=/etc/idnest/tls/origin-ca.pem,dst=/run/idnest-tls/origin-ca.pem,readonly \
   --mount type=bind,src="$PWD/scripts/setup/provision-admin-client.js",dst=/work/provision-admin-client.js,readonly \
   node:22.22.0 node /work/provision-admin-client.js
 ```
@@ -1333,6 +1314,172 @@ Local OIDC discovery is available at:
 ```text
 https://hydra-local.idnest.cloud/.well-known/openid-configuration
 ```
+
+## Delegated authorization
+
+Idnest can issue short-lived access tokens to a trusted service acting for a
+user. The implementation is generic: Idnest knows OAuth client IDs, resource
+audiences, scopes, opaque subjects, and opaque authorization-context
+references. It does not store product names, organizations, installations,
+roles, workflows, or agent state.
+
+The responsibility boundary is:
+
+- The resource application owns organization installation records, user
+  membership, roles, business permissions, and workflow approval.
+- Hydra authenticates the resource authorizer and actor as confidential
+  `client_credentials` clients.
+- Idnest binds one authorization decision to a resource, actor, subject,
+  scopes, and optional opaque context; it then signs a short-lived token from a
+  dedicated issuer.
+- The resource API validates that token and still enforces current business
+  authorization. A removed or suspended user should be checked live when
+  immediate revocation is required.
+
+This allows an organization owner to install a service once in the product.
+Other eligible organization users do not install it again. Each invocation
+still passes through the product's current user and organization authorization
+before the product creates a one-time Idnest grant.
+
+### Security flow
+
+1. The product authenticates the user and checks the selected organization,
+   installation, role, requested action, and any agent-specific approval.
+2. The product backend obtains its Hydra service token with audience
+   `urn:idnest:delegation` and scope `delegation.grant`.
+3. It submits the opaque user subject, target actor client, resource, scopes,
+   and an opaque installation or authorization reference to
+   `POST /auth/v1/delegation/grants`.
+4. Idnest verifies the service token through Hydra's private introspection API,
+   checks the resource and actor policies, and returns a random one-time
+   exchange token. Only its SHA-256 hash is stored.
+5. The actor obtains its own Hydra service token with the same broker audience
+   and scope `delegation.exchange`, then submits both tokens to
+   `POST /auth/v1/delegation/token` using OAuth token-exchange fields.
+6. Idnest atomically consumes the grant and returns a 30–300 second ES256
+   bearer token. It has no refresh token. Replay, expiry, revocation, a wrong
+   actor, or disabled policy produces `invalid_grant`.
+
+Hydra does not issue the final delegated token. The broker has a separate
+issuer and signing key so resource APIs can distinguish ordinary Hydra access
+tokens from user-plus-service delegated tokens.
+
+### Initial setup
+
+Generate the dedicated signing key outside the repository:
+
+```bash
+openssl genpkey -algorithm EC \
+  -pkeyopt ec_paramgen_curve:P-256 \
+  -out delegation-private.pem
+openssl pkey -in delegation-private.pem -pubout -out delegation-public.pem
+openssl base64 -A -in delegation-private.pem
+```
+
+Paste only the final one-line value into
+`DELEGATION_SIGNING_PRIVATE_KEY_B64` in the protected environment source.
+Protect the PEM outside the repository and never copy the private key to a
+resource or actor application. This release publishes one key: for rotation,
+disable issuance, wait at least the maximum configured access-token TTL,
+replace both the key and key ID, deploy, and then re-enable issuance.
+
+In the admin console:
+
+1. Create a confidential service OAuth client for each resource authorizer.
+   It must use `client_credentials`, allow audience
+   `urn:idnest:delegation`, and allow scope `delegation.grant`.
+2. Create a separate confidential service client for each actor. It must use
+   `client_credentials`, allow the same audience, and allow scope
+   `delegation.exchange`.
+3. Open **Delegated Access**, create a resource key and URI audience, choose
+   the authorizer client, configure the maximum token TTL and scopes, then add
+   actor policies whose scopes are subsets of the resource scopes.
+4. Review configuration while `DELEGATION_ENABLED=false`. Set it to `true`,
+   update the protected GitHub environments, and deploy auth after the policies
+   are ready. Disabling it again returns `404` from every broker endpoint while
+   leaving administration data intact.
+
+The additive authorization migration creates `delegation_resources`, version
+history, actor policies, one-time grants, and audit events. Auth and admin
+deployment run migration versions 8 and 9 automatically before starting the new
+image. There is no product-specific seed data.
+
+### API contract
+
+Obtain a resource-authorizer service token from Hydra, then issue a grant. The
+placeholders below represent secrets and tokens; do not put real values in
+shell history or logs:
+
+```bash
+curl --request POST https://auth-dev.idnest.cloud/auth/v1/delegation/grants \
+  --header 'Authorization: Bearer RESOURCE_SERVICE_TOKEN' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "resource": "resource-api",
+    "subject": "OPAQUE_USER_SUBJECT",
+    "actorClientId": "automation-client",
+    "scope": ["records:read"],
+    "authorizationContext": "OPAQUE_INSTALLATION_REFERENCE",
+    "correlationId": "REQUEST_CORRELATION_ID"
+  }'
+```
+
+The response is valid for at most five minutes and normally 60 seconds:
+
+```json
+{
+  "grantId": "GRANT_UUID",
+  "exchangeToken": "ONE_TIME_RANDOM_VALUE",
+  "expiresIn": 60
+}
+```
+
+The actor exchanges it with its own Hydra service access token:
+
+```bash
+curl --request POST https://auth-dev.idnest.cloud/auth/v1/delegation/token \
+  --header 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+  --data-urlencode 'subject_token=ONE_TIME_RANDOM_VALUE' \
+  --data-urlencode 'subject_token_type=urn:idnest:params:oauth:token-type:delegation-grant' \
+  --data-urlencode 'actor_token=ACTOR_SERVICE_TOKEN' \
+  --data-urlencode 'actor_token_type=urn:ietf:params:oauth:token-type:access_token' \
+  --data-urlencode 'resource=https://api.example.com' \
+  --data-urlencode 'scope=records:read'
+```
+
+The optional exchange `scope` may only reduce the grant. The delegated access
+token uses `typ=at+jwt`, `alg=ES256`, and contains:
+
+- `iss`: the configured delegation issuer, not the Hydra issuer.
+- `sub`: the opaque user or service subject supplied by the resource
+  authorizer.
+- `aud`: exactly one configured resource audience.
+- `client_id` and `act.sub`: the actor OAuth client ID.
+- `scope`: the canonical, space-separated delegated scopes.
+- `authorization_details`: type `urn:idnest:delegation`, the grant ID, and the
+  optional opaque context reference.
+- `iat`, `nbf`, `exp`, and unique `jti` claims.
+
+Resource APIs must pin the delegation issuer and accepted algorithms, fetch
+keys from the broker JWKS endpoint, validate exact audience and expiry, require
+both actor claims, check scopes, and resolve the opaque context against their
+own current installation and permission data. Do not treat decoding a JWT as
+validation, accept the Hydra issuer in its place, or trust context as embedded
+business authorization.
+
+Discovery and public keys are exposed only while the feature is enabled:
+
+```text
+https://auth-dev.idnest.cloud/.well-known/idnest-delegation-configuration
+https://auth-dev.idnest.cloud/auth/v1/delegation/jwks
+```
+
+The admin console shows resources, actor policies, pending/exchanged/expired
+grants, and append-only audit activity. Administrators and resource
+authorizers can revoke only pending one-time grants. Already issued access
+tokens remain valid until their short expiry, so keep TTLs minimal and perform
+live business checks for actions requiring immediate revocation.
 
 ## Authentication flow
 

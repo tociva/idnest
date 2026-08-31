@@ -2,17 +2,11 @@ import { HttpClient, HttpErrorResponse } from "@angular/common/http";
 import { inject, Injectable } from "@angular/core";
 import type {
   AuthBrandDefinition,
-  KratosFlow,
-  PublicAuthContext,
   PublicAuthPolicy,
   PublicAuthRecovery,
 } from "@idnest/shared-types";
 import { firstValueFrom } from "rxjs";
-
-export interface LoginFlowContextResponse {
-  flow: KratosFlow;
-  context: PublicAuthContext;
-}
+import type { LoginFlowResponse } from "./auth-flow-response";
 
 export interface ConsentContextResponse {
   transactionId: string;
@@ -36,9 +30,9 @@ export interface AuthRecoveryErrorBody {
 export class AuthApiService {
   private readonly http = inject(HttpClient);
 
-  loginFlowContext(flowId: string): Promise<LoginFlowContextResponse> {
+  loginFlowContext(flowId: string): Promise<LoginFlowResponse> {
     return firstValueFrom(
-      this.http.get<LoginFlowContextResponse>(
+      this.http.get<LoginFlowResponse>(
         `/auth/v1/flows/login/${encodeURIComponent(flowId)}/context`,
         { withCredentials: true },
       ),

@@ -66,6 +66,7 @@ jobs:
           [[ "${apple_count}" == 0 || "${apple_count}" == 4 ]]
           bash -n scripts/deploy/render-development-identity-env.sh
           bash scripts/deploy/test-cors-contract.sh
+          bash scripts/ci/test-deployment-contracts.sh
           for script in scripts/deploy/vps/*.sh scripts/docker/render-kratos-config.sh; do
             sh -n "${script}"
           done
@@ -108,6 +109,7 @@ jobs:
             scripts/deploy/vps/rollback-idnest-auth.sh \
             scripts/deploy/vps/rollback-idnest-admin.sh \
             scripts/deploy/vps/validate-app-env.sh \
+            scripts/deploy/vps/idnest-cloudflared.service \
             scripts/docker/render-kratos-config.sh
           openssl pkey -in "${RUNNER_TEMP}/host-release-signing-private.pem" -noout
           openssl pkeyutl -sign -rawin \

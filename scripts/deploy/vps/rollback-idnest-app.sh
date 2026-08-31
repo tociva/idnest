@@ -4,9 +4,7 @@ set -eu
 readonly APP_ROOT=/opt/idnest
 readonly CONFIG_ROOT=/etc/idnest
 readonly LOCK_FILE=/var/lock/idnest-deploy.lock
-readonly TLS_CERT_FILE=$CONFIG_ROOT/tls/origin-cert.pem
-readonly TLS_KEY_FILE=$CONFIG_ROOT/tls/origin-key.pem
-readonly TLS_CA_FILE=$CONFIG_ROOT/tls/origin-ca.pem
+readonly CLOUDFLARED_READY_URL=http://127.0.0.1:20242/ready
 
 fail() {
   echo "Rollback failed: $*" >&2
@@ -21,31 +19,20 @@ valid_revision() {
   printf '%s\n' "$1" | grep -Eq '^[a-f0-9]{40}$'
 }
 
-dotenv_value() {
-  awk -v wanted="$1" '
-    /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=/ {
-      key=$0; sub(/^[[:space:]]*/, "", key); sub(/[[:space:]]*=.*/, "", key)
-      if (key == wanted) {
-        value=$0; sub(/^[^=]*=/, "", value); sub(/^[[:space:]]*/, "", value); sub(/[[:space:]]*$/, "", value)
-        if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) value=substr(value, 2, length(value)-2)
-        print value; exit
-      }
-    }
-  ' "$APP_ENV"
-}
-
 [ "$#" -eq 1 ] || fail "usage: rollback-idnest-app KIND"
 KIND=$1
 case "$KIND" in
   auth)
     SERVICE_NAME=auth
     APP_ENV=$CONFIG_ROOT/auth-app.env
-    DEFAULT_ORIGIN_HTTPS_PORT=8444
+    HTTP_PORT_VARIABLE=AUTH_HTTP_PORT
+    DEFAULT_HTTP_PORT=8444
     ;;
   admin)
     SERVICE_NAME=admin
     APP_ENV=$CONFIG_ROOT/admin-app.env
-    DEFAULT_ORIGIN_HTTPS_PORT=8445
+    HTTP_PORT_VARIABLE=ADMIN_HTTP_PORT
+    DEFAULT_HTTP_PORT=8445
     ;;
   *) fail "kind must be auth or admin" ;;
 esac
@@ -57,7 +44,7 @@ STATE_FILE=$KIND_ROOT/state.env
 DEPLOY_CONFIG=$CONFIG_ROOT/$KIND.conf
 
 [ "$(id -u)" -eq 0 ] || fail "rollback must run through sudo as root"
-for file in "$COMPOSE_FILE" "$RELEASE_ENV" "$STATE_FILE" "$DEPLOY_CONFIG" "$APP_ENV" "$TLS_CERT_FILE" "$TLS_KEY_FILE" "$TLS_CA_FILE"; do
+for file in "$COMPOSE_FILE" "$RELEASE_ENV" "$STATE_FILE" "$DEPLOY_CONFIG" "$APP_ENV"; do
   [ -f "$file" ] && [ ! -L "$file" ] && [ "$(stat -c '%U' "$file")" = root ] \
     || fail "invalid root-owned required file: $file"
 done
@@ -69,7 +56,7 @@ done
 : "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}"
 : "${RUNTIME_NETWORK:?RUNTIME_NETWORK is required}"
 : "${PUBLIC_HEALTH_URL:?PUBLIC_HEALTH_URL is required}"
-ORIGIN_HTTPS_PORT=${ORIGIN_HTTPS_PORT:-$DEFAULT_ORIGIN_HTTPS_PORT}
+eval "HTTP_PORT=\${$HTTP_PORT_VARIABLE:-$DEFAULT_HTTP_PORT}"
 HEALTH_TIMEOUT_SECONDS=${HEALTH_TIMEOUT_SECONDS:-120}
 APP_MEMORY_LIMIT=${APP_MEMORY_LIMIT:-768m}
 APP_CPU_LIMIT=${APP_CPU_LIMIT:-1.0}
@@ -78,10 +65,6 @@ APP_CPU_LIMIT=${APP_CPU_LIMIT:-1.0}
 valid_image "$ACTIVE_IMAGE" || fail "active image state is invalid"
 valid_revision "$ACTIVE_REVISION" || fail "active revision state is invalid"
 
-TLS_SERVER_NAME=$(dotenv_value TLS_SERVER_NAME)
-TLS_READ_GID=$(stat -c '%g' "$TLS_KEY_FILE")
-[ -n "$TLS_SERVER_NAME" ] || fail "TLS_SERVER_NAME is missing"
-
 exec 9>"$LOCK_FILE"
 flock -n 9 || fail "another auth/admin deployment is running"
 
@@ -89,16 +72,12 @@ umask 077
 {
   printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
   printf 'RUNTIME_NETWORK=%s\n' "$RUNTIME_NETWORK"
-  printf 'ORIGIN_HTTPS_PORT=%s\n' "$ORIGIN_HTTPS_PORT"
+  printf '%s=%s\n' "$HTTP_PORT_VARIABLE" "$HTTP_PORT"
   printf 'APP_MEMORY_LIMIT=%s\n' "$APP_MEMORY_LIMIT"
   printf 'APP_CPU_LIMIT=%s\n' "$APP_CPU_LIMIT"
   printf 'APP_IMAGE=%s\n' "$PREVIOUS_IMAGE"
   printf 'APP_REVISION=%s\n' "$PREVIOUS_REVISION"
   printf 'APP_ENV_FILE=%s\n' "$APP_ENV"
-  printf 'TLS_CERT_FILE=%s\n' "$TLS_CERT_FILE"
-  printf 'TLS_KEY_FILE=%s\n' "$TLS_KEY_FILE"
-  printf 'TLS_CA_FILE=%s\n' "$TLS_CA_FILE"
-  printf 'TLS_READ_GID=%s\n' "$TLS_READ_GID"
 } >"$RELEASE_ENV.tmp"
 mv "$RELEASE_ENV.tmp" "$RELEASE_ENV"
 
@@ -117,10 +96,11 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
   sleep 2
 done
 [ "${status:-unknown}" = healthy ] || fail "previous container did not become healthy"
-curl --fail --silent --show-error --cacert "$TLS_CA_FILE" --noproxy '*' \
-  --resolve "$TLS_SERVER_NAME:$ORIGIN_HTTPS_PORT:127.0.0.1" \
-  "https://$TLS_SERVER_NAME:$ORIGIN_HTTPS_PORT/health" >/dev/null \
-  || fail "previous release failed host-local HTTPS readiness"
+curl --fail --silent --show-error --noproxy '*' \
+  "http://127.0.0.1:$HTTP_PORT/health" >/dev/null \
+  || fail "previous release failed host-local HTTP readiness"
+curl --fail --silent --show-error --noproxy '*' "$CLOUDFLARED_READY_URL" >/dev/null \
+  || fail "Cloudflare Tunnel connector is not ready"
 curl --fail --silent --show-error --retry 5 --retry-delay 3 "$PUBLIC_HEALTH_URL" >/dev/null \
   || fail "previous release failed public Cloudflare readiness"
 

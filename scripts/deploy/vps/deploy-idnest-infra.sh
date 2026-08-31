@@ -11,10 +11,8 @@ readonly CONFIG_HISTORY=$APP_ROOT/identity/config-history
 readonly STATE_FILE=$APP_ROOT/identity/state.env
 readonly IDNEST_ENV=$CONFIG_ROOT/idnest.env
 readonly IDNEST_CONFIG=$CONFIG_ROOT/idnest.conf
-readonly TLS_CERT_FILE=$CONFIG_ROOT/tls/origin-cert.pem
-readonly TLS_KEY_FILE=$CONFIG_ROOT/tls/origin-key.pem
-readonly TLS_CA_FILE=$CONFIG_ROOT/tls/origin-ca.pem
 readonly VALIDATOR=/usr/local/sbin/validate-idnest-app-env
+readonly CLOUDFLARED_READY_URL=http://127.0.0.1:20242/ready
 
 fail() {
   echo "Idnest identity deployment failed: $*" >&2
@@ -33,10 +31,6 @@ valid_port() {
   printf '%s\n' "$1" | grep -Eq '^[1-9][0-9]*$' && [ "$1" -le 65535 ]
 }
 
-valid_hostname() {
-  printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$'
-}
-
 [ "$#" -eq 3 ] || fail "usage: deploy-idnest-infra GITHUB_RUN_ID REQUEST_ID GIT_REVISION"
 RUN_ID=$1
 REQUEST_ID=$2
@@ -46,18 +40,17 @@ printf '%s\n' "$REQUEST_ID" | grep -Eq '^[1-9][0-9]*-[1-9][0-9]*$' || fail "inva
 printf '%s\n' "$REVISION" | grep -Eq '^[a-f0-9]{40}$' || fail "invalid Git revision"
 [ "$(id -u)" -eq 0 ] || fail "deployment must run as root through the release queue processor"
 
-for command in awk chmod chown cp curl docker find flock grep id install mv openssl rm rmdir sha256sum sleep stat tar; do
+for command in awk chmod chown cp curl docker find flock grep id install mv rm rmdir sha256sum sleep stat tar; do
   require_command "$command"
 done
 docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is unavailable"
-for file in "$COMPOSE_FILE" "$VALIDATOR" "$IDNEST_CONFIG" "$TLS_CERT_FILE" "$TLS_KEY_FILE" "$TLS_CA_FILE"; do
+for file in "$COMPOSE_FILE" "$VALIDATOR" "$IDNEST_CONFIG"; do
   root_regular_file "$file" || fail "invalid root-owned required file: $file"
 done
 [ -x "$VALIDATOR" ] || fail "invalid environment validator"
 [ -d "$BUILD_CONTEXT/config" ] && [ ! -L "$BUILD_CONTEXT/config" ] || fail "invalid Kratos build configuration"
 [ -d "$CONFIG_HISTORY" ] && [ ! -L "$CONFIG_HISTORY" ] || fail "invalid configuration history directory"
 case "$(stat -c '%a' "$IDNEST_CONFIG")" in 600) ;; *) fail "Idnest deployment config mode must be 600" ;; esac
-case "$(stat -c '%a' "$TLS_KEY_FILE")" in 440|640) ;; *) fail "TLS private key mode must be 440 or 640" ;; esac
 
 IDNEST_ENV_CANDIDATE=$INCOMING_ROOT/idnest.env.$RUN_ID
 CONFIG_ARCHIVE=$INCOMING_ROOT/idnest-config.tar.gz.$RUN_ID
@@ -77,30 +70,19 @@ fi
 . "$IDNEST_CONFIG"
 : "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}"
 : "${IDNEST_RUNTIME_NETWORK:?IDNEST_RUNTIME_NETWORK is required}"
-: "${HYDRA_TLS_SERVER_NAME:?HYDRA_TLS_SERVER_NAME is required}"
-: "${KRATOS_TLS_SERVER_NAME:?KRATOS_TLS_SERVER_NAME is required}"
-HYDRA_ORIGIN_HTTPS_PORT=${HYDRA_ORIGIN_HTTPS_PORT:-8446}
-HYDRA_ADMIN_HTTPS_PORT=${HYDRA_ADMIN_HTTPS_PORT:-4445}
-KRATOS_ORIGIN_HTTPS_PORT=${KRATOS_ORIGIN_HTTPS_PORT:-8447}
+: "${HYDRA_PUBLIC_HEALTH_URL:?HYDRA_PUBLIC_HEALTH_URL is required}"
+: "${KRATOS_PUBLIC_HEALTH_URL:?KRATOS_PUBLIC_HEALTH_URL is required}"
+HYDRA_PUBLIC_HTTP_PORT=${HYDRA_PUBLIC_HTTP_PORT:-8446}
+HYDRA_ADMIN_HTTP_PORT=${HYDRA_ADMIN_HTTP_PORT:-4445}
+KRATOS_PUBLIC_HTTP_PORT=${KRATOS_PUBLIC_HTTP_PORT:-8447}
 KRATOS_ADMIN_HTTP_PORT=${KRATOS_ADMIN_HTTP_PORT:-4434}
-valid_hostname "$HYDRA_TLS_SERVER_NAME" || fail "invalid Hydra TLS server name"
-valid_hostname "$KRATOS_TLS_SERVER_NAME" || fail "invalid Kratos TLS server name"
-for port in "$HYDRA_ORIGIN_HTTPS_PORT" "$HYDRA_ADMIN_HTTPS_PORT" "$KRATOS_ORIGIN_HTTPS_PORT" "$KRATOS_ADMIN_HTTP_PORT"; do
+for port in "$HYDRA_PUBLIC_HTTP_PORT" "$HYDRA_ADMIN_HTTP_PORT" "$KRATOS_PUBLIC_HTTP_PORT" "$KRATOS_ADMIN_HTTP_PORT"; do
   valid_port "$port" || fail "invalid identity service port: $port"
 done
-
-openssl x509 -in "$TLS_CERT_FILE" -noout -checkend 86400 >/dev/null \
-  || fail "TLS certificate is invalid or expires within 24 hours"
-for hostname in "$HYDRA_TLS_SERVER_NAME" "$KRATOS_TLS_SERVER_NAME"; do
-  openssl x509 -in "$TLS_CERT_FILE" -noout -checkhost "$hostname" >/dev/null \
-    || fail "TLS certificate does not cover $hostname"
-done
-CERT_PUBLIC_KEY=$(openssl x509 -in "$TLS_CERT_FILE" -pubkey -noout)
-KEY_PUBLIC_KEY=$(openssl pkey -in "$TLS_KEY_FILE" -pubout)
-[ "$CERT_PUBLIC_KEY" = "$KEY_PUBLIC_KEY" ] || fail "TLS certificate and private key do not match"
-TLS_READ_GID=$(stat -c '%g' "$TLS_KEY_FILE")
-printf '%s\n' "$TLS_READ_GID" | grep -Eq '^[1-9][0-9]*$' \
-  || fail "TLS private key must use a dedicated non-root group"
+case "$HYDRA_PUBLIC_HEALTH_URL" in https://*) ;; *) fail "Hydra public health URL must use HTTPS" ;; esac
+case "$KRATOS_PUBLIC_HEALTH_URL" in https://*) ;; *) fail "Kratos public health URL must use HTTPS" ;; esac
+curl --fail --silent --show-error --noproxy '*' "$CLOUDFLARED_READY_URL" >/dev/null \
+  || fail "Cloudflare Tunnel connector is not ready"
 
 entries=$(tar -tzf "$CONFIG_ARCHIVE") || fail "cannot read Kratos configuration archive"
 [ -n "$entries" ] || fail "Kratos configuration archive is empty"
@@ -127,9 +109,8 @@ IDENTITY_ENV_SHA256=$(sha256sum "$IDNEST_ENV_CANDIDATE" | awk '{print $1}')
 IDENTITY_CONFIG_SHA256=$(sha256sum "$CONFIG_ARCHIVE" | awk '{print $1}')
 
 IDNEST_ENV_FILE=$IDNEST_ENV
-export COMPOSE_PROJECT_NAME IDNEST_RUNTIME_NETWORK HYDRA_TLS_SERVER_NAME KRATOS_TLS_SERVER_NAME IDNEST_ENV_FILE
-export HYDRA_ORIGIN_HTTPS_PORT HYDRA_ADMIN_HTTPS_PORT KRATOS_ORIGIN_HTTPS_PORT KRATOS_ADMIN_HTTP_PORT
-export TLS_CERT_FILE TLS_KEY_FILE TLS_READ_GID
+export COMPOSE_PROJECT_NAME IDNEST_RUNTIME_NETWORK IDNEST_ENV_FILE
+export HYDRA_PUBLIC_HTTP_PORT HYDRA_ADMIN_HTTP_PORT KRATOS_PUBLIC_HTTP_PORT KRATOS_ADMIN_HTTP_PORT
 
 compose() {
   docker compose --project-name "$COMPOSE_PROJECT_NAME" --file "$COMPOSE_FILE" "$@"
@@ -212,22 +193,27 @@ compose run --rm --no-deps --entrypoint sh kratos -c \
 compose up --detach --force-recreate
 
 attempts=0
-until curl --fail --silent --show-error --cacert "$TLS_CA_FILE" --noproxy '*' \
-  --resolve "$HYDRA_TLS_SERVER_NAME:$HYDRA_ADMIN_HTTPS_PORT:127.0.0.1" \
-  "https://$HYDRA_TLS_SERVER_NAME:$HYDRA_ADMIN_HTTPS_PORT/health/ready" >/dev/null; do
+until curl --fail --silent --show-error --noproxy '*' \
+  "http://127.0.0.1:$HYDRA_ADMIN_HTTP_PORT/health/ready" >/dev/null; do
   attempts=$((attempts + 1))
-  [ "$attempts" -lt 60 ] || fail "Hydra did not become ready over HTTPS"
+  [ "$attempts" -lt 60 ] || fail "Hydra did not become ready over loopback HTTP"
   sleep 2
 done
 
 attempts=0
-until curl --fail --silent --show-error --cacert "$TLS_CA_FILE" --noproxy '*' \
-  --resolve "$KRATOS_TLS_SERVER_NAME:$KRATOS_ORIGIN_HTTPS_PORT:127.0.0.1" \
-  "https://$KRATOS_TLS_SERVER_NAME:$KRATOS_ORIGIN_HTTPS_PORT/health/ready" >/dev/null; do
+until curl --fail --silent --show-error --noproxy '*' \
+  "http://127.0.0.1:$KRATOS_PUBLIC_HTTP_PORT/health/ready" >/dev/null; do
   attempts=$((attempts + 1))
-  [ "$attempts" -lt 60 ] || fail "Kratos did not become ready over HTTPS"
+  [ "$attempts" -lt 60 ] || fail "Kratos did not become ready over loopback HTTP"
   sleep 2
 done
+
+curl --fail --silent --show-error --noproxy '*' "$CLOUDFLARED_READY_URL" >/dev/null \
+  || fail "Cloudflare Tunnel connector lost readiness"
+curl --fail --silent --show-error --retry 8 --retry-delay 3 "$HYDRA_PUBLIC_HEALTH_URL" >/dev/null \
+  || fail "Hydra failed public Cloudflare readiness"
+curl --fail --silent --show-error --retry 8 --retry-delay 3 "$KRATOS_PUBLIC_HEALTH_URL" >/dev/null \
+  || fail "Kratos failed public Cloudflare readiness"
 
 umask 077
 {

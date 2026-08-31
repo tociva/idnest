@@ -6,9 +6,7 @@ readonly CONFIG_ROOT=/etc/idnest
 readonly INCOMING_ROOT=/var/lib/idnest/incoming
 readonly LOCK_FILE=/var/lock/idnest-deploy.lock
 readonly ENV_VALIDATOR=/usr/local/sbin/validate-idnest-app-env
-readonly TLS_CERT_FILE=$CONFIG_ROOT/tls/origin-cert.pem
-readonly TLS_KEY_FILE=$CONFIG_ROOT/tls/origin-key.pem
-readonly TLS_CA_FILE=$CONFIG_ROOT/tls/origin-ca.pem
+readonly CLOUDFLARED_READY_URL=http://127.0.0.1:20242/ready
 
 fail() {
   echo "Deployment failed: $*" >&2
@@ -39,27 +37,6 @@ valid_port() {
   valid_positive_integer "$1" && [ "$1" -le 65535 ]
 }
 
-dotenv_value() {
-  awk -v wanted="$1" '
-    /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=/ {
-      key = $0
-      sub(/^[[:space:]]*/, "", key)
-      sub(/[[:space:]]*=.*/, "", key)
-      if (key == wanted) {
-        value = $0
-        sub(/^[^=]*=/, "", value)
-        sub(/^[[:space:]]*/, "", value)
-        sub(/[[:space:]]*$/, "", value)
-        if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) {
-          value = substr(value, 2, length(value) - 2)
-        }
-        print value
-        exit
-      }
-    }
-  ' "$APP_ENV"
-}
-
 write_release_env() {
   image=$1
   revision=$2
@@ -68,16 +45,12 @@ write_release_env() {
   {
     printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
     printf 'RUNTIME_NETWORK=%s\n' "$RUNTIME_NETWORK"
-    printf 'ORIGIN_HTTPS_PORT=%s\n' "$ORIGIN_HTTPS_PORT"
+    printf '%s=%s\n' "$HTTP_PORT_VARIABLE" "$HTTP_PORT"
     printf 'APP_MEMORY_LIMIT=%s\n' "$APP_MEMORY_LIMIT"
     printf 'APP_CPU_LIMIT=%s\n' "$APP_CPU_LIMIT"
     printf 'APP_IMAGE=%s\n' "$image"
     printf 'APP_REVISION=%s\n' "$revision"
     printf 'APP_ENV_FILE=%s\n' "$APP_ENV"
-    printf 'TLS_CERT_FILE=%s\n' "$TLS_CERT_FILE"
-    printf 'TLS_KEY_FILE=%s\n' "$TLS_KEY_FILE"
-    printf 'TLS_CA_FILE=%s\n' "$TLS_CA_FILE"
-    printf 'TLS_READ_GID=%s\n' "$TLS_READ_GID"
   } >"$destination"
 }
 
@@ -110,9 +83,12 @@ wait_until_healthy() {
 }
 
 host_local_ready() {
-  curl --fail --silent --show-error --cacert "$TLS_CA_FILE" --noproxy '*' \
-    --resolve "$TLS_SERVER_NAME:$ORIGIN_HTTPS_PORT:127.0.0.1" \
-    "https://$TLS_SERVER_NAME:$ORIGIN_HTTPS_PORT/health" >/dev/null
+  curl --fail --silent --show-error --noproxy '*' \
+    "http://127.0.0.1:$HTTP_PORT/health" >/dev/null
+}
+
+tunnel_ready() {
+  curl --fail --silent --show-error --noproxy '*' "$CLOUDFLARED_READY_URL" >/dev/null
 }
 
 restore_release_metadata() {
@@ -143,7 +119,6 @@ restore_application_env() {
   [ "${APP_ENV_INSTALLED:-false}" = true ] || return 0
   if [ "${APP_ENV_PREVIOUSLY_PRESENT:-false}" = true ]; then
     mv -- "$APP_ENV_BACKUP" "$APP_ENV"
-    TLS_SERVER_NAME=$(dotenv_value TLS_SERVER_NAME)
   else
     rm -f -- "$APP_ENV"
   fi
@@ -177,14 +152,16 @@ case "$KIND" in
     COMPOSE_FILE=$APP_ROOT/auth/compose.yaml
     DEPLOY_CONFIG=$CONFIG_ROOT/auth.conf
     APP_ENV=$CONFIG_ROOT/auth-app.env
-    DEFAULT_ORIGIN_HTTPS_PORT=8444
+    HTTP_PORT_VARIABLE=AUTH_HTTP_PORT
+    DEFAULT_HTTP_PORT=8444
     ;;
   admin)
     SERVICE_NAME=admin
     COMPOSE_FILE=$APP_ROOT/admin/compose.yaml
     DEPLOY_CONFIG=$CONFIG_ROOT/admin.conf
     APP_ENV=$CONFIG_ROOT/admin-app.env
-    DEFAULT_ORIGIN_HTTPS_PORT=8445
+    HTTP_PORT_VARIABLE=ADMIN_HTTP_PORT
+    DEFAULT_HTTP_PORT=8445
     ;;
   *) fail "kind must be auth or admin" ;;
 esac
@@ -208,31 +185,30 @@ valid_image "$IMAGE_REF" || fail "image must be an ECR URI pinned by sha256 dige
 valid_revision "$REVISION" || fail "revision must be a full lowercase Git SHA"
 valid_positive_integer "$RUN_ID" || fail "GitHub run ID must be a positive integer"
 
-for command in awk chmod cp curl date docker flock grep id install mkdir mv openssl rm sha256sum sleep stat; do
+for command in chmod cp curl date docker flock grep id install mkdir mv rm sha256sum sleep stat; do
   require_command "$command"
 done
 docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is unavailable"
 [ "$(id -u)" -eq 0 ] || fail "deployment must run as root through the release queue processor"
-for file in "$COMPOSE_FILE" "$DEPLOY_CONFIG" "$APP_ENV_CANDIDATE" "$ENV_VALIDATOR" "$TLS_CERT_FILE" "$TLS_KEY_FILE" "$TLS_CA_FILE" "$ECR_PASSWORD"; do
+for file in "$COMPOSE_FILE" "$DEPLOY_CONFIG" "$APP_ENV_CANDIDATE" "$ENV_VALIDATOR" "$ECR_PASSWORD"; do
   root_regular_file "$file" || fail "invalid root-owned deployment file: $file"
 done
 [ -x "$ENV_VALIDATOR" ] || fail "environment validator is not executable"
 case "$(stat -c '%a' "$DEPLOY_CONFIG")" in 600) ;; *) fail "deployment config mode must be 600" ;; esac
 case "$(stat -c '%a' "$APP_ENV_CANDIDATE")" in 600) ;; *) fail "staged application environment mode must be 600" ;; esac
-case "$(stat -c '%a' "$TLS_KEY_FILE")" in 440|640) ;; *) fail "TLS private key mode must be 440 or 640" ;; esac
 
 # shellcheck source=/dev/null
 . "$DEPLOY_CONFIG"
 : "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}"
 : "${RUNTIME_NETWORK:?RUNTIME_NETWORK is required}"
 : "${PUBLIC_HEALTH_URL:?PUBLIC_HEALTH_URL is required}"
-ORIGIN_HTTPS_PORT=${ORIGIN_HTTPS_PORT:-$DEFAULT_ORIGIN_HTTPS_PORT}
+eval "HTTP_PORT=\${$HTTP_PORT_VARIABLE:-$DEFAULT_HTTP_PORT}"
 HEALTH_TIMEOUT_SECONDS=${HEALTH_TIMEOUT_SECONDS:-120}
 REQUIRE_BACKUP_HOOK=${REQUIRE_BACKUP_HOOK:-true}
 APP_MEMORY_LIMIT=${APP_MEMORY_LIMIT:-768m}
 APP_CPU_LIMIT=${APP_CPU_LIMIT:-1.0}
 
-valid_port "$ORIGIN_HTTPS_PORT" || fail "invalid origin HTTPS port"
+valid_port "$HTTP_PORT" || fail "invalid private-origin HTTP port"
 valid_positive_integer "$HEALTH_TIMEOUT_SECONDS" || fail "invalid health timeout"
 case "$PUBLIC_HEALTH_URL" in https://*) ;; *) fail "public health URL must use HTTPS" ;; esac
 case "$REQUIRE_BACKUP_HOOK" in true|false) ;; *) fail "invalid backup-hook setting" ;; esac
@@ -242,13 +218,7 @@ if [ -e "$APP_ENV" ] || [ -L "$APP_ENV" ]; then
   root_regular_file "$APP_ENV" || fail "existing application environment must be a root-owned regular file"
   case "$(stat -c '%a' "$APP_ENV")" in 600) ;; *) fail "existing application environment mode must be 600" ;; esac
 fi
-openssl x509 -in "$TLS_CERT_FILE" -noout -checkend 86400 >/dev/null \
-  || fail "TLS certificate is invalid or expires within 24 hours"
-CERT_PUBLIC_KEY=$(openssl x509 -in "$TLS_CERT_FILE" -pubkey -noout)
-KEY_PUBLIC_KEY=$(openssl pkey -in "$TLS_KEY_FILE" -pubout)
-[ "$CERT_PUBLIC_KEY" = "$KEY_PUBLIC_KEY" ] || fail "TLS certificate and private key do not match"
-TLS_READ_GID=$(stat -c '%g' "$TLS_KEY_FILE")
-valid_positive_integer "$TLS_READ_GID" || fail "TLS private key must use a dedicated non-root group"
+tunnel_ready || fail "Cloudflare Tunnel connector is not ready"
 
 exec 9>"$LOCK_FILE"
 flock -n 9 || fail "another auth/admin deployment is running"
@@ -267,12 +237,6 @@ install -o root -g root -m 600 "$APP_ENV_CANDIDATE" "$app_env_install_candidate"
 mv -- "$app_env_install_candidate" "$APP_ENV"
 rm -f -- "$APP_ENV_CANDIDATE"
 APP_ENV_INSTALLED=true
-
-TLS_SERVER_NAME=$(dotenv_value TLS_SERVER_NAME)
-printf '%s\n' "$TLS_SERVER_NAME" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$' \
-  || fail "TLS_SERVER_NAME must be a fully-qualified hostname"
-openssl x509 -in "$TLS_CERT_FILE" -noout -checkhost "$TLS_SERVER_NAME" >/dev/null \
-  || fail "TLS certificate does not cover TLS_SERVER_NAME"
 
 ACTIVE_IMAGE=
 ACTIVE_REVISION=
@@ -314,10 +278,10 @@ if ! compose up --detach --no-deps "$SERVICE_NAME"; then
   fail "candidate failed to start"
 fi
 CANDIDATE_STARTED=true
-if ! wait_until_healthy || ! host_local_ready; then
+if ! wait_until_healthy || ! host_local_ready || ! tunnel_ready; then
   restore_previous_release || true
   CANDIDATE_STARTED=false
-  fail "candidate failed its container or host-local HTTPS readiness check"
+  fail "candidate failed its container, loopback HTTP, or Tunnel readiness check"
 fi
 
 if ! curl --fail --silent --show-error --retry 5 --retry-delay 3 \
@@ -350,4 +314,4 @@ CANDIDATE_STARTED=false
 DEPLOYMENT_SUCCEEDED=true
 docker logout "$REGISTRY" >/dev/null 2>&1 || true
 REGISTRY=
-echo "Deployment complete: $KIND runs $IMAGE_REF on HTTPS port $ORIGIN_HTTPS_PORT"
+echo "Deployment complete: $KIND runs $IMAGE_REF on loopback HTTP port $HTTP_PORT"

@@ -185,6 +185,12 @@ button, input {
   background: var(--auth-surface);
 }
 
+.provider-button {
+  min-height: 3rem;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+}
+
 .provider-button:hover:not(:disabled),
 .secondary-button:hover:not(:disabled) {
   border-color: var(--auth-primary);
@@ -192,9 +198,40 @@ button, input {
   background: color-mix(in srgb, var(--auth-primary) 5%, var(--auth-surface));
 }
 
+.provider-button[data-provider="google"] {
+  border-color: #747775;
+  color: #1f1f1f;
+  background: #fff;
+}
+
+.provider-button[data-provider="google"]:hover:not(:disabled) {
+  border-color: #5f6368;
+  color: #1f1f1f;
+  background: #f8faff;
+  box-shadow: 0 2px 6px rgb(60 64 67 / 18%);
+}
+
+.provider-button[data-provider="apple"] {
+  border-color: #000;
+  color: #fff;
+  background: #000;
+}
+
+.provider-button[data-provider="apple"]:hover:not(:disabled) {
+  border-color: #1d1d1f;
+  color: #fff;
+  background: #1d1d1f;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 24%);
+}
+
+.provider-icon,
 .provider-dot {
-  width: 1rem;
-  height: 1rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: 0 0 1.2rem;
+}
+
+.provider-dot {
   border: 3px solid var(--auth-primary);
   border-radius: 50%;
 }

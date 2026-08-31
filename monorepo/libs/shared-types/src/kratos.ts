@@ -120,6 +120,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function normalizeEmailAddress(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  if (!email || /\s/.test(email)) return null;
+  const at = email.indexOf("@");
+  if (at <= 0 || at !== email.lastIndexOf("@") || at === email.length - 1) return null;
+  return email;
+}
+
 /**
  * Runtime guard: a value is a Kratos identity when it has a string `id` and an
  * object `traits`. Extra fields are allowed (Kratos returns far more).
@@ -133,21 +142,28 @@ export function isKratosUser(value: unknown): value is KratosUser {
 
 /** True when the identity's current email trait is verified in Kratos. */
 export function hasVerifiedEmailAddress(user: KratosUser): boolean {
-  const email = user.traits.email;
-  if (typeof email !== "string" || email.length === 0) return false;
-  const normalizedEmail = email.trim().toLowerCase();
+  return verifiedEmailAddress(user) !== null;
+}
 
-  return (user.verifiable_addresses ?? []).some(
+export function verifiedEmailAddress(user: KratosUser): string | null {
+  const normalizedEmail = normalizeEmailAddress(user.traits.email);
+  if (!normalizedEmail) return null;
+  const verified = (user.verifiable_addresses ?? []).some(
     (address) =>
       address.via === "email" &&
-      address.value?.trim().toLowerCase() === normalizedEmail &&
+      normalizeEmailAddress(address.value) === normalizedEmail &&
       address.verified === true,
   );
+  return verified ? normalizedEmail : null;
+}
+
+export function oauthSubjectForKratosUser(user: KratosUser): string {
+  return verifiedEmailAddress(user) ?? user.id;
 }
 
 /** Project a Kratos identity's traits into the claims we embed in tokens. */
 export function toUserClaims(user: KratosUser): KratosUserClaims {
-  const email = user.traits?.email;
+  const email = verifiedEmailAddress(user) ?? user.traits?.email;
   return {
     name: user.traits?.name,
     email,

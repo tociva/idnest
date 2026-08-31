@@ -50,7 +50,7 @@ jobs:
 
       - name: Test auth projects
         run: |
-          pnpm --dir=monorepo nx run-many -t test --projects=auth-backend,authz-store,server-runtime,shared-types
+          pnpm --dir=monorepo nx run-many -t test --projects=auth-backend,auth-frontend,authz-store,server-runtime,shared-types
 
       - name: Validate deployment scripts
         run: |
@@ -59,6 +59,7 @@ jobs:
           sh -n scripts/docker/builder-image-key.sh
           scripts/docker/test-builder-contract.sh
           pnpm test:cors:config
+          bash scripts/ci/test-deployment-contracts.sh
           for script in scripts/deploy/vps/*.sh; do
             sh -n "${script}"
           done
@@ -195,11 +196,13 @@ jobs:
           VPS_PORT: ${{ vars.VPS_PORT }}
           VPS_USER: ${{ vars.VPS_USER }}
           ADMIN_BOOTSTRAP_EMAILS: ${{ vars.ADMIN_BOOTSTRAP_EMAILS }}
+          DELEGATION_ENABLED: ${{ vars.DELEGATION_ENABLED }}
           HOST_RELEASE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 }}
           AUTHZ_DATABASE_URL: ${{ secrets.AUTHZ_DATABASE_URL }}
           CONSENT_ACTION_SECRET: ${{ secrets.CONSENT_ACTION_SECRET }}
           AUTH_TRANSACTION_SECRET: ${{ secrets.AUTH_TRANSACTION_SECRET }}
           AUTH_AUDIT_HASH_SECRET: ${{ secrets.AUTH_AUDIT_HASH_SECRET }}
+          DELEGATION_SIGNING_PRIVATE_KEY_B64: ${{ secrets.DELEGATION_SIGNING_PRIVATE_KEY_B64 }}
           VPS_SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
           VPS_SSH_KNOWN_HOSTS_B64: ${{ secrets.VPS_SSH_KNOWN_HOSTS_B64 }}
         run: |
@@ -214,11 +217,13 @@ jobs:
           [[ "${VPS_PORT:-22}" =~ ^[0-9]{1,5}$ ]]
           [[ "${VPS_USER}" =~ ^[A-Za-z_][A-Za-z0-9._-]*$ ]]
           [[ -n "${ADMIN_BOOTSTRAP_EMAILS}" ]]
+          [[ "${DELEGATION_ENABLED}" == true || "${DELEGATION_ENABLED}" == false ]]
           [[ -n "${HOST_RELEASE_SIGNING_PRIVATE_KEY_B64}" ]]
           [[ -n "${AUTHZ_DATABASE_URL}" ]]
           [[ -n "${CONSENT_ACTION_SECRET}" ]]
           [[ -n "${AUTH_TRANSACTION_SECRET}" ]]
           [[ -n "${AUTH_AUDIT_HASH_SECRET}" ]]
+          [[ -n "${DELEGATION_SIGNING_PRIVATE_KEY_B64}" ]]
           [[ -n "${VPS_SSH_PRIVATE_KEY_B64}" && -n "${VPS_SSH_KNOWN_HOSTS_B64}" ]]
 
       - name: Configure short-lived AWS pull credentials
@@ -234,11 +239,13 @@ jobs:
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           ADMIN_BOOTSTRAP_EMAILS: ${{ vars.ADMIN_BOOTSTRAP_EMAILS }}
+          DELEGATION_ENABLED: ${{ vars.DELEGATION_ENABLED }}
           HOST_RELEASE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 }}
           AUTHZ_DATABASE_URL: ${{ secrets.AUTHZ_DATABASE_URL }}
           CONSENT_ACTION_SECRET: ${{ secrets.CONSENT_ACTION_SECRET }}
           AUTH_TRANSACTION_SECRET: ${{ secrets.AUTH_TRANSACTION_SECRET }}
           AUTH_AUDIT_HASH_SECRET: ${{ secrets.AUTH_AUDIT_HASH_SECRET }}
+          DELEGATION_SIGNING_PRIVATE_KEY_B64: ${{ secrets.DELEGATION_SIGNING_PRIVATE_KEY_B64 }}
           VPS_SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
           VPS_SSH_KNOWN_HOSTS_B64: ${{ secrets.VPS_SSH_KNOWN_HOSTS_B64 }}
         run: |
@@ -261,6 +268,7 @@ jobs:
             scripts/deploy/vps/rollback-idnest-auth.sh \
             scripts/deploy/vps/rollback-idnest-admin.sh \
             scripts/deploy/vps/validate-app-env.sh \
+            scripts/deploy/vps/idnest-cloudflared.service \
             scripts/docker/render-kratos-config.sh
           openssl pkey -in "${RUNNER_TEMP}/host-release-signing-private.pem" -noout
           openssl pkeyutl -sign -rawin \

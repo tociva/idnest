@@ -39,6 +39,7 @@ import { clientRedirectOrigins } from "./form-action-csp";
 import {
   factorSettingsNodesFromFlow,
   hiddenInputsFromFlow,
+  messagesFromFlow,
   oidcSubmitButtonsFromFlow,
   type FlowHiddenInput,
 } from "./views/pages/flow-controls";
@@ -239,6 +240,7 @@ export function createPagesRouter(): Router {
           actionUrl: flowData.ui.action,
           hiddenInputs: withExtraHiddenInput(hiddenInputsFromFlow(flowData), "login_hint", loginHint),
           providers: oidcSubmitButtonsFromFlow(flowData, "Continue with"),
+          messages: messagesFromFlow(flowData),
         }),
       );
     } catch (err) {
@@ -359,6 +361,7 @@ export function createPagesRouter(): Router {
           providers: oidcSubmitButtonsFromFlow(flowData, "Link"),
           factorNodes: factorSettingsNodesFromFlow(flowData),
           returnTo,
+          messages: messagesFromFlow(flowData),
         }),
       );
     } catch (e) {

@@ -3,7 +3,10 @@ import {
   getCsrfToken,
   hasVerifiedEmailAddress,
   isKratosUser,
+  normalizeEmailAddress,
+  oauthSubjectForKratosUser,
   toUserClaims,
+  verifiedEmailAddress,
   type KratosFlow,
   type KratosUser,
 } from "./kratos";
@@ -34,6 +37,18 @@ describe("isKratosUser", () => {
 });
 
 describe("hasVerifiedEmailAddress", () => {
+  it("normalizes email subjects for verified addresses", () => {
+    const mixedCase: KratosUser = {
+      id: "identity-1",
+      traits: { email: " Ada@Example.COM " },
+      verifiable_addresses: [{ via: "email", value: "ada@example.com", verified: true }],
+    };
+
+    expect(normalizeEmailAddress(" Ada@Example.COM ")).toBe("ada@example.com");
+    expect(verifiedEmailAddress(mixedCase)).toBe("ada@example.com");
+    expect(oauthSubjectForKratosUser(mixedCase)).toBe("ada@example.com");
+  });
+
   it("accepts a matching verified email address", () => {
     expect(hasVerifiedEmailAddress(validIdentity)).toBe(true);
   });
@@ -54,6 +69,23 @@ describe("hasVerifiedEmailAddress", () => {
         verifiable_addresses: [{ via: "email", value: "ada@example.com", verified: false }],
       }),
     ).toBe(false);
+  });
+
+  it("accepts an Apple private-relay address without rewriting it", () => {
+    const relayEmail = "a1b2c3d4@privaterelay.appleid.com";
+    const appleIdentity: KratosUser = {
+      id: "apple-identity",
+      traits: { email: relayEmail },
+      verifiable_addresses: [{ via: "email", value: relayEmail, verified: true }],
+    };
+
+    expect(hasVerifiedEmailAddress(appleIdentity)).toBe(true);
+    expect(toUserClaims(appleIdentity)).toEqual({
+      name: undefined,
+      email: relayEmail,
+      email_verified: true,
+      picture: undefined,
+    });
   });
 });
 

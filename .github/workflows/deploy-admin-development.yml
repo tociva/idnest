@@ -61,6 +61,7 @@ jobs:
           bash -n scripts/docker/ensure-builder-image.sh
           sh -n scripts/docker/builder-image-key.sh
           scripts/docker/test-builder-contract.sh
+          bash scripts/ci/test-deployment-contracts.sh
           for script in scripts/deploy/vps/*.sh; do
             sh -n "${script}"
           done
@@ -260,6 +261,7 @@ jobs:
             scripts/deploy/vps/rollback-idnest-auth.sh \
             scripts/deploy/vps/rollback-idnest-admin.sh \
             scripts/deploy/vps/validate-app-env.sh \
+            scripts/deploy/vps/idnest-cloudflared.service \
             scripts/docker/render-kratos-config.sh
           openssl pkey -in "${RUNNER_TEMP}/host-release-signing-private.pem" -noout
           openssl pkeyutl -sign -rawin \

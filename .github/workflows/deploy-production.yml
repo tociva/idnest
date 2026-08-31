@@ -111,6 +111,7 @@ jobs:
             scripts/deploy/vps/rollback-idnest-auth.sh \
             scripts/deploy/vps/rollback-idnest-admin.sh \
             scripts/deploy/vps/validate-app-env.sh \
+            scripts/deploy/vps/idnest-cloudflared.service \
             scripts/docker/render-kratos-config.sh
           if [[ "${COMPONENT}" == auth ]]; then
             git ls-files -z -- config/kratos.tpl.yml config/kratos |

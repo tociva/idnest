@@ -1,7 +1,13 @@
 import { esc } from "../escape";
 import { IDNEST_LOGO } from "../icons";
 import { layout } from "../layout";
-import type { FactorSettingsNode, FlowHiddenInput, FlowSubmitButton } from "./flow-controls";
+import type {
+  FactorSettingsNode,
+  FlowHiddenInput,
+  FlowMessage,
+  FlowSubmitButton,
+} from "./flow-controls";
+import { renderFlowMessages } from "./flow-messages";
 import { renderOidcForm } from "./oidc-form";
 
 export interface SettingsViewModel {
@@ -15,6 +21,8 @@ export interface SettingsViewModel {
   factorNodes: FactorSettingsNode[];
   /** Optional allowlisted app URL to leave settings without making changes. */
   returnTo?: string | null;
+  /** Link/unlink guidance and errors returned by Kratos. */
+  messages?: FlowMessage[];
 }
 
 function renderFactorSection(
@@ -87,6 +95,8 @@ export function renderSettings(vm: SettingsViewModel): string {
     </div>
 
     <hr class="divider" />
+
+    ${renderFlowMessages(vm.messages)}
 
     ${factorSection || ""}
     ${factorSection ? `<hr class="divider" />` : ""}

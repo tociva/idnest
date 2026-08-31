@@ -9,6 +9,7 @@ import {
 } from "@idnest/authz-store";
 import {
   hasVerifiedEmailAddress,
+  normalizeEmailAddress,
   toUserClaims,
   type HydraClient,
   type HydraClientTrustTier,
@@ -121,10 +122,22 @@ async function fetchIdentity(subject: string): Promise<KratosUser> {
   return (await res.json()) as KratosUser;
 }
 
+function identityFromEmailSubject(subject: string): KratosUser | null {
+  const email = normalizeEmailAddress(subject);
+  if (!email) return null;
+  return {
+    id: email,
+    traits: { email },
+    verifiable_addresses: [{ via: "email", value: email, verified: true }],
+    state: "active",
+  };
+}
+
 export async function loadConsent(consentChallenge: string): Promise<LoadedConsent> {
   const request = await fetchConsentRequest(consentChallenge);
-  const subject = request.subject;
-  const identity = await fetchIdentity(subject);
+  const emailIdentity = identityFromEmailSubject(request.subject);
+  const subject = emailIdentity?.id ?? request.subject;
+  const identity = emailIdentity ?? await fetchIdentity(subject);
   const client = request.client;
   const clientId = clientIdOf(client);
   if (!clientId) throw new Error("Consent request is missing client_id");

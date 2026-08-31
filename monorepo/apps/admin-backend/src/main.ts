@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { startDirectServers } from "@idnest/server-runtime";
+import { startHttpServers } from "@idnest/server-runtime";
 import { isAllowedOrigin } from "@idnest/shared-types";
 import cors from "cors";
 import express from "express";
@@ -104,9 +104,8 @@ export function createServer() {
 }
 
 const port = getPort();
-startDirectServers({
+startHttpServers({
   app: createServer(),
   port,
   label: "admin-backend",
-  httpsEnabledVariable: "ADMIN_HTTPS_ENABLED",
 });

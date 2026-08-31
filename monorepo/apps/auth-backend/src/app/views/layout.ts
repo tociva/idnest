@@ -2,7 +2,12 @@ import { esc } from "./escape";
 import { STYLES } from "./styles";
 
 /** Wrap page body markup in a full HTML document with inlined styles. */
-export function layout(opts: { title: string; body: string; bodyScript?: string }): string {
+export function layout(opts: {
+  title: string;
+  body: string;
+  bodyScript?: string;
+  headExtra?: string;
+}): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -10,6 +15,7 @@ export function layout(opts: { title: string; body: string; bodyScript?: string 
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex, nofollow" />
   <title>${esc(opts.title)}</title>
+  ${opts.headExtra ?? ""}
   <style>${STYLES}</style>
 </head>
 <body>

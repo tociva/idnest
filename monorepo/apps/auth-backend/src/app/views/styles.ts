@@ -169,10 +169,9 @@ html, body {
   gap: 0.75rem;
 }
 
-/* Social OAuth buttons — neutral white, keeps provider marks intact */
+/* Social OAuth buttons. Apple uses its required high-contrast black treatment. */
 .btn-provider,
-.btn-google,
-.btn-apple {
+.btn-google {
   background: #ffffff;
   color: var(--fg-secondary);
   border-color: var(--border-default);
@@ -180,20 +179,31 @@ html, body {
   font-weight: 500;
 }
 .btn-provider:hover,
-.btn-google:hover,
-.btn-apple:hover {
+.btn-google:hover {
   background: var(--bg-surface);
   border-color: var(--border-strong);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.10);
 }
+.btn-apple {
+  min-height: 44px;
+  background: #000000;
+  color: #ffffff;
+  border-color: #000000;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+  font-weight: 500;
+}
+.btn-apple:hover { background: #1c1c1e; border-color: #1c1c1e; }
 .provider-icon,
 .google-icon,
 .apple-icon { width: 18px; height: 18px; flex-shrink: 0; }
-.apple-icon { color: #111827; }
+.apple-icon { color: currentColor; }
 
 .alert { padding: 0.875rem 1rem; border-radius: 0.625rem; border: 1px solid; font-size: 0.875rem; margin-bottom: 1rem; }
 .alert-error { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
 .alert-warning { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.alert-info { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+.alert-success { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+.flow-messages .alert:last-child { margin-bottom: 1rem; }
 
 .link { color: var(--brand); text-decoration: underline; background: none; border: none; cursor: pointer; font: inherit; padding: 0; }
 .link:hover { opacity: 0.75; }

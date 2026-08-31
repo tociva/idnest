@@ -23,7 +23,7 @@ DEPLOY_GROUP=$(id -gn "$DEPLOY_USER")
 [ -f "$RELEASE_SIGNING_PUBLIC_KEY" ] && [ ! -L "$RELEASE_SIGNING_PUBLIC_KEY" ] && [ -s "$RELEASE_SIGNING_PUBLIC_KEY" ] || fail "invalid release signing public key"
 [ -f "$DEPLOY_SSH_PUBLIC_KEY" ] && [ ! -L "$DEPLOY_SSH_PUBLIC_KEY" ] && [ -s "$DEPLOY_SSH_PUBLIC_KEY" ] || fail "invalid deployment SSH public key"
 
-for command in chown cp cut docker getent grep groupadd id install openssl ssh-keygen stat systemctl; do
+for command in chown cp cut docker getent grep id install openssl ssh-keygen stat systemctl; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 DEPLOY_HOME=$(getent passwd "$DEPLOY_USER" | cut -d: -f6)
@@ -34,14 +34,11 @@ ssh-keygen -l -f "$DEPLOY_SSH_PUBLIC_KEY" >/dev/null 2>&1 || fail "deployment SS
 
 SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../../.." && pwd)
-for file in compose.auth.yaml compose.admin.yaml compose.idnest.yaml Dockerfile.kratos deploy-idnest-app.sh deploy-idnest-infra.sh deploy-idnest-auth.sh deploy-idnest-admin.sh rollback-idnest-app.sh rollback-idnest-auth.sh rollback-idnest-admin.sh validate-app-env.sh activate-host-release.sh process-idnest-release-queue.sh submit-idnest-release.sh wait-idnest-release.sh idnest-release-queue.path idnest-release-queue.service auth.conf.example admin.conf.example idnest.conf.example; do
+for file in compose.auth.yaml compose.admin.yaml compose.idnest.yaml Dockerfile.kratos deploy-idnest-app.sh deploy-idnest-infra.sh deploy-idnest-auth.sh deploy-idnest-admin.sh rollback-idnest-app.sh rollback-idnest-auth.sh rollback-idnest-admin.sh validate-app-env.sh validate-development-host.sh activate-host-release.sh process-idnest-release-queue.sh submit-idnest-release.sh wait-idnest-release.sh idnest-release-queue.path idnest-release-queue.service idnest-cloudflared.service auth.conf.example admin.conf.example idnest.conf.example; do
   [ -f "$SCRIPT_DIR/$file" ] && [ ! -L "$SCRIPT_DIR/$file" ] || fail "invalid provisioning source: $file"
 done
 
-TLS_GROUP=idnest-tls
-getent group "$TLS_GROUP" >/dev/null 2>&1 || groupadd --system "$TLS_GROUP"
 install -d -o root -g root -m 755 /opt/idnest /opt/idnest/auth /opt/idnest/admin /opt/idnest/identity /opt/idnest/host-releases /opt/idnest/identity/kratos-build /opt/idnest/identity/kratos-build/config /opt/idnest/identity/kratos-build/config/kratos /opt/idnest/identity/config-history /etc/idnest
-install -d -o root -g "$TLS_GROUP" -m 750 /etc/idnest/tls
 install -o root -g root -m 644 "$RELEASE_SIGNING_PUBLIC_KEY" /etc/idnest/host-release-signing-public.pem
 install -d -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" -m 700 "$DEPLOY_HOME/.ssh"
 install -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" -m 600 "$DEPLOY_SSH_PUBLIC_KEY" "$DEPLOY_HOME/.ssh/authorized_keys"
@@ -66,12 +63,14 @@ install -o root -g root -m 755 "$SCRIPT_DIR/rollback-idnest-app.sh" /usr/local/s
 install -o root -g root -m 755 "$SCRIPT_DIR/rollback-idnest-auth.sh" /usr/local/sbin/rollback-idnest-auth
 install -o root -g root -m 755 "$SCRIPT_DIR/rollback-idnest-admin.sh" /usr/local/sbin/rollback-idnest-admin
 install -o root -g root -m 755 "$SCRIPT_DIR/validate-app-env.sh" /usr/local/sbin/validate-idnest-app-env
+install -o root -g root -m 755 "$SCRIPT_DIR/validate-development-host.sh" /usr/local/sbin/validate-idnest-development-host
 install -o root -g root -m 755 "$SCRIPT_DIR/activate-host-release.sh" /usr/local/sbin/activate-idnest-host-release
 install -o root -g root -m 755 "$SCRIPT_DIR/process-idnest-release-queue.sh" /usr/local/sbin/process-idnest-release-queue
 install -o root -g root -m 755 "$SCRIPT_DIR/submit-idnest-release.sh" /usr/local/bin/submit-idnest-release
 install -o root -g root -m 755 "$SCRIPT_DIR/wait-idnest-release.sh" /usr/local/bin/wait-idnest-release
 install -o root -g root -m 644 "$SCRIPT_DIR/idnest-release-queue.path" /etc/systemd/system/idnest-release-queue.path
 install -o root -g root -m 644 "$SCRIPT_DIR/idnest-release-queue.service" /etc/systemd/system/idnest-release-queue.service
+install -o root -g root -m 644 "$SCRIPT_DIR/idnest-cloudflared.service" /etc/systemd/system/idnest-cloudflared.service
 
 [ -e /etc/idnest/auth.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/auth.conf.example" /etc/idnest/auth.conf
 [ -e /etc/idnest/admin.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/admin.conf.example" /etc/idnest/admin.conf
@@ -92,6 +91,5 @@ systemctl is-active --quiet idnest-release-queue.path || fail "release queue wat
 
 echo "One-time privileged host bootstrap complete."
 echo "GitHub Actions can now submit deployments as $DEPLOY_USER without sudo."
-echo "Review /etc/idnest/*.conf and install the Origin CA files before the first deployment."
+echo "Review the root-owned /etc/idnest/*.conf files before the first deployment."
 echo "Signed GitHub deployments install idnest.env, auth-app.env, and admin-app.env automatically."
-echo "Install origin-cert.pem and origin-ca.pem as root-readable files and origin-key.pem as root:$TLS_GROUP mode 640 under /etc/idnest/tls."

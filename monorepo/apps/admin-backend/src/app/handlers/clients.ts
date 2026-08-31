@@ -136,6 +136,33 @@ function validateClientBrowserConfiguration(input: ClientPayload): string | null
   }
 }
 
+function validatePostLogoutRedirectOrigins(input: ClientPayload): string | null {
+  const redirectOrigins = new Set<string>();
+  for (const value of input.redirect_uris ?? []) {
+    try {
+      redirectOrigins.add(new URL(value).origin);
+    } catch {
+      // Hydra remains the source of truth for malformed protocol URIs.
+    }
+  }
+
+  for (const value of input.post_logout_redirect_uris ?? []) {
+    try {
+      const postLogoutOrigin = new URL(value).origin;
+      if (!redirectOrigins.has(postLogoutOrigin)) {
+        return (
+          `post_logout_redirect_uri '${value}' must share its scheme, host, and port with a registered ` +
+          "redirect_uri. For a BFF client, register a BFF-hosted logout callback here and redirect to the UI from that callback."
+        );
+      }
+    } catch {
+      // Hydra remains the source of truth for malformed protocol URIs.
+    }
+  }
+
+  return null;
+}
+
 function validateRememberOfflineAccess(input: ClientPayload): string | null {
   const metadata = normalizedMetadata(input.metadata);
   if (metadata.remember_offline_access === true && metadata.trust_tier !== "first_party") {
@@ -259,6 +286,8 @@ export async function createClient(input: ClientPayload): Promise<HandlerResult>
     if (invalid) return { status: 400, body: { error: invalid } };
     const invalidBrowserConfiguration = validateClientBrowserConfiguration(input);
     if (invalidBrowserConfiguration) return { status: 400, body: { error: invalidBrowserConfiguration } };
+    const invalidPostLogoutRedirect = validatePostLogoutRedirectOrigins(input);
+    if (invalidPostLogoutRedirect) return { status: 400, body: { error: invalidPostLogoutRedirect } };
     const invalidPolicy = validateRememberOfflineAccess(input);
     if (invalidPolicy) return { status: 400, body: { error: invalidPolicy } };
     const res = await fetch(clientsBase(), {
@@ -283,6 +312,8 @@ export async function updateClient(input: ClientPayload): Promise<HandlerResult>
     }
     const invalidBrowserConfiguration = validateClientBrowserConfiguration(input);
     if (invalidBrowserConfiguration) return { status: 400, body: { error: invalidBrowserConfiguration } };
+    const invalidPostLogoutRedirect = validatePostLogoutRedirectOrigins(input);
+    if (invalidPostLogoutRedirect) return { status: 400, body: { error: invalidPostLogoutRedirect } };
     const invalidPolicy = validateRememberOfflineAccess(input);
     if (invalidPolicy) return { status: 400, body: { error: invalidPolicy } };
     const res = await fetch(`${clientsBase()}/${encodeURIComponent(input.client_id)}`, {

@@ -53,3 +53,17 @@ export {
   updateBrandConfiguration,
   updatePolicyConfiguration,
 } from "./auth-configuration";
+export {
+  archiveDelegationActorPolicyConfiguration,
+  archiveDelegationResourceConfiguration,
+  createDelegationResourceConfiguration,
+  getDelegationResourceConfiguration,
+  listDelegationActorPolicyConfigurations,
+  listDelegationAuditActivity,
+  listDelegationGrantActivity,
+  listDelegationResourceConfigurations,
+  listDelegationResourceHistory,
+  putDelegationActorPolicyConfiguration,
+  revokeDelegationGrantAsAdministrator,
+  updateDelegationResourceConfiguration,
+} from "./delegation";

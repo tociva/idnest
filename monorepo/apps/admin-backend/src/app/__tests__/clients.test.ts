@@ -352,6 +352,40 @@ describe("oauth client management", () => {
     });
   });
 
+  it("accepts a post-logout callback on the redirect URI origin", async () => {
+    const fetchMock = mockFetchByUrl([
+      { match: "/admin/clients/bff", result: { ok: true, json: { client_id: "bff" } } },
+    ]);
+
+    const res = await updateClient({
+      client_id: "bff",
+      client_type: "web",
+      redirect_uris: ["https://api.example.test/api/v1/auth/user/callback"],
+      post_logout_redirect_uris: ["https://api.example.test/api/v1/auth/user/logout/callback"],
+    });
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a cross-origin post-logout redirect before calling Hydra", async () => {
+    const fetchMock = mockFetchByUrl([]);
+    const res = await updateClient({
+      client_id: "bff",
+      client_type: "web",
+      redirect_uris: ["https://api.example.test/api/v1/auth/user/callback"],
+      post_logout_redirect_uris: ["https://app.example.test/auth/logout"],
+    });
+
+    expect(res).toMatchObject({
+      status: 400,
+      body: {
+        error: expect.stringContaining("register a BFF-hosted logout callback"),
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("preserves custom protocol fields on update", async () => {
     const fetchMock = mockFetchByUrl([
       { match: "/admin/clients/legacy", result: { ok: true, json: { client_id: "legacy" } } },

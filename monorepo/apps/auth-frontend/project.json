@@ -57,6 +57,10 @@
         "command": "tsc -p apps/auth-frontend/tsconfig.app.json --noEmit"
       }
     },
+    "test": {
+      "executor": "@nx/vite:test",
+      "options": { "configFile": "apps/auth-frontend/vitest.config.ts" }
+    },
     "lint": {
       "executor": "@nx/eslint:lint"
     }

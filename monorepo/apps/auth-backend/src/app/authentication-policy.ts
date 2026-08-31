@@ -1,5 +1,7 @@
 import {
   hasVerifiedEmailAddress,
+  normalizeEmailAddress,
+  oauthSubjectForKratosUser,
   type AuthPolicyDefinition,
   type KratosSession,
 } from "@idnest/shared-types";
@@ -15,6 +17,14 @@ export interface AuthenticationPolicyDecision {
 function emailOf(session: KratosSession): string {
   const email = session.identity.traits?.email;
   return typeof email === "string" ? email.trim().toLowerCase() : "";
+}
+
+function subjectMatches(session: KratosSession, expectedSubject: string): boolean {
+  const expected = normalizeEmailAddress(expectedSubject) ?? expectedSubject;
+  return (
+    oauthSubjectForKratosUser(session.identity) === expected ||
+    session.identity.id === expectedSubject
+  );
 }
 
 function methodAllowed(
@@ -44,7 +54,7 @@ export function evaluateAuthenticationPolicy(
   if (!session.active || !session.identity?.id) {
     return { allowed: false, code: "session_inactive", description: "No active identity session was found." };
   }
-  if (options.expectedSubject && session.identity.id !== options.expectedSubject) {
+  if (options.expectedSubject && !subjectMatches(session, options.expectedSubject)) {
     return {
       allowed: false,
       code: "subject_mismatch",

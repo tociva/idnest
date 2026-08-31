@@ -209,6 +209,180 @@ CREATE INDEX IF NOT EXISTS consent_audit_events_identity_idx
 CREATE INDEX IF NOT EXISTS consent_audit_events_client_idx
   ON consent_audit_events(client_id, created_at DESC);
 
+-- Generic delegated authorization. Product tenancy, roles, installations, and
+-- workflow state deliberately remain in the resource application's database.
+CREATE TABLE IF NOT EXISTS delegation_resources (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  resource_key text NOT NULL UNIQUE,
+  display_name text NOT NULL,
+  audience text NOT NULL UNIQUE,
+  authorizer_client_id text NOT NULL,
+  allowed_scopes text[] NOT NULL,
+  token_ttl_seconds integer NOT NULL DEFAULT 300
+    CHECK (token_ttl_seconds BETWEEN 30 AND 300),
+  authorization_context_required boolean NOT NULL DEFAULT true,
+  status text NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'disabled', 'archived')),
+  version integer NOT NULL DEFAULT 1,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS delegation_resources_authorizer_idx
+  ON delegation_resources(authorizer_client_id)
+  WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS delegation_resource_versions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  resource_id uuid NOT NULL REFERENCES delegation_resources(id),
+  version integer NOT NULL,
+  snapshot jsonb NOT NULL,
+  created_by text,
+  reason text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (resource_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS delegation_actor_policies (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  resource_id uuid NOT NULL REFERENCES delegation_resources(id),
+  actor_client_id text NOT NULL,
+  allowed_scopes text[] NOT NULL,
+  status text NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'disabled', 'archived')),
+  version integer NOT NULL DEFAULT 1,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (resource_id, actor_client_id)
+);
+
+CREATE INDEX IF NOT EXISTS delegation_actor_policies_actor_idx
+  ON delegation_actor_policies(actor_client_id)
+  WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS delegation_actor_policy_versions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_policy_id uuid NOT NULL REFERENCES delegation_actor_policies(id),
+  version integer NOT NULL,
+  snapshot jsonb NOT NULL,
+  created_by text,
+  reason text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (actor_policy_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS delegation_grants (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_hash text NOT NULL UNIQUE,
+  resource_id uuid NOT NULL REFERENCES delegation_resources(id),
+  resource_audience text NOT NULL,
+  authorizer_client_id text NOT NULL,
+  actor_client_id text NOT NULL,
+  subject_id text NOT NULL,
+  scopes text[] NOT NULL,
+  token_ttl_seconds integer NOT NULL,
+  authorization_context text,
+  correlation_id text,
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  revoked_at timestamptz,
+  revoked_by text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS delegation_grants_pending_token_idx
+  ON delegation_grants(token_hash, expires_at)
+  WHERE consumed_at IS NULL AND revoked_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS delegation_grants_resource_activity_idx
+  ON delegation_grants(resource_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS delegation_grants_actor_activity_idx
+  ON delegation_grants(actor_client_id, created_at DESC);
+
+-- Upgrade the earliest delegation schema safely if it was installed before
+-- audience and token-TTL snapshots were added to one-time grants.
+ALTER TABLE delegation_grants
+  ADD COLUMN IF NOT EXISTS resource_audience text,
+  ADD COLUMN IF NOT EXISTS token_ttl_seconds integer;
+
+UPDATE delegation_grants g
+SET resource_audience = r.audience,
+    token_ttl_seconds = r.token_ttl_seconds
+FROM delegation_resources r
+WHERE r.id = g.resource_id
+  AND (g.resource_audience IS NULL OR g.token_ttl_seconds IS NULL);
+
+ALTER TABLE delegation_grants
+  ALTER COLUMN resource_audience SET NOT NULL,
+  ALTER COLUMN token_ttl_seconds SET NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'delegation_resources_allowed_scopes_check'
+      AND conrelid = to_regclass('delegation_resources')
+  ) THEN
+    ALTER TABLE delegation_resources
+      ADD CONSTRAINT delegation_resources_allowed_scopes_check
+      CHECK (cardinality(allowed_scopes) BETWEEN 1 AND 50);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'delegation_actor_policies_allowed_scopes_check'
+      AND conrelid = to_regclass('delegation_actor_policies')
+  ) THEN
+    ALTER TABLE delegation_actor_policies
+      ADD CONSTRAINT delegation_actor_policies_allowed_scopes_check
+      CHECK (cardinality(allowed_scopes) BETWEEN 1 AND 50);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'delegation_grants_scopes_check'
+      AND conrelid = to_regclass('delegation_grants')
+  ) THEN
+    ALTER TABLE delegation_grants
+      ADD CONSTRAINT delegation_grants_scopes_check
+      CHECK (cardinality(scopes) BETWEEN 1 AND 50);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'delegation_grants_token_ttl_seconds_check'
+      AND conrelid = to_regclass('delegation_grants')
+  ) THEN
+    ALTER TABLE delegation_grants
+      ADD CONSTRAINT delegation_grants_token_ttl_seconds_check
+      CHECK (token_ttl_seconds BETWEEN 30 AND 300);
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS delegation_audit_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  grant_id uuid REFERENCES delegation_grants(id),
+  resource_id uuid REFERENCES delegation_resources(id),
+  event_type text NOT NULL,
+  subject_id text,
+  authorizer_client_id text,
+  actor_client_id text,
+  scopes text[] NOT NULL DEFAULT '{}',
+  result text NOT NULL CHECK (result IN ('success', 'denied', 'error')),
+  reason text,
+  correlation_id text,
+  metadata jsonb NOT NULL DEFAULT '{}',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS delegation_audit_events_resource_idx
+  ON delegation_audit_events(resource_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS delegation_audit_events_actor_idx
+  ON delegation_audit_events(actor_client_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS delegation_audit_events_correlation_idx
+  ON delegation_audit_events(correlation_id)
+  WHERE correlation_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS auth_brands (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   key text NOT NULL UNIQUE,
@@ -291,6 +465,7 @@ CREATE TABLE IF NOT EXISTS auth_transactions (
   brand_snapshot jsonb NOT NULL,
   policy_snapshot jsonb NOT NULL,
   kratos_flow_id text,
+  kratos_flow_issued_at timestamptz,
   subject text,
   status text NOT NULL DEFAULT 'created'
     CHECK (status IN (
@@ -304,6 +479,9 @@ CREATE TABLE IF NOT EXISTS auth_transactions (
   failure_code text,
   redirect_to text
 );
+
+ALTER TABLE auth_transactions
+  ADD COLUMN IF NOT EXISTS kratos_flow_issued_at timestamptz;
 
 CREATE INDEX IF NOT EXISTS auth_transactions_expiry_idx
   ON auth_transactions(expires_at)
@@ -655,7 +833,10 @@ VALUES
   (4, 'seed only idnest-admin-client mapping'),
   (5, 'rename login policy to authentication policy'),
   (6, 'intent-based authentication policy names without IdP identity'),
-  (7, 'archive unused historical system brands')
+  (7, 'archive unused historical system brands'),
+  (8, 'generic delegated authorization'),
+  (9, 'bind delegation grants to audience and token ttl'),
+  (10, 'track kratos login flow issue time')
 ON CONFLICT (version) DO NOTHING;
 `;
 

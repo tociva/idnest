@@ -1,19 +1,5 @@
-x-origin-tls: &origin-tls
-  volumes:
-    - type: bind
-      source: ${TLS_CERT_FILE:?TLS_CERT_FILE is required}
-      target: /run/idnest-tls/origin-cert.pem
-      read_only: true
-    - type: bind
-      source: ${TLS_KEY_FILE:?TLS_KEY_FILE is required}
-      target: /run/idnest-tls/origin-key.pem
-      read_only: true
-  group_add:
-    - ${TLS_READ_GID:?TLS_READ_GID is required}
-
 services:
   hydra:
-    <<: *origin-tls
     image: oryd/hydra:v26.2.0
     container_name: idnest-hydra
     restart: unless-stopped
@@ -30,9 +16,6 @@ services:
       SERVE_COOKIES_SAME_SITE_MODE: Lax
       SERVE_COOKIES_SAME_SITE_LEGACY_WORKAROUND: 'false'
       SERVE_COOKIES_SECURE: 'true'
-      SERVE_TLS_ENABLED: 'true'
-      SERVE_TLS_CERT_PATH: /run/idnest-tls/origin-cert.pem
-      SERVE_TLS_KEY_PATH: /run/idnest-tls/origin-key.pem
       WEBFINGER_OIDC_DISCOVERY_SUPPORTED_SCOPES: openid,profile,email
       WEBFINGER_OIDC_DISCOVERY_SUPPORTED_CLAIMS: sub,name,email
       STRATEGIES_ACCESS_TOKEN: jwt
@@ -52,16 +35,14 @@ services:
       SERVE_COOKIES_DOMAIN=\"$$KRATOS_COOKIES_DOMAIN\";
       exec hydra serve all"
     ports:
-      - '0.0.0.0:${HYDRA_ORIGIN_HTTPS_PORT:-8446}:4444'
-      - '127.0.0.1:${HYDRA_ADMIN_HTTPS_PORT:-4445}:4445'
+      - '127.0.0.1:${HYDRA_PUBLIC_HTTP_PORT:-8446}:4444'
+      - '127.0.0.1:${HYDRA_ADMIN_HTTP_PORT:-4445}:4445'
     networks:
       runtime:
         aliases:
           - idnest-hydra
-          - ${HYDRA_TLS_SERVER_NAME:?HYDRA_TLS_SERVER_NAME is required}
 
   kratos:
-    <<: *origin-tls
     build:
       context: /opt/idnest/identity/kratos-build
       dockerfile: Dockerfile
@@ -73,19 +54,16 @@ services:
       - ${IDNEST_ENV_FILE:-/etc/idnest/idnest.env}
     extra_hosts:
       - host.docker.internal:host-gateway
-    environment:
-      KRATOS_PUBLIC_TLS_ENABLED: 'true'
     entrypoint: >-
       sh -c "sh /usr/local/bin/render-kratos-config.sh
       && exec kratos serve -c /tmp/kratos.yml --watch-courier"
     ports:
-      - '0.0.0.0:${KRATOS_ORIGIN_HTTPS_PORT:-8447}:4433'
+      - '127.0.0.1:${KRATOS_PUBLIC_HTTP_PORT:-8447}:4433'
       - '127.0.0.1:${KRATOS_ADMIN_HTTP_PORT:-4434}:4434'
     networks:
       runtime:
         aliases:
           - idnest-kratos
-          - ${KRATOS_TLS_SERVER_NAME:?KRATOS_TLS_SERVER_NAME is required}
 
 networks:
   runtime:

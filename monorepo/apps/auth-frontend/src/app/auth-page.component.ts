@@ -9,6 +9,8 @@ import type {
   PublicAuthRecovery,
 } from "@idnest/shared-types";
 import { AuthApiService } from "./auth-api.service";
+import { loginFlowErrorMessage } from "./auth-flow-errors";
+import { isLoginFlowRedirectResponse } from "./auth-flow-response";
 import { AuthRecoveryComponent } from "./auth-recovery.component";
 import { BrandService } from "./brand.service";
 
@@ -90,15 +92,58 @@ import { BrandService } from "./brand.service";
                   <button
                     class="auth-button"
                     [class.provider-button]="node.group === 'oidc'"
+                    [attr.data-provider]="node.group === 'oidc' ? providerId(node) : null"
                     type="submit"
                     [attr.name]="node.attributes.name"
                     [attr.value]="nodeValue(node)"
                     [disabled]="node.attributes.disabled === true"
                   >
                     @if (node.group === "oidc") {
-                      <span class="provider-dot" aria-hidden="true"></span>
+                      @switch (providerId(node)) {
+                        @case ("apple") {
+                          <svg
+                            class="provider-icon apple-icon"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <path
+                              fill="currentColor"
+                              d="M16.365 1.43c0 1.14-.423 2.181-1.269 3.12-.982 1.082-2.075 1.705-3.244 1.606-.136-1.088.39-2.246 1.174-3.111.861-.956 2.33-1.686 3.339-1.615zM20.18 17.21c-.56 1.29-.829 1.864-1.55 3.003-1.006 1.546-2.42 3.474-4.176 3.489-1.56.014-1.963-1.012-4.081-1.001-2.119.011-2.56 1.018-4.123 1.004-1.756-.016-3.094-1.754-4.1-3.301-2.812-4.32-3.108-9.39-1.373-12.083 1.233-1.913 3.18-3.034 5.011-3.034 1.866 0 3.039 1.024 4.583 1.024 1.497 0 2.408-1.027 4.568-1.027 1.635 0 3.367.89 4.596 2.427-4.04 2.214-3.383 7.986.645 9.499z"
+                            />
+                          </svg>
+                        }
+                        @case ("google") {
+                          <svg
+                            class="provider-icon google-icon"
+                            viewBox="0 0 48 48"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <path
+                              fill="#ea4335"
+                              d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+                            />
+                            <path
+                              fill="#4285f4"
+                              d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+                            />
+                            <path
+                              fill="#fbbc05"
+                              d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+                            />
+                            <path
+                              fill="#34a853"
+                              d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+                            />
+                          </svg>
+                        }
+                        @default {
+                          <span class="provider-dot" aria-hidden="true"></span>
+                        }
+                      }
                     }
-                    {{ nodeLabel(node) }}
+                    <span>{{ nodeLabel(node) }}</span>
                   </button>
                   <ng-container
                     [ngTemplateOutlet]="messages"
@@ -193,6 +238,10 @@ export class AuthPageComponent implements OnInit {
     }
     try {
       const response = await this.api.loginFlowContext(flowId);
+      if (isLoginFlowRedirectResponse(response)) {
+        window.location.assign(response.redirectTo);
+        return;
+      }
       this.flow.set(response.flow);
       this.context.set(response.context);
       this.recovery.set(response.context.recovery);
@@ -202,7 +251,7 @@ export class AuthPageComponent implements OnInit {
         firstInvalid?.focus();
       });
     } catch (error) {
-      this.error.set("This sign-in request has expired or could not be loaded.");
+      this.error.set(loginFlowErrorMessage(error));
       this.recovery.set(this.api.recoveryFromError(error));
     } finally {
       this.loading.set(false);
@@ -261,12 +310,29 @@ export class AuthPageComponent implements OnInit {
       : "";
   }
 
+  providerId(node: KratosUiNode): string {
+    return node.group === "oidc" ? this.nodeValue(node).trim().toLowerCase() : "";
+  }
+
   nodeLabel(node: KratosUiNode): string {
-    return node.meta?.label?.text || (
-      node.attributes.name === "provider"
-        ? `Continue with ${this.nodeValue(node)}`
-        : this.nodeValue(node) || node.attributes.name || "Continue"
-    );
+    const label = node.meta?.label?.text;
+    if (node.attributes.name === "provider") {
+      const provider = this.providerId(node);
+      const providerName = provider === "apple"
+        ? "Apple"
+        : provider === "google"
+          ? "Google"
+          : this.nodeValue(node);
+      if (label) {
+        return provider === "apple"
+          ? label.replace(/\bapple\b/gi, providerName)
+          : provider === "google"
+            ? label.replace(/\bgoogle\b/gi, providerName)
+            : label;
+      }
+      return `Continue with ${providerName}`;
+    }
+    return label || this.nodeValue(node) || node.attributes.name || "Continue";
   }
 
   isHidden(node: KratosUiNode): boolean {

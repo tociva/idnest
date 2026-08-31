@@ -41,6 +41,7 @@ const approval = {
 };
 
 function consentRequest(input?: {
+  subject?: string;
   clientId?: string;
   clientName?: string;
   scopes?: string[];
@@ -56,7 +57,7 @@ function consentRequest(input?: {
     input?.clientName ?? (clientId === "example-user-client" ? "Example User Client" : "Idnest Admin Console");
   return {
     challenge: "cc_1",
-    subject: "kratos-id-1",
+    subject: input?.subject ?? "kratos-id-1",
     requested_scope: input?.scopes ?? ["openid", "profile", "email", "offline_access"],
     requested_access_token_audience: audiences,
     skip: false,
@@ -74,6 +75,7 @@ function consentRequest(input?: {
 }
 
 async function decide(input?: {
+  subject?: string;
   clientId?: string;
   clientName?: string;
   scopes?: string[];
@@ -189,6 +191,31 @@ describe("remembered offline consent", () => {
 
     expect(decision.canAutoAccept).toBe(true);
     expect(decision.autoAcceptReason).toBe("remembered_low_risk_consent");
+  });
+
+  it("loads email-subject consent without a Kratos identity lookup", async () => {
+    const fetchMock = mockFetchByUrl([
+      {
+        match: "/requests/consent?",
+        result: { ok: true, json: consentRequest({ subject: "Ada@Example.COM" }) },
+      },
+    ]);
+    authzMocks.getAuthzPool.mockReturnValue(pool);
+    authzMocks.hasActiveClientAccess.mockResolvedValue(true);
+    authzMocks.findConsentApproval.mockResolvedValue({ ...approval, identity_id: "ada@example.com" });
+    authzMocks.auditConsentEvent.mockResolvedValue(undefined);
+    authzMocks.bootstrapFirstSystemAdmin.mockResolvedValue(null);
+
+    const decision = await decideConsent("cc_1");
+
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/identities/"))).toBe(false);
+    expect(decision.loaded.subject).toBe("ada@example.com");
+    expect(decision.loaded.identity.traits.email).toBe("ada@example.com");
+    expect(authzMocks.hasActiveClientAccess).toHaveBeenCalledWith(
+      pool,
+      "ada@example.com",
+      "idnest-admin-client",
+    );
   });
 
   it("allows only registered audiences for the remembered offline_access exception", () => {

@@ -29,13 +29,10 @@ LABEL org.opencontainers.image.title="Idnest Auth" \
 
 ENV NODE_ENV=production \
     AUTH_BACKEND_PORT=3000 \
-    AUTH_HTTPS_ENABLED=true \
     AUTH_FRONTEND_DIST_DIR=/app/public/auth \
     HOST=0.0.0.0 \
     INTERNAL_HEALTH_PORT=3001 \
     INTERNAL_HEALTH_SERVER_ENABLED=true \
-    TLS_CERT_PATH=/run/idnest-tls/origin-cert.pem \
-    TLS_KEY_PATH=/run/idnest-tls/origin-key.pem \
     APP_REVISION=${APP_REVISION}
 
 WORKDIR /app

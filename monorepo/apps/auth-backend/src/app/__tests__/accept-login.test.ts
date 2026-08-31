@@ -30,6 +30,7 @@ describe("accept-login", () => {
     await acceptLogin({ login_challenge: "lc_1", subject: "kratos-id-1" });
     const call = fetchMock.mock.calls.find((c) => String(c[0]).includes("/login/accept"))!;
     const sent = JSON.parse((call[1] as RequestInit).body as string);
+    expect(sent.subject).toBe("ada@example.com");
     expect(sent.remember).toBe(true);
     expect(sent.acr).toBe("aal1");
     expect(sent.context.id_token).toEqual({

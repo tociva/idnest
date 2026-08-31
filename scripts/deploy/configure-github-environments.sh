@@ -79,6 +79,7 @@ validate_env_contract() {
       if (key == "VPS_HOST" && value !~ /^[A-Za-z0-9.-]+$/) malformed = 1
       if (key == "VPS_PORT" && (value !~ /^[0-9]+$/ || value < 1 || value > 65535)) malformed = 1
       if (key == "VPS_USER" && value !~ /^[A-Za-z_][A-Za-z0-9._-]*$/) malformed = 1
+      if (key == "DELEGATION_ENABLED" && value != "true" && value != "false") malformed = 1
       if (malformed) {
         printf "Malformed value for %s in %s\n", key, source > "/dev/stderr"
         failed = 1
@@ -112,7 +113,10 @@ for environment in ecr-build development-auth development-admin development-iden
     ecr-build)
       expected="AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY"
       ;;
-    development-auth|development-admin)
+    development-auth)
+      expected="AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS DELEGATION_ENABLED"
+      ;;
+    development-admin)
       expected="AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS"
       ;;
     development-identity)
@@ -137,7 +141,7 @@ for environment in development-auth development-admin development-identity; do
   }
   case "$environment" in
     development-auth)
-      expected_secrets="VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET"
+      expected_secrets="VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET DELEGATION_SIGNING_PRIVATE_KEY_B64"
       ;;
     development-admin)
       expected_secrets="VPS_SSH_PRIVATE_KEY_B64 VPS_SSH_KNOWN_HOSTS_B64 HOST_RELEASE_SIGNING_PRIVATE_KEY_B64 AUTHZ_DATABASE_URL ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET"
@@ -157,11 +161,19 @@ for environment in development-auth development-admin development-identity; do
           echo "Invalid base64 value for $key in $secrets" >&2
           exit 1
         }
-        if [ "$key" = APPLE_PRIVATE_KEY_B64 ]; then
+        if [ "$key" = APPLE_PRIVATE_KEY_B64 ] || [ "$key" = DELEGATION_SIGNING_PRIVATE_KEY_B64 ]; then
           printf '%s' "$value" | openssl base64 -d -A | openssl pkey -noout >/dev/null 2>&1 || {
-            echo "APPLE_PRIVATE_KEY_B64 does not contain a valid PEM private key in $secrets" >&2
+            echo "$key does not contain a valid PEM private key in $secrets" >&2
             exit 1
           }
+        fi
+        if [ "$key" = DELEGATION_SIGNING_PRIVATE_KEY_B64 ]; then
+          printf '%s' "$value" | openssl base64 -d -A \
+            | openssl pkey -text -noout 2>/dev/null \
+            | grep -Eq 'ASN1 OID: prime256v1|NIST CURVE: P-256' || {
+              echo "$key must contain a P-256 private key in $secrets" >&2
+              exit 1
+            }
         fi
         ;;
     esac
