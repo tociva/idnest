@@ -64,14 +64,18 @@ render_apple_private_key_yaml() {
       # Docker Compose decodes a dotenv double-quoted value and passes the PEM
       # with real newlines. Encode it back into a safe YAML string.
       printf '%s\n' "$APPLE_PRIVATE_KEY" | awk '
-        BEGIN { printf "\"" }
+        BEGIN {
+          backslash = sprintf("%c", 92)
+          quote = sprintf("%c", 34)
+          printf "%s", quote
+        }
         {
-          gsub(/\\/, "\\\\")
-          gsub(/"/, "\\\"")
+          gsub(/\\/, backslash backslash)
+          gsub(/"/, backslash quote)
           gsub(/\r/, "")
           printf "%s\\n", $0
         }
-        END { print "\"" }
+        END { print quote }
       '
       ;;
   esac

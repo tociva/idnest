@@ -66,14 +66,18 @@ if [ "$apple_value_count" -eq 4 ]; then
   "$APPLE_KEY_VALIDATOR" "$apple_key_file" >/dev/null \
     || fail "APPLE_PRIVATE_KEY_B64 must contain an Apple PKCS#8 P-256 private key"
   apple_private_key_yaml=$(awk '
-    BEGIN { printf "\"" }
+    BEGIN {
+      backslash = sprintf("%c", 92)
+      quote = sprintf("%c", 34)
+      printf "%s", quote
+    }
     {
-      gsub(/\\/, "\\\\")
-      gsub(/"/, "\\\"")
+      gsub(/\\/, backslash backslash)
+      gsub(/"/, backslash quote)
       gsub(/\r/, "")
       printf "%s\\n", $0
     }
-    END { printf "\"" }
+    END { printf "%s", quote }
   ' "$apple_key_file")
 fi
 

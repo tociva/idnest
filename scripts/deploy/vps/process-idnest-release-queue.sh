@@ -198,7 +198,6 @@ run_one() {
   WORK_ROOT=
   SUCCEEDED=false
 
-  # shellcheck disable=SC2329
   finish_request() {
     exit_code=$?
     if [ "$SUCCEEDED" != true ] && valid_kind "$KIND" && valid_request_id "$REQUEST_ID"; then
@@ -219,6 +218,8 @@ run_one() {
   trap finish_request EXIT
   trap 'exit 1' HUP INT TERM
   process_one "$request_path"
+  trap - EXIT
+  finish_request
 }
 
 [ "$(id -u)" -eq 0 ] || fail "queue processor must run as root"
@@ -227,9 +228,13 @@ for command in awk chown chmod grep id install mv openssl rm sed sha256sum stat 
 done
 [ -x "$HOST_ACTIVATOR" ] || fail "host release activator is unavailable"
 [ -x "$ENV_VALIDATOR" ] || fail "application environment validator is unavailable"
-[ -f "$SIGNING_PUBLIC_KEY" ] && [ ! -L "$SIGNING_PUBLIC_KEY" ] \
-  && [ "$(stat -c '%U' "$SIGNING_PUBLIC_KEY")" = root ] \
-  || fail "release signing public key is unavailable"
+if ! {
+  [ -f "$SIGNING_PUBLIC_KEY" ] &&
+    [ ! -L "$SIGNING_PUBLIC_KEY" ] &&
+    [ "$(stat -c '%U' "$SIGNING_PUBLIC_KEY")" = root ]
+}; then
+  fail "release signing public key is unavailable"
+fi
 
 if [ "${1:-}" = --one ]; then
   [ "$#" -eq 2 ] || fail "invalid internal invocation"

@@ -20,14 +20,32 @@ printf '%s\n' "$RUNTIME_SUBNET" \
 [ "$(id -u)" -eq 0 ] || fail "run provisioning as root"
 id "$DEPLOY_USER" >/dev/null 2>&1 || fail "deployment user does not exist"
 DEPLOY_GROUP=$(id -gn "$DEPLOY_USER")
-[ -f "$RELEASE_SIGNING_PUBLIC_KEY" ] && [ ! -L "$RELEASE_SIGNING_PUBLIC_KEY" ] && [ -s "$RELEASE_SIGNING_PUBLIC_KEY" ] || fail "invalid release signing public key"
-[ -f "$DEPLOY_SSH_PUBLIC_KEY" ] && [ ! -L "$DEPLOY_SSH_PUBLIC_KEY" ] && [ -s "$DEPLOY_SSH_PUBLIC_KEY" ] || fail "invalid deployment SSH public key"
+if ! {
+  [ -f "$RELEASE_SIGNING_PUBLIC_KEY" ] &&
+    [ ! -L "$RELEASE_SIGNING_PUBLIC_KEY" ] &&
+    [ -s "$RELEASE_SIGNING_PUBLIC_KEY" ]
+}; then
+  fail "invalid release signing public key"
+fi
+if ! {
+  [ -f "$DEPLOY_SSH_PUBLIC_KEY" ] &&
+    [ ! -L "$DEPLOY_SSH_PUBLIC_KEY" ] &&
+    [ -s "$DEPLOY_SSH_PUBLIC_KEY" ]
+}; then
+  fail "invalid deployment SSH public key"
+fi
 
 for command in chown cp cut docker getent grep id install openssl ssh-keygen stat systemctl; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 DEPLOY_HOME=$(getent passwd "$DEPLOY_USER" | cut -d: -f6)
-[ -n "$DEPLOY_HOME" ] && [ -d "$DEPLOY_HOME" ] && [ ! -L "$DEPLOY_HOME" ] || fail "invalid deployment user home"
+if ! {
+  [ -n "$DEPLOY_HOME" ] &&
+    [ -d "$DEPLOY_HOME" ] &&
+    [ ! -L "$DEPLOY_HOME" ]
+}; then
+  fail "invalid deployment user home"
+fi
 docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is unavailable"
 openssl pkey -pubin -in "$RELEASE_SIGNING_PUBLIC_KEY" -noout >/dev/null 2>&1 || fail "release signing public key is not a valid PEM public key"
 ssh-keygen -l -f "$DEPLOY_SSH_PUBLIC_KEY" >/dev/null 2>&1 || fail "deployment SSH public key is invalid"
@@ -35,7 +53,12 @@ ssh-keygen -l -f "$DEPLOY_SSH_PUBLIC_KEY" >/dev/null 2>&1 || fail "deployment SS
 SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../../.." && pwd)
 for file in compose.auth.yaml compose.admin.yaml compose.idnest.yaml Dockerfile.kratos deploy-idnest-app.sh deploy-idnest-infra.sh deploy-idnest-auth.sh deploy-idnest-admin.sh rollback-idnest-app.sh rollback-idnest-auth.sh rollback-idnest-admin.sh validate-app-env.sh validate-development-host.sh activate-host-release.sh process-idnest-release-queue.sh submit-idnest-release.sh wait-idnest-release.sh idnest-release-queue.path idnest-release-queue.service idnest-cloudflared.service auth.conf.example admin.conf.example idnest.conf.example; do
-  [ -f "$SCRIPT_DIR/$file" ] && [ ! -L "$SCRIPT_DIR/$file" ] || fail "invalid provisioning source: $file"
+  if ! {
+    [ -f "$SCRIPT_DIR/$file" ] &&
+      [ ! -L "$SCRIPT_DIR/$file" ]
+  }; then
+    fail "invalid provisioning source: $file"
+  fi
 done
 
 install -d -o root -g root -m 755 /opt/idnest /opt/idnest/auth /opt/idnest/admin /opt/idnest/identity /opt/idnest/host-releases /opt/idnest/identity/kratos-build /opt/idnest/identity/kratos-build/config /opt/idnest/identity/kratos-build/config/kratos /opt/idnest/identity/config-history /etc/idnest

@@ -45,8 +45,13 @@ DEPLOY_CONFIG=$CONFIG_ROOT/$KIND.conf
 
 [ "$(id -u)" -eq 0 ] || fail "rollback must run through sudo as root"
 for file in "$COMPOSE_FILE" "$RELEASE_ENV" "$STATE_FILE" "$DEPLOY_CONFIG" "$APP_ENV"; do
-  [ -f "$file" ] && [ ! -L "$file" ] && [ "$(stat -c '%U' "$file")" = root ] \
-    || fail "invalid root-owned required file: $file"
+  if ! {
+    [ -f "$file" ] &&
+      [ ! -L "$file" ] &&
+      [ "$(stat -c '%U' "$file")" = root ]
+  }; then
+    fail "invalid root-owned required file: $file"
+  fi
 done
 
 # shellcheck source=/dev/null
