@@ -42,6 +42,14 @@ import {
   type ScopeOption,
 } from "../../core/oauth-client-profiles";
 import { ToastService } from "../../core/toast/toast.service";
+import {
+  customScopeOptionsFromScope,
+  mergeCustomScopeInput,
+  mergeScopeOptions,
+  normalizeScopeList,
+  scopeOptionsFromScopes,
+  splitScopes,
+} from "./client-detail-scopes";
 
 interface ClientForm {
   client_id: string;
@@ -112,21 +120,6 @@ const splitList = (value: string): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
-const normalizeScopeList = (scopes: readonly unknown[]): string[] => {
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const scope of scopes) {
-    if (typeof scope !== "string") continue;
-    const trimmed = scope.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    normalized.push(trimmed);
-  }
-  return normalized;
-};
-
-const splitScopes = (value: string): string[] => normalizeScopeList(value.split(/[\s,]+/));
-
 const getScopeOptionValue = (option: ScopeOption): string => option.value;
 const getScopeOptionLabel = (option: ScopeOption): string => option.label;
 const getSelectOptionValue = (option: SelectOption): string => option.value;
@@ -178,6 +171,7 @@ export class ClientDetailComponent implements OnInit {
   form: ClientForm = emptyForm();
   identityGrants: ClientAccessGrant[] = [];
   customScope = "";
+  customScopeOptions: ScopeOption[] = [];
   createdClientSecret = "";
   revealClientSecret = false;
   readonly clientProfileOptions = CLIENT_PROFILE_OPTIONS;
@@ -237,20 +231,22 @@ export class ClientDetailComponent implements OnInit {
     return splitScopes(this.form.scope);
   }
 
-  get scopeOptions(): ScopeOption[] {
-    const options = [
+  private get baseScopeOptions(): ScopeOption[] {
+    return [
       ...(this.selectedProfile?.scopeOptions ?? [
         ...CLIENT_PROFILE_VIEWS.spa.scopeOptions,
         ...CLIENT_PROFILE_VIEWS.service.scopeOptions,
       ]),
     ];
-    const knownValues = new Set(options.map((option) => option.value));
-    for (const scope of this.selectedScopes) {
-      if (knownValues.has(scope)) continue;
-      knownValues.add(scope);
-      options.push({ value: scope, label: scope });
-    }
-    return options;
+  }
+
+  get scopeOptions(): ScopeOption[] {
+    const baseOptions = this.baseScopeOptions;
+    return mergeScopeOptions(
+      baseOptions,
+      this.customScopeOptions,
+      customScopeOptionsFromScope(this.form.scope, baseOptions),
+    );
   }
 
   get protocolSummary(): Array<{ label: string; value: string }> {
@@ -295,6 +291,7 @@ export class ClientDetailComponent implements OnInit {
     try {
       if (this.createMode) {
         this.form = emptyForm();
+        this.customScopeOptions = [];
       } else {
         this.applyClient(await this.api.getClient(this.clientId));
         await this.loadIdentityGrants();
@@ -340,6 +337,7 @@ export class ClientDetailComponent implements OnInit {
     if (!this.supportsRefreshToken) {
       this.form.remember_offline_access = false;
     }
+    this.customScopeOptions = customScopeOptionsFromScope(this.form.scope, this.baseScopeOptions);
   }
 
   private toPayload(): ClientFormValue {
@@ -395,6 +393,7 @@ export class ClientDetailComponent implements OnInit {
     this.form.responseTypes = profile.responseTypes.join(", ");
     this.form.tokenEndpointAuthMethod = profile.tokenEndpointAuthMethod;
     this.form.scope = profile.defaultScope;
+    this.customScopeOptions = [];
     if (!profile.requiresRedirectUris) {
       this.form.redirectUris = "";
     }
@@ -423,10 +422,7 @@ export class ClientDetailComponent implements OnInit {
 
   addCustomScope(): void {
     if (this.protectedAdminClient) return;
-    const nextScopes = splitScopes(this.customScope);
-    if (nextScopes.length === 0) return;
-    this.form.scope = normalizeScopeList([...this.selectedScopes, ...nextScopes]).join(" ");
-    this.customScope = "";
+    this.commitCustomScope();
   }
 
   onCustomScopeKeydown(event: KeyboardEvent): void {
@@ -456,6 +452,7 @@ export class ClientDetailComponent implements OnInit {
       return;
     }
     await this.run(async () => {
+      this.commitCustomScope();
       const payload = this.toPayload();
       if (this.createMode) {
         const created = await this.api.createClient(payload);
@@ -470,6 +467,14 @@ export class ClientDetailComponent implements OnInit {
         this.toast.success(this.notice);
       }
     });
+  }
+
+  private commitCustomScope(): void {
+    const customScopes = splitScopes(this.customScope);
+    if (customScopes.length === 0) return;
+    this.customScopeOptions = mergeScopeOptions(this.customScopeOptions, scopeOptionsFromScopes(customScopes));
+    this.form.scope = mergeCustomScopeInput(this.form.scope, customScopes.join(" "));
+    this.customScope = "";
   }
 
   private async loadIdentityGrants(): Promise<void> {

@@ -352,6 +352,23 @@ describe("oauth client management", () => {
     });
   });
 
+  it("preserves custom scopes on known-profile client updates", async () => {
+    const fetchMock = mockFetchByUrl([
+      { match: "/admin/clients/app1", result: { ok: true, json: { client_id: "app1" } } },
+    ]);
+
+    const res = await updateClient({
+      client_id: "app1",
+      client_type: "web",
+      scope: "openid profile email custom.read custom.write",
+      redirect_uris: ["https://app1/cb"],
+    });
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.scope).toBe("openid profile email custom.read custom.write");
+  });
+
   it("accepts a post-logout callback on the redirect URI origin", async () => {
     const fetchMock = mockFetchByUrl([
       { match: "/admin/clients/bff", result: { ok: true, json: { client_id: "bff" } } },
