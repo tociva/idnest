@@ -40,6 +40,7 @@ WORKDIR /app
 COPY --from=build --chown=node:node /workspace/monorepo/dist/apps/admin-backend/main.cjs ./server/main.cjs
 COPY --from=build --chown=node:node /workspace/monorepo/dist/apps/admin-frontend/browser ./public/admin
 COPY --from=build --chown=node:node /workspace/monorepo/dist/migrations/authz-migrate.cjs ./migrations/authz-migrate.cjs
+COPY --chown=node:node scripts/setup/provision-admin-client.js ./scripts/setup/provision-admin-client.js
 
 USER node
 EXPOSE 3000

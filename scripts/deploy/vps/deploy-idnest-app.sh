@@ -300,6 +300,11 @@ fi
 compose run --rm --no-deps "$SERVICE_NAME" node migrations/authz-migrate.cjs \
   || { restore_application_env; restore_release_metadata; fail "database migration failed"; }
 
+if [ "$KIND" = admin ]; then
+  compose run --rm --no-deps "$SERVICE_NAME" node scripts/setup/provision-admin-client.js \
+    || { restore_application_env; restore_release_metadata; fail "admin OAuth client provisioning failed"; }
+fi
+
 if ! compose up --detach --no-deps "$SERVICE_NAME"; then
   restore_previous_release || true
   CANDIDATE_STARTED=false

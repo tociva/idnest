@@ -140,6 +140,10 @@ require_text scripts/deploy/render-development-app-env.sh \
   'KRATOS_INTERNAL_URL=http://idnest-kratos:4433'
 require_text scripts/deploy/render-development-app-env.sh \
   'ADMIN_OIDC_TOKEN_URL=http://idnest-hydra:4444/oauth2/token'
+require_text scripts/docker/Dockerfile.admin-app \
+  'scripts/setup/provision-admin-client.js'
+require_text scripts/deploy/vps/deploy-idnest-app.sh \
+  'node scripts/setup/provision-admin-client.js'
 require_text scripts/deploy/README.md \
   './scripts/deploy/create-development-env.sh'
 require_text scripts/deploy/README.md \

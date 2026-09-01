@@ -118,23 +118,6 @@ const CLIENT_PAYLOAD = {
 
 const ADMIN_CLIENTS_BASE = `${HYDRA_ADMIN_URL.replace(/\/+$/, "")}/admin/clients`;
 
-async function deleteHydraClient() {
-  const res = await fetch(`${ADMIN_CLIENTS_BASE}/${encodeURIComponent(CLIENT_ID)}`, {
-    method: "DELETE",
-  });
-
-  if (res.ok) {
-    console.log(`Client "${CLIENT_ID}" deleted.`);
-    return;
-  }
-  if (res.status === 404) {
-    console.log(`Client "${CLIENT_ID}" does not exist.`);
-    return;
-  }
-
-  throw new Error(`Failed to delete client: ${res.status} ${res.statusText}\n${await res.text()}`);
-}
-
 async function createHydraClient() {
   const response = await fetch(ADMIN_CLIENTS_BASE, {
     method: "POST",
@@ -142,12 +125,47 @@ async function createHydraClient() {
     body: JSON.stringify(CLIENT_PAYLOAD),
   });
 
+  if (response.status === 409) {
+    await updateHydraClient();
+    return;
+  }
   if (!response.ok) {
     throw new Error(`Failed to create client: ${response.status} ${response.statusText}\n${await response.text()}`);
   }
 
   const created = await response.json();
   console.log(`Client "${created.client_id || CLIENT_ID}" created.`);
+}
+
+async function updateHydraClient() {
+  const response = await fetch(`${ADMIN_CLIENTS_BASE}/${encodeURIComponent(CLIENT_ID)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(CLIENT_PAYLOAD),
+  });
+
+  if (response.status === 404) {
+    await createHydraClient();
+    return;
+  }
+  if (!response.ok) {
+    throw new Error(`Failed to update client: ${response.status} ${response.statusText}\n${await response.text()}`);
+  }
+
+  const updated = await response.json();
+  console.log(`Client "${updated.client_id || CLIENT_ID}" updated.`);
+}
+
+async function provisionHydraClient() {
+  const response = await fetch(`${ADMIN_CLIENTS_BASE}/${encodeURIComponent(CLIENT_ID)}`);
+  if (response.status === 404) {
+    await createHydraClient();
+    return;
+  }
+  if (!response.ok) {
+    throw new Error(`Failed to inspect client: ${response.status} ${response.statusText}\n${await response.text()}`);
+  }
+  await updateHydraClient();
 }
 
 async function repairStaleAdminGrants() {
@@ -213,9 +231,8 @@ async function repairStaleAdminGrants() {
   if (!CLIENT_SECRET) {
     throw new Error("ADMIN_OIDC_CLIENT_SECRET is required to register the confidential admin client.");
   }
-  console.log(`Registering admin Hydra client "${CLIENT_ID}" against ${ADMIN_CLIENTS_BASE}`);
-  await deleteHydraClient();
-  await createHydraClient();
+  console.log(`Provisioning admin Hydra client "${CLIENT_ID}" against ${ADMIN_CLIENTS_BASE}`);
+  await provisionHydraClient();
 })().catch((err) => {
   console.error(err);
   process.exit(1);

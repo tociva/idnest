@@ -675,23 +675,25 @@ gh run watch --repo tociva/idnest --exit-status
 
 Use `idnest/admin-app` and `component=admin` to roll back admin.
 
-Then provision the confidential admin OAuth client once from the trusted
-checkout on the VPS. The secret comes from the pipeline-installed
-`admin-app.env`, and the container joins the private Idnest network:
+The admin deployment provisions or updates the confidential admin OAuth client
+from the pipeline-installed `admin-app.env`. No separate first-admin client
+bootstrap step is required after a successful admin release.
+
+For an exceptional manual repair, rerun the same provisioner from the active
+admin image on the VPS. The secret comes from `admin-app.env`, and the
+container joins the private Idnest network:
 
 ```bash
-cd ~/idnest-bootstrap/repository
 sudo docker run --rm \
   --network idnest-runtime-development \
   --env-file /etc/idnest/admin-app.env \
-  --mount type=bind,src="$PWD/scripts/setup/provision-admin-client.js",dst=/work/provision-admin-client.js,readonly \
-  node:22.22.0 node /work/provision-admin-client.js
+  "$(awk -F= '$1 == "ACTIVE_IMAGE" { print $2 }' /opt/idnest/admin/state.env)" \
+  node scripts/setup/provision-admin-client.js
 ```
 
-Rerun that command whenever the admin client secret, redirect URIs, or client
-metadata changes. If the secret changed, upload the updated GitHub Environment
-first, run the admin workflow, and then provision the Hydra client with the same
-new value.
+If the secret changed, upload the updated GitHub Environment first and run the
+admin workflow; the deployment updates the Hydra client with the same new
+value.
 
 Verify the public services through Cloudflare:
 
