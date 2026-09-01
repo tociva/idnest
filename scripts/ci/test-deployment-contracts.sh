@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
-for command in awk bash docker grep mktemp openssl rg rm sh; do
+for command in awk bash docker grep mktemp openssl rg rm sh sort; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
@@ -24,7 +24,7 @@ done < <(find scripts -type f -name '*.sh' -print | sort)
 bash scripts/ci/test-apple-login-contracts.sh
 
 if command -v shellcheck >/dev/null 2>&1; then
-  mapfile -t shell_scripts < <(find scripts/deploy/vps scripts/ci -type f -name '*.sh' -print | sort)
+  mapfile -t shell_scripts < <(find scripts/deploy/ci scripts/deploy/vps scripts/ci -type f -name '*.sh' -print | sort)
   shellcheck -x "${shell_scripts[@]}"
 fi
 
@@ -76,6 +76,28 @@ require_text scripts/deploy/vps/provision-host.sh \
   'idnest-cloudflared.service'
 require_text scripts/deploy/vps/activate-host-release.sh \
   'scripts/deploy/vps/idnest-cloudflared.service'
+require_text scripts/deploy/manifests/host-release-files.txt \
+  'scripts/deploy/vps/idnest-cloudflared.service'
+require_text scripts/deploy/ci/release-common.sh \
+  'scripts/deploy/manifests/host-release-files.txt'
+
+expected_host_release_files='scripts/deploy/vps/Dockerfile.kratos
+scripts/deploy/vps/compose.admin.yaml
+scripts/deploy/vps/compose.auth.yaml
+scripts/deploy/vps/compose.idnest.yaml
+scripts/deploy/vps/deploy-idnest-admin.sh
+scripts/deploy/vps/deploy-idnest-app.sh
+scripts/deploy/vps/deploy-idnest-auth.sh
+scripts/deploy/vps/deploy-idnest-infra.sh
+scripts/deploy/vps/idnest-cloudflared.service
+scripts/deploy/vps/rollback-idnest-admin.sh
+scripts/deploy/vps/rollback-idnest-app.sh
+scripts/deploy/vps/rollback-idnest-auth.sh
+scripts/deploy/vps/validate-app-env.sh
+scripts/docker/render-kratos-config.sh'
+actual_host_release_files=$(grep -Ev '^(#|$)' scripts/deploy/manifests/host-release-files.txt | sort)
+[ "$actual_host_release_files" = "$expected_host_release_files" ] \
+  || fail "host release manifest drifted from the VPS activation contract"
 
 for workflow in \
   .github/workflows/deploy-auth-development.yml \
@@ -83,8 +105,17 @@ for workflow in \
   .github/workflows/deploy-identity-development.yml \
   .github/workflows/rollback-development.yml \
   .github/workflows/deploy-production.yml; do
-  require_text "$workflow" 'scripts/deploy/vps/idnest-cloudflared.service'
+  require_text "$workflow" 'scripts/deploy/ci/prepare-release-request.sh'
+  require_text "$workflow" 'scripts/deploy/ci/upload-release-request.sh'
+  require_text "$workflow" 'scripts/deploy/ci/submit-release-request.sh'
+  require_text "$workflow" 'scripts/deploy/ci/cleanup-release-request.sh'
 done
+reject_pattern 'scp_args=|ssh_args=|base64 --decode|aws ecr get-login-password|submit-idnest-release|wait-idnest-release|tar --create --gzip --file "\$\{RUNNER_TEMP\}/host-release\.tar\.gz"' \
+  .github/workflows/deploy-auth-development.yml \
+  .github/workflows/deploy-admin-development.yml \
+  .github/workflows/deploy-identity-development.yml \
+  .github/workflows/rollback-development.yml \
+  .github/workflows/deploy-production.yml
 
 if rg -n 'CLOUDFLARE_TUNNEL_TOKEN|cloudflared\.token' .github/workflows; then
   fail "the tunnel credential must not be available to GitHub Actions"

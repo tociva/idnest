@@ -173,6 +173,7 @@ HISTORY_ROOT=$KIND_ROOT/deployment-history
 ECR_PASSWORD=$INCOMING_ROOT/ecr-password.$RUN_ID
 APP_ENV_CANDIDATE=$INCOMING_ROOT/$KIND-app.env.$RUN_ID
 APP_ENV_BACKUP=$KIND_ROOT/app.env.before.$RUN_ID
+APP_ENV_CANDIDATE_PRESENT=false
 STATE_CANDIDATE=
 REGISTRY=
 APP_ENV_INSTALLED=false
@@ -190,12 +191,16 @@ for command in chmod cp curl date docker flock grep id install mkdir mv rm sha25
 done
 docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is unavailable"
 [ "$(id -u)" -eq 0 ] || fail "deployment must run as root through the release queue processor"
-for file in "$COMPOSE_FILE" "$DEPLOY_CONFIG" "$APP_ENV_CANDIDATE" "$ENV_VALIDATOR" "$ECR_PASSWORD"; do
+for file in "$COMPOSE_FILE" "$DEPLOY_CONFIG" "$ENV_VALIDATOR" "$ECR_PASSWORD"; do
   root_regular_file "$file" || fail "invalid root-owned deployment file: $file"
 done
 [ -x "$ENV_VALIDATOR" ] || fail "environment validator is not executable"
 case "$(stat -c '%a' "$DEPLOY_CONFIG")" in 600) ;; *) fail "deployment config mode must be 600" ;; esac
-case "$(stat -c '%a' "$APP_ENV_CANDIDATE")" in 600) ;; *) fail "staged application environment mode must be 600" ;; esac
+if [ -e "$APP_ENV_CANDIDATE" ] || [ -L "$APP_ENV_CANDIDATE" ]; then
+  root_regular_file "$APP_ENV_CANDIDATE" || fail "invalid root-owned staged application environment"
+  case "$(stat -c '%a' "$APP_ENV_CANDIDATE")" in 600) ;; *) fail "staged application environment mode must be 600" ;; esac
+  APP_ENV_CANDIDATE_PRESENT=true
+fi
 
 # shellcheck source=/dev/null
 . "$DEPLOY_CONFIG"
@@ -213,7 +218,14 @@ valid_positive_integer "$HEALTH_TIMEOUT_SECONDS" || fail "invalid health timeout
 case "$PUBLIC_HEALTH_URL" in https://*) ;; *) fail "public health URL must use HTTPS" ;; esac
 case "$REQUIRE_BACKUP_HOOK" in true|false) ;; *) fail "invalid backup-hook setting" ;; esac
 
-"$ENV_VALIDATOR" "$APP_ENV_CANDIDATE" "$KIND"
+if [ "$APP_ENV_CANDIDATE_PRESENT" = true ]; then
+  "$ENV_VALIDATOR" "$APP_ENV_CANDIDATE" "$KIND"
+elif root_regular_file "$APP_ENV"; then
+  case "$(stat -c '%a' "$APP_ENV")" in 600) ;; *) fail "existing application environment mode must be 600" ;; esac
+  "$ENV_VALIDATOR" "$APP_ENV" "$KIND"
+else
+  fail "host-only deployment requires an existing root-owned application environment: $APP_ENV"
+fi
 if [ -e "$APP_ENV" ] || [ -L "$APP_ENV" ]; then
   root_regular_file "$APP_ENV" || fail "existing application environment must be a root-owned regular file"
   case "$(stat -c '%a' "$APP_ENV")" in 600) ;; *) fail "existing application environment mode must be 600" ;; esac
@@ -224,19 +236,21 @@ exec 9>"$LOCK_FILE"
 flock -n 9 || fail "another auth/admin deployment is running"
 mkdir -p "$HISTORY_ROOT"
 
-[ ! -e "$APP_ENV_BACKUP" ] && [ ! -L "$APP_ENV_BACKUP" ] \
-  || fail "application environment backup path already exists"
-if [ -f "$APP_ENV" ]; then
-  cp -p -- "$APP_ENV" "$APP_ENV_BACKUP"
-  APP_ENV_PREVIOUSLY_PRESENT=true
-fi
 app_env_install_candidate=$APP_ENV.candidate.$RUN_ID
-[ ! -e "$app_env_install_candidate" ] && [ ! -L "$app_env_install_candidate" ] \
-  || fail "application environment candidate path already exists"
-install -o root -g root -m 600 "$APP_ENV_CANDIDATE" "$app_env_install_candidate"
-mv -- "$app_env_install_candidate" "$APP_ENV"
-rm -f -- "$APP_ENV_CANDIDATE"
-APP_ENV_INSTALLED=true
+if [ "$APP_ENV_CANDIDATE_PRESENT" = true ]; then
+  [ ! -e "$APP_ENV_BACKUP" ] && [ ! -L "$APP_ENV_BACKUP" ] \
+    || fail "application environment backup path already exists"
+  if [ -f "$APP_ENV" ]; then
+    cp -p -- "$APP_ENV" "$APP_ENV_BACKUP"
+    APP_ENV_PREVIOUSLY_PRESENT=true
+  fi
+  [ ! -e "$app_env_install_candidate" ] && [ ! -L "$app_env_install_candidate" ] \
+    || fail "application environment candidate path already exists"
+  install -o root -g root -m 600 "$APP_ENV_CANDIDATE" "$app_env_install_candidate"
+  mv -- "$app_env_install_candidate" "$APP_ENV"
+  rm -f -- "$APP_ENV_CANDIDATE"
+  APP_ENV_INSTALLED=true
+fi
 
 ACTIVE_IMAGE=
 ACTIVE_REVISION=

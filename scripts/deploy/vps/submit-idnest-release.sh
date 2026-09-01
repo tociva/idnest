@@ -34,7 +34,8 @@ valid_sha256() {
   printf '%s\n' "$1" | grep -Eq '^[a-f0-9]{64}$'
 }
 
-[ "$#" -eq 7 ] || fail "usage: submit-idnest-release auth|admin REQUEST_ID RUN_ID REVISION IMAGE@DIGEST HOST_SHA APP_ENV_SHA; or identity REQUEST_ID RUN_ID REVISION HOST_SHA IDENTITY_ENV_SHA IDENTITY_CONFIG_SHA"
+[ "$#" -eq 6 ] || [ "$#" -eq 7 ] \
+  || fail "usage: submit-idnest-release auth|admin REQUEST_ID RUN_ID REVISION IMAGE@DIGEST HOST_SHA [APP_ENV_SHA]; or identity REQUEST_ID RUN_ID REVISION HOST_SHA IDENTITY_ENV_SHA IDENTITY_CONFIG_SHA"
 KIND=$1
 REQUEST_ID=$2
 RUN_ID=$3
@@ -47,14 +48,21 @@ valid_positive_integer "$RUN_ID" || fail "GitHub run ID must be a positive integ
 valid_revision "$REVISION" || fail "revision must be a full lowercase Git SHA"
 case "$KIND" in
   auth|admin)
+    [ "$#" -eq 6 ] || [ "$#" -eq 7 ] \
+      || fail "application release usage: submit-idnest-release $KIND REQUEST_ID RUN_ID REVISION IMAGE@DIGEST HOST_SHA [APP_ENV_SHA]"
     IMAGE_REF=$5
     HOST_BUNDLE_SHA256=$6
-    APP_ENV_SHA256=$7
     valid_image "$IMAGE_REF" || fail "image must be an ECR URI pinned by sha256 digest"
     valid_sha256 "$HOST_BUNDLE_SHA256" || fail "invalid host bundle checksum"
-    valid_sha256 "$APP_ENV_SHA256" || fail "invalid application environment checksum"
+    APP_ENV_SHA256=
+    if [ "$#" -eq 7 ]; then
+      APP_ENV_SHA256=$7
+      valid_sha256 "$APP_ENV_SHA256" || fail "invalid application environment checksum"
+    fi
     ;;
   identity)
+    [ "$#" -eq 7 ] \
+      || fail "identity release usage: submit-idnest-release identity REQUEST_ID RUN_ID REVISION HOST_SHA IDENTITY_ENV_SHA IDENTITY_CONFIG_SHA"
     HOST_BUNDLE_SHA256=$5
     IDENTITY_ENV_SHA256=$6
     IDENTITY_CONFIG_SHA256=$7
@@ -68,8 +76,12 @@ esac
 [ "$(stat -c '%u' "$INCOMING_ROOT")" -eq "$(id -u)" ] || fail "current user does not own the release queue"
 
 case "$KIND" in
-  auth) REQUIRED_UPLOADS="host-release.tar.gz host-release.sig app.env app-env.sig ecr-password" ;;
-  admin) REQUIRED_UPLOADS="host-release.tar.gz host-release.sig app.env app-env.sig ecr-password" ;;
+  auth|admin)
+    REQUIRED_UPLOADS="host-release.tar.gz host-release.sig ecr-password"
+    if [ -n "$APP_ENV_SHA256" ]; then
+      REQUIRED_UPLOADS="host-release.tar.gz host-release.sig app.env app-env.sig ecr-password"
+    fi
+    ;;
   identity) REQUIRED_UPLOADS="host-release.tar.gz host-release.sig idnest.env idnest-env.sig idnest-config.tar.gz idnest-config.sig" ;;
 esac
 
@@ -97,7 +109,9 @@ case "$KIND" in
       printf 'GIT_REVISION=%s\n' "$REVISION"
       printf 'IMAGE_REF=%s\n' "$IMAGE_REF"
       printf 'HOST_BUNDLE_SHA256=%s\n' "$HOST_BUNDLE_SHA256"
-      printf 'APP_ENV_SHA256=%s\n' "$APP_ENV_SHA256"
+      if [ -n "$APP_ENV_SHA256" ]; then
+        printf 'APP_ENV_SHA256=%s\n' "$APP_ENV_SHA256"
+      fi
     } >"$request_candidate"
     ;;
   identity)

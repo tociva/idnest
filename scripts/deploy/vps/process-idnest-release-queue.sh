@@ -62,8 +62,12 @@ process_one() {
   [ "$(stat -c '%U' "$request_path")" = "$QUEUE_USER" ] || fail "request owner does not match queue owner"
 
   case "$KIND" in
-    auth) REQUIRED_INPUTS="host-release.tar.gz host-release.sig app.env app-env.sig ecr-password" ;;
-    admin) REQUIRED_INPUTS="host-release.tar.gz host-release.sig app.env app-env.sig ecr-password" ;;
+    auth|admin)
+      REQUIRED_INPUTS="host-release.tar.gz host-release.sig ecr-password"
+      if grep -q '^APP_ENV_SHA256=' "$request_path"; then
+        REQUIRED_INPUTS="host-release.tar.gz host-release.sig app.env app-env.sig ecr-password"
+      fi
+      ;;
     identity) REQUIRED_INPUTS="host-release.tar.gz host-release.sig idnest.env idnest-env.sig idnest-config.tar.gz idnest-config.sig" ;;
   esac
 
@@ -84,25 +88,35 @@ process_one() {
   done
 
   request_file="$WORK_ROOT/request"
-  [ "$(wc -l <"$request_file" | tr -d ' ')" -eq 7 ] || fail "request must contain seven fields"
   case "$KIND" in
     auth|admin)
-      [ "$(grep -Ec '^(KIND|REQUEST_ID|GITHUB_RUN_ID|GIT_REVISION|IMAGE_REF|HOST_BUNDLE_SHA256|APP_ENV_SHA256)=' "$request_file")" -eq 7 ] \
-        || fail "application request contains an unexpected field"
+      APP_ENV_SHA256=
+      if grep -q '^APP_ENV_SHA256=' "$request_file"; then
+        [ "$(wc -l <"$request_file" | tr -d ' ')" -eq 7 ] || fail "application request with app env must contain seven fields"
+        [ "$(grep -Ec '^(KIND|REQUEST_ID|GITHUB_RUN_ID|GIT_REVISION|IMAGE_REF|HOST_BUNDLE_SHA256|APP_ENV_SHA256)=' "$request_file")" -eq 7 ] \
+          || fail "application request contains an unexpected field"
+        APP_ENV_SHA256=$(request_value APP_ENV_SHA256 "$request_file")
+      else
+        [ "$(wc -l <"$request_file" | tr -d ' ')" -eq 6 ] || fail "host-only application request must contain six fields"
+        [ "$(grep -Ec '^(KIND|REQUEST_ID|GITHUB_RUN_ID|GIT_REVISION|IMAGE_REF|HOST_BUNDLE_SHA256)=' "$request_file")" -eq 6 ] \
+          || fail "application request contains an unexpected field"
+      fi
       IMAGE_REF=$(request_value IMAGE_REF "$request_file")
-      APP_ENV_SHA256=$(request_value APP_ENV_SHA256 "$request_file")
       printf '%s\n' "$IMAGE_REF" | grep -Eq '^[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$' \
         || fail "invalid image reference"
-      printf '%s\n' "$APP_ENV_SHA256" | grep -Eq '^[a-f0-9]{64}$' \
-        || fail "invalid application environment checksum"
-      actual_app_env_sha256=$(sha256sum "$WORK_ROOT/app.env" | awk '{print $1}')
-      [ "$actual_app_env_sha256" = "$APP_ENV_SHA256" ] \
-        || fail "application environment checksum mismatch"
-      openssl pkeyutl -verify -rawin -pubin -inkey "$SIGNING_PUBLIC_KEY" \
-        -sigfile "$WORK_ROOT/app-env.sig" -in "$WORK_ROOT/app.env" >/dev/null 2>&1 \
-        || fail "application environment signature verification failed"
+      if [ -n "$APP_ENV_SHA256" ]; then
+        printf '%s\n' "$APP_ENV_SHA256" | grep -Eq '^[a-f0-9]{64}$' \
+          || fail "invalid application environment checksum"
+        actual_app_env_sha256=$(sha256sum "$WORK_ROOT/app.env" | awk '{print $1}')
+        [ "$actual_app_env_sha256" = "$APP_ENV_SHA256" ] \
+          || fail "application environment checksum mismatch"
+        openssl pkeyutl -verify -rawin -pubin -inkey "$SIGNING_PUBLIC_KEY" \
+          -sigfile "$WORK_ROOT/app-env.sig" -in "$WORK_ROOT/app.env" >/dev/null 2>&1 \
+          || fail "application environment signature verification failed"
+      fi
       ;;
     identity)
+      [ "$(wc -l <"$request_file" | tr -d ' ')" -eq 7 ] || fail "identity request must contain seven fields"
       [ "$(grep -Ec '^(KIND|REQUEST_ID|GITHUB_RUN_ID|GIT_REVISION|HOST_BUNDLE_SHA256|IDENTITY_ENV_SHA256|IDENTITY_CONFIG_SHA256)=' "$request_file")" -eq 7 ] \
         || fail "identity request contains an unexpected field"
       IDENTITY_ENV_SHA256=$(request_value IDENTITY_ENV_SHA256 "$request_file")
@@ -143,15 +157,23 @@ process_one() {
     "$HOST_BUNDLE_SHA256" "$REVISION" "$REQUEST_ID"
   case "$KIND" in
     auth)
-      "$ENV_VALIDATOR" "$WORK_ROOT/app.env" auth >/dev/null
+      if [ -n "$APP_ENV_SHA256" ]; then
+        "$ENV_VALIDATOR" "$WORK_ROOT/app.env" auth >/dev/null
+      fi
       install -o root -g root -m 600 "$WORK_ROOT/ecr-password" "$DEPLOY_INCOMING/ecr-password.$RUN_ID"
-      install -o root -g root -m 600 "$WORK_ROOT/app.env" "$DEPLOY_INCOMING/auth-app.env.$RUN_ID"
+      if [ -n "$APP_ENV_SHA256" ]; then
+        install -o root -g root -m 600 "$WORK_ROOT/app.env" "$DEPLOY_INCOMING/auth-app.env.$RUN_ID"
+      fi
       /usr/local/sbin/deploy-idnest-auth "$IMAGE_REF" "$REVISION" "$RUN_ID"
       ;;
     admin)
-      "$ENV_VALIDATOR" "$WORK_ROOT/app.env" admin >/dev/null
+      if [ -n "$APP_ENV_SHA256" ]; then
+        "$ENV_VALIDATOR" "$WORK_ROOT/app.env" admin >/dev/null
+      fi
       install -o root -g root -m 600 "$WORK_ROOT/ecr-password" "$DEPLOY_INCOMING/ecr-password.$RUN_ID"
-      install -o root -g root -m 600 "$WORK_ROOT/app.env" "$DEPLOY_INCOMING/admin-app.env.$RUN_ID"
+      if [ -n "$APP_ENV_SHA256" ]; then
+        install -o root -g root -m 600 "$WORK_ROOT/app.env" "$DEPLOY_INCOMING/admin-app.env.$RUN_ID"
+      fi
       /usr/local/sbin/deploy-idnest-admin "$IMAGE_REF" "$REVISION" "$RUN_ID"
       ;;
     identity)

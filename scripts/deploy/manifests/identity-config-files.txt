@@ -1,0 +1,4 @@
+config/kratos.tpl.yml
+config/kratos/identity.schema.json
+config/kratos/oidc.apple.mapper.jsonnet
+config/kratos/oidc.google.mapper.jsonnet

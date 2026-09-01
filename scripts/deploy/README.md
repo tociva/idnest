@@ -13,6 +13,34 @@ immutable digests to Amazon ECR. The separate identity workflow renders
 The VPS runs the root-owned release processor; the `github-deploy` SSH account
 does not receive Docker or sudo access.
 
+The deployment command surface is intentionally split by where the command
+runs:
+
+| Surface | Entrypoint | Purpose |
+| --- | --- | --- |
+| Trusted workstation | `scripts/deploy/transfer-development-vps-bootstrap.sh` | Build and upload the one-time VPS bootstrap payload |
+| Development VPS | `~/idnest-bootstrap/bootstrap-development-vps.sh` | Verify the transferred payload and provision root-owned runtime scripts |
+| GitHub Actions runner | `scripts/deploy/ci/prepare-release-request.sh` | Render/sign release artifacts and build the host-release archive from manifests |
+| GitHub Actions runner | `scripts/deploy/ci/upload-release-request.sh` | Upload prepared artifacts into the unprivileged VPS queue |
+| GitHub Actions runner | `scripts/deploy/ci/submit-release-request.sh` | Submit the queued request and wait for the root-owned processor |
+| GitHub Actions runner | `scripts/deploy/ci/cleanup-release-request.sh` | Remove runner-side key material and signed release files |
+
+The host-release archive contents are tracked in
+`scripts/deploy/manifests/host-release-files.txt`. Identity configuration files
+are tracked separately in `scripts/deploy/manifests/identity-config-files.txt`.
+Workflows must call the helper scripts instead of embedding SSH, SCP, signing,
+or archive commands directly in YAML; `pnpm test:deploy` enforces that contract.
+The signed release queue scripts themselves are bootstrap-owned, as in the
+Daybook backend: refresh the VPS bootstrap/provisioning path when the queue
+protocol changes.
+
+Development auth/admin releases use signed `app.env` files generated from
+protected GitHub Environment settings. Production promotion is host-only by
+design: it can promote an already tested image digest while reusing the
+existing root-owned `/etc/idnest/auth-app.env` or `/etc/idnest/admin-app.env`
+on the production VPS. A production host-only promotion fails before starting a
+container if that environment file is absent or fails validation.
+
 | Service | Public hostname | Loopback HTTP origin |
 | --- | --- | ---: |
 | Auth | `auth-dev.idnest.cloud` | `127.0.0.1:8444` |

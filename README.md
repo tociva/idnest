@@ -54,7 +54,7 @@ browser-accessible.
 │   └── libs/                       # Shared authorization, runtime, and types
 ├── scripts/
 │   ├── authz/                      # Authorization database migrations
-│   ├── deploy/                     # Development deployment and VPS bootstrap tooling
+│   ├── deploy/                     # Deployment, CI release, and VPS bootstrap tooling
 │   ├── docker/                     # Local Hydra and Kratos stack
 │   └── setup/                      # Local bootstrap and database setup
 ├── .env.example                    # Hydra and Kratos configuration template
@@ -98,6 +98,7 @@ Run commands from the repository root.
 | `pnpm test:cors` | Run the CORS configuration check and the container-backed Hydra client integration test |
 | `pnpm test:cors:live -- https://hydra-dev.idnest.cloud` | Verify metadata-only wildcard CORS and denied protected-route origins |
 | `pnpm test:client-cors:integration` | Create a client in an isolated Hydra v26.2.0 container and verify its runtime CORS origins |
+| `pnpm test:deploy` | Verify deployment scripts, manifests, workflow helper usage, and Compose contracts |
 | `pnpm typecheck` | Type-check all projects |
 | `pnpm lint` | Lint all projects |
 | `pnpm auth-backend:build` | Build only the auth backend |
