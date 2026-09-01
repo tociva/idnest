@@ -61,7 +61,7 @@ dotenv_value() {
       key = substr($0, 1, index($0, "=") - 1)
       if (key == wanted) {
         value = substr($0, index($0, "=") + 1)
-        if (value ~ /^\".*\"$/ || value ~ /^\047.*\047$/) {
+        if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) {
           value = substr(value, 2, length(value) - 2)
         }
         print value

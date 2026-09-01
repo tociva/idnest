@@ -103,7 +103,7 @@ dotenv_value() {
         sub(/^[^=]*=/, "", value)
         sub(/^[[:space:]]*/, "", value)
         sub(/[[:space:]]*$/, "", value)
-        if (value ~ /^\".*\"$/ || value ~ /^\047.*\047$/) {
+        if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) {
           value = substr(value, 2, length(value) - 2)
         }
         print value
