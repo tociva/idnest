@@ -13,6 +13,12 @@ policies, and the account-wide GitHub OIDC provider.
 aws sts get-caller-identity
 gh auth status
 
+gh api repos/tociva/idnest --jq '
+  "github_repository          = \"\(.full_name)\"",
+  "github_repository_owner_id = \"\(.owner.id)\"",
+  "github_repository_id       = \"\(.id)\""
+'
+
 cp infrastructure/terraform/aws-development/terraform.tfvars.example \
   infrastructure/terraform/aws-development/terraform.tfvars
 ```
@@ -87,8 +93,9 @@ account where that provider does not exist. Change `create_ecr_repositories` to
 Idnest remains isolated through its own `idnest-*` IAM roles and ECR
 repositories. Each role's trust policy also restricts tokens to the immutable
 `tociva@217876362/idnest@1016627095` repository identity and the exact GitHub
-environment used by that role. Verify the immutable IDs before applying with
-`gh api repos/tociva/idnest --jq '{repository_owner_id: .owner.id, repository_id: .id}'`.
+environment used by that role. Verify the immutable repository values before
+applying with the `gh api repos/tociva/idnest` command above, using the logged-in
+GitHub CLI session.
 
 `vps-dev.idnest.cloud` is the direct SSH endpoint and is not routed through
 Cloudflare. Auth, admin, and identity share this VPS but remain separate GitHub

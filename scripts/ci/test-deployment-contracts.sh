@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
-for command in awk bash docker grep mktemp rg rm sh; do
+for command in awk bash docker grep mktemp openssl rg rm sh; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
@@ -96,12 +96,49 @@ require_text scripts/deploy/render-development-app-env.sh \
   'KRATOS_INTERNAL_URL=http://idnest-kratos:4433'
 require_text scripts/deploy/render-development-app-env.sh \
   'ADMIN_OIDC_TOKEN_URL=http://idnest-hydra:4444/oauth2/token'
+require_text scripts/deploy/README.md \
+  './scripts/deploy/create-development-env.sh'
 
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/idnest-deployment-contract.XXXXXX")
 cleanup() {
   rm -rf -- "$temporary_directory"
 }
 trap cleanup EXIT INT TERM
+
+generated_development_env="$temporary_directory/development.env"
+bash scripts/deploy/create-development-env.sh \
+  "$generated_development_env" \
+  "$temporary_directory/missing-terraform" >/dev/null
+[ -f "$generated_development_env" ] || fail "development environment generator did not create a file"
+[ "$(awk -F= 'NF >= 2 { print $1 }' "$generated_development_env" | sort | uniq -d)" = "" ] \
+  || fail "development environment generator wrote duplicate keys"
+generated_keys=$(awk -F= 'NF >= 2 { print $1 }' "$generated_development_env" | sort | tr '\n' ' ')
+expected_generated_keys=$(awk -F= 'NF >= 2 { print $1 }' scripts/deploy/env/development.env.example | sort | tr '\n' ' ')
+[ "$generated_keys" = "$expected_generated_keys" ] \
+  || fail "development environment generator keys drifted from development.env.example"
+for generated_key in \
+  HYDRA_DSN KRATOS_DSN AUTHZ_DATABASE_URL HYDRA_SECRETS_SYSTEM \
+  KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET CONSENT_ACTION_SECRET \
+  AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET ADMIN_CSRF_SECRET \
+  ADMIN_OIDC_CLIENT_SECRET DELEGATION_SIGNING_PRIVATE_KEY_B64; do
+  generated_value=$(awk -F= -v key="$generated_key" '$1 == key { print substr($0, index($0, "=") + 1) }' "$generated_development_env")
+  [ -n "$generated_value" ] || fail "development environment generator missed $generated_key"
+  case "$generated_value" in
+    *replace-with-*) fail "development environment generator did not generate $generated_key" ;;
+  esac
+done
+generated_cipher_secret=$(awk -F= '$1 == "KRATOS_CIPHER_SECRET" { print $2 }' "$generated_development_env")
+[ "${#generated_cipher_secret}" -eq 32 ] \
+  || fail "development environment generator wrote invalid KRATOS_CIPHER_SECRET length"
+generated_placeholder_keys=$(awk -F= '$2 ~ /^replace-with-/ { print $1 }' "$generated_development_env" | sort | tr '\n' ' ')
+expected_placeholder_keys="ADMIN_AWS_DEPLOY_ROLE_ARN ADMIN_BOOTSTRAP_EMAILS ADMIN_ECR_REPOSITORY AUTH_AWS_DEPLOY_ROLE_ARN AUTH_ECR_REPOSITORY AWS_ACCOUNT_ID AWS_BUILD_ROLE_ARN AWS_REGION BUILDER_ECR_REPOSITORY CLOUDFLARE_TUNNEL_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET VPS_HOST VPS_PORT VPS_USER "
+[ "$generated_placeholder_keys" = "$expected_placeholder_keys" ] \
+  || fail "development environment generator wrote unexpected replace-with placeholders"
+printf '%s' "$(awk -F= '$1 == "DELEGATION_SIGNING_PRIVATE_KEY_B64" { print $2 }' "$generated_development_env")" \
+  | openssl base64 -d -A \
+  | openssl pkey -text -noout 2>/dev/null \
+  | grep -Eq 'ASN1 OID: prime256v1|NIST CURVE: P-256' \
+  || fail "development environment generator wrote an invalid delegation key"
 
 HYDRA_DSN='postgres://hydra:test@db.invalid:5432/hydra?sslmode=disable' \
 HYDRA_SECRETS_SYSTEM='0123456789abcdef0123456789abcdef' \

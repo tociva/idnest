@@ -55,17 +55,13 @@ does not already exist, synchronize the Terraform-owned VPS values, and add the
 token as `CLOUDFLARE_TUNNEL_TOKEN`:
 
 ```bash
-test -e tmp/development.env || {
-  install -d -m 700 tmp
-  install -m 600 scripts/deploy/env/development.env.example \
-    tmp/development.env
-}
+test -e tmp/development.env || ./scripts/deploy/create-development-env.sh
 ./scripts/deploy/update-development-env-from-terraform.sh
 ```
 
-At this stage the other application placeholders may remain; the transfer
-script reads only `VPS_HOST`, `VPS_PORT`, and the tunnel token. Keep this file
-mode `0600`.
+At this stage the Google OAuth and bootstrap admin email placeholders may remain;
+the transfer script reads only `VPS_HOST`, `VPS_PORT`, and the tunnel token.
+Keep this file mode `0600`.
 
 On the trusted Mac, run the transfer script from the repository root. Supply
 the existing non-root administrative account, its workstation SSH private key,

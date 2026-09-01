@@ -59,20 +59,11 @@ fi
 umask 077
 if [ "$DEVELOPMENT_ENV" = "$REPO_ROOT/tmp/development.env" ] \
   && [ ! -e "$DEVELOPMENT_ENV" ] && [ ! -L "$DEVELOPMENT_ENV" ]; then
-  development_directory=$REPO_ROOT/tmp
-  if [ -e "$development_directory" ] || [ -L "$development_directory" ]; then
-    [ -d "$development_directory" ] && [ ! -L "$development_directory" ] \
-      || fail "development input directory is invalid: $development_directory"
-  else
-    install -d -m 700 "$development_directory" \
-      || fail "could not create protected input directory: $development_directory"
-  fi
-  template=$SCRIPT_DIR/env/development.env.example
-  [ -f "$template" ] && [ ! -L "$template" ] && [ -s "$template" ] \
-    || fail "missing or invalid tracked template: $template"
-  install -m 600 "$template" "$DEVELOPMENT_ENV" \
-    || fail "could not create protected source: $DEVELOPMENT_ENV"
-  fail "created $DEVELOPMENT_ENV; replace its application placeholders, run update-development-env-from-terraform.sh, then rerun this updater"
+  generator=$SCRIPT_DIR/create-development-env.sh
+  [ -f "$generator" ] && [ ! -L "$generator" ] && [ -x "$generator" ] \
+    || fail "missing or invalid generator: $generator"
+  "$generator" "$DEVELOPMENT_ENV" "$REPO_ROOT/infrastructure/terraform/aws-development" >/dev/null
+  fail "created $DEVELOPMENT_ENV; replace its manual placeholders, run update-development-env-from-terraform.sh if needed, then rerun this updater"
 fi
 
 for required_file in \

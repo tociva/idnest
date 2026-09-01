@@ -61,12 +61,11 @@ else
 fi
 
 if [ ! -e "$DEVELOPMENT_ENV" ] && [ ! -L "$DEVELOPMENT_ENV" ]; then
-  template=$SCRIPT_DIR/env/development.env.example
-  [ -f "$template" ] && [ ! -L "$template" ] && [ -s "$template" ] \
-    || fail "missing or invalid tracked template: $template"
-  install -m 600 "$template" "$DEVELOPMENT_ENV" \
-    || fail "could not create protected source: $DEVELOPMENT_ENV"
-  fail "created $DEVELOPMENT_ENV; replace its application placeholders, then rerun this sync"
+  generator=$SCRIPT_DIR/create-development-env.sh
+  [ -f "$generator" ] && [ ! -L "$generator" ] && [ -x "$generator" ] \
+    || fail "missing or invalid generator: $generator"
+  "$generator" "$DEVELOPMENT_ENV" "$TERRAFORM_DIRECTORY" >/dev/null
+  fail "created $DEVELOPMENT_ENV; replace its manual placeholders, then rerun this sync"
 fi
 
 [ -f "$DEVELOPMENT_ENV" ] && [ ! -L "$DEVELOPMENT_ENV" ] && [ -s "$DEVELOPMENT_ENV" ] \

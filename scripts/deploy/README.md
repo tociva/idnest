@@ -83,6 +83,27 @@ keys remain in the protected GitHub environment secrets prepared in
 [Configure GitHub environments](#configure-github-environments); they are never
 installed on the VPS.
 
+Then create or refresh the protected combined development dotenv source:
+
+```bash
+./scripts/deploy/create-development-env.sh
+```
+
+This helper creates `tmp/development.env` with mode `0600`, overwriting an
+existing file atomically. It fills tracked development defaults, generates the
+Hydra, Kratos, AuthZ, admin, and delegation secrets, and builds the development
+database URLs. If Terraform state is already available, it imports the non-secret
+AWS and VPS values; otherwise those values remain
+`replace-with-terraform-output` until
+`update-development-env-from-terraform.sh` is run after Terraform apply.
+
+Before Terraform output is available, the first eleven infrastructure fields may
+remain `replace-with-terraform-output`. Apart from those tool-filled fields,
+only values that require manual input remain as `replace-with-*`, such as the
+Cloudflare tunnel token, Google OAuth client values, and the real bootstrap
+admin email address. Review the file and replace those values before VPS
+bootstrap or GitHub Environment upload.
+
 ## Configure development runtime and databases
 
 Perform this step after the VPS bootstrap and before starting any workflow. The
@@ -106,24 +127,13 @@ processor verifies the file and installs it as `root:root` mode `0600`.
 The protected local source remains on the trusted Mac and only seeds individual
 GitHub settings; the complete dotenv file is not stored as a GitHub secret.
 `tmp/development.env` is the single source of truth for development key-value
-settings. It was normally created before bootstrap. If it is still absent,
-create it from the tracked example with mode `0600`; never overwrite an
-existing protected file:
+settings. It is created by `create-development-env.sh` before bootstrap and may
+be regenerated when development secrets must be rotated.
 
-```bash
-test ! -e tmp/development.env || {
-  echo "tmp/development.env already exists; refusing to overwrite it" >&2
-  exit 1
-}
-install -d -m 700 tmp
-install -m 600 scripts/deploy/env/development.env.example \
-  tmp/development.env
-```
-
-The following is the complete copy-pasteable development file for a new setup.
-Do not overwrite an existing protected file; add any missing properties while
-preserving its current secrets. Values beginning with `replace-with-` are
-placeholders and must be changed:
+After running `create-development-env.sh`, generated secrets and database URLs
+must already have concrete values. The only `replace-with-*` values that should
+remain are the fields that come from Terraform output or human-controlled
+external systems:
 
 ```dotenv
 AWS_ACCOUNT_ID=replace-with-terraform-output
@@ -138,45 +148,14 @@ VPS_HOST=replace-with-terraform-output
 VPS_PORT=replace-with-terraform-output
 VPS_USER=replace-with-terraform-output
 CLOUDFLARE_TUNNEL_TOKEN=replace-with-cloudflare-tunnel-token
-AUTH_URL=https://auth-dev.idnest.cloud
-HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud
-KRATOS_CORS_ALLOWED_ORIGINS=https://auth-dev.idnest.cloud
-HYDRA_DSN=postgres://hydrau:replace-with-hydra-password@host.docker.internal:5432/hydra?sslmode=disable
-HYDRA_URLS_SELF_ISSUER=https://hydra-dev.idnest.cloud/
-HYDRA_URLS_CONSENT=https://auth-dev.idnest.cloud/oauth2/consent
-HYDRA_URLS_LOGIN=https://auth-dev.idnest.cloud/oauth2/login
-HYDRA_URLS_LOGOUT=https://auth-dev.idnest.cloud/logout
-HYDRA_URLS_POST_LOGOUT_REDIRECT=https://admin-dev.idnest.cloud/auth/logout
-HYDRA_URLS_ERROR=https://auth-dev.idnest.cloud/error
-HYDRA_SECRETS_SYSTEM=replace-with-a-long-random-secret
-KRATOS_DSN=postgres://kratosu:replace-with-kratos-password@host.docker.internal:5432/kratos?sslmode=disable
-KRATOS_SERVE_PUBLIC_BASE_URL=https://kratos-dev.idnest.cloud
-KRATOS_ADMIN_URL=http://localhost:4434
-KRATOS_URLS_LOGOUT=https://hydra-dev.idnest.cloud/oauth2/sessions/logout
-KRATOS_COOKIES_DOMAIN=.idnest.cloud
-KRATOS_LOG_LEVEL=info
-KRATOS_TOTP_ISSUER='Idnest Development'
-KRATOS_CSRF_COOKIE_SECRET=replace-with-a-long-random-secret
-KRATOS_CIPHER_SECRET=replace-with-exactly-32-chars
 GOOGLE_CLIENT_ID=replace-with-google-client-id
 GOOGLE_CLIENT_SECRET=replace-with-google-client-secret
-APPLE_CLIENT_ID=
-APPLE_TEAM_ID=
-APPLE_PRIVATE_KEY_ID=
-APPLE_PRIVATE_KEY=
-AUTHZ_DATABASE_URL=postgres://authzu:replace-with-authz-password@host.docker.internal:5432/authz?sslmode=disable
-CONSENT_ACTION_SECRET=replace-with-a-long-random-secret
-AUTH_TRANSACTION_SECRET=replace-with-a-32-byte-or-longer-random-secret
-AUTH_AUDIT_HASH_SECRET=replace-with-an-independent-long-random-secret
-DELEGATION_ENABLED=false
-DELEGATION_SIGNING_PRIVATE_KEY_B64=replace-with-base64-pkcs8-p256-private-key
 ADMIN_BOOTSTRAP_EMAILS=replace-with-real-admin-email-address
-ADMIN_CSRF_SECRET=replace-with-a-long-random-secret
-ADMIN_OIDC_CLIENT_SECRET=replace-with-admin-client-secret
 ```
 
-Keep every tracked property. Do not enter the first eleven infrastructure values by
-hand: `update-development-env-from-terraform.sh` replaces their
+Keep every tracked property. Do not enter the first eleven infrastructure values
+by hand: `create-development-env.sh` imports them when Terraform state is
+available, and `update-development-env-from-terraform.sh` replaces any remaining
 `replace-with-terraform-output` placeholders from validated Terraform state.
 Replace every remaining placeholder with its real value. Leave all four
 `APPLE_*` values empty to disable Apple login, or configure all four together.
@@ -191,43 +170,13 @@ placed in any application runtime environment.
 
 ### Generate development values
 
-Generate independent values for each placeholder. The commands below are
-reviewed against the validators and renderers in this repository:
-
-```bash
-HYDRA_DB_PASSWORD=$(openssl rand -hex 24)
-KRATOS_DB_PASSWORD=$(openssl rand -hex 24)
-AUTHZ_DB_PASSWORD=$(openssl rand -hex 24)
-
-HYDRA_SECRETS_SYSTEM=$(openssl rand -hex 32)
-KRATOS_CSRF_COOKIE_SECRET=$(openssl rand -hex 32)
-KRATOS_CIPHER_SECRET=$(openssl rand -hex 16)
-CONSENT_ACTION_SECRET=$(openssl rand -hex 32)
-AUTH_TRANSACTION_SECRET=$(openssl rand -hex 32)
-AUTH_AUDIT_HASH_SECRET=$(openssl rand -hex 32)
-ADMIN_CSRF_SECRET=$(openssl rand -hex 32)
-ADMIN_OIDC_CLIENT_SECRET=$(openssl rand -hex 32)
-
-openssl genpkey -algorithm EC \
-  -pkeyopt ec_paramgen_curve:P-256 \
-  -out delegation-private.pem
-DELEGATION_SIGNING_PRIVATE_KEY_B64=$(openssl base64 -A -in delegation-private.pem)
-```
-
-The database passwords use hexadecimal output so they are URL-safe in the DSNs
-without percent-encoding. `KRATOS_CIPHER_SECRET` uses `openssl rand -hex 16`
-because Kratos requires exactly 32 characters. The delegated authorization key
-is a dedicated P-256 PKCS#8 private key; do not reuse the release-signing key,
-Hydra secrets, or any Apple private key.
-
-After generating values, build the three development DSNs with the generated
-passwords:
-
-```bash
-HYDRA_DSN="postgres://hydrau:${HYDRA_DB_PASSWORD}@host.docker.internal:5432/hydra?sslmode=disable"
-KRATOS_DSN="postgres://kratosu:${KRATOS_DB_PASSWORD}@host.docker.internal:5432/kratos?sslmode=disable"
-AUTHZ_DATABASE_URL="postgres://authzu:${AUTHZ_DB_PASSWORD}@host.docker.internal:5432/authz?sslmode=disable"
-```
+Use `create-development-env.sh` to generate independent values for local
+development secrets and database URLs. The database passwords use hexadecimal
+output so they are URL-safe in the DSNs without percent-encoding.
+`KRATOS_CIPHER_SECRET` is generated as exactly 32 characters because Kratos
+requires that length. The delegated authorization key is a dedicated P-256
+PKCS#8 private key; do not reuse the release-signing key, Hydra secrets, or any
+Apple private key.
 
 For Apple login, keep all four `APPLE_*` values empty unless it is enabled. If
 enabled, encode the downloaded `.p8` private key as one JSON string:
