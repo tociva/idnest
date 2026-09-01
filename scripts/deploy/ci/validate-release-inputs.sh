@@ -5,7 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/deploy/ci/release-common.sh
 . "$SCRIPT_DIR/release-common.sh"
 
-echo "validate-release-inputs.sh version: 2026-09-01.3-shellcheck-sc2015-fixes"
 
 usage() {
   cat <<'EOF'
