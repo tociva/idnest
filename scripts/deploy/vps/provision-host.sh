@@ -32,8 +32,8 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is unavail
 openssl pkey -pubin -in "$RELEASE_SIGNING_PUBLIC_KEY" -noout >/dev/null 2>&1 || fail "release signing public key is not a valid PEM public key"
 ssh-keygen -l -f "$DEPLOY_SSH_PUBLIC_KEY" >/dev/null 2>&1 || fail "deployment SSH public key is invalid"
 
-SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../../.." && pwd)
 for file in compose.auth.yaml compose.admin.yaml compose.idnest.yaml Dockerfile.kratos deploy-idnest-app.sh deploy-idnest-infra.sh deploy-idnest-auth.sh deploy-idnest-admin.sh rollback-idnest-app.sh rollback-idnest-auth.sh rollback-idnest-admin.sh validate-app-env.sh validate-development-host.sh activate-host-release.sh process-idnest-release-queue.sh submit-idnest-release.sh wait-idnest-release.sh idnest-release-queue.path idnest-release-queue.service idnest-cloudflared.service auth.conf.example admin.conf.example idnest.conf.example; do
   [ -f "$SCRIPT_DIR/$file" ] && [ ! -L "$SCRIPT_DIR/$file" ] || fail "invalid provisioning source: $file"
 done

@@ -46,14 +46,16 @@ case "$mode" in
     require_env ECR_REPOSITORY
     require_env IMAGE_DIGEST
     require_env REVISION
+    revision="${REVISION:-}"
     [[ "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "IMAGE_DIGEST is invalid"
-    [[ "$REVISION" =~ ^[a-f0-9]{40}$ ]] || fail "REVISION must be a full lowercase Git SHA"
+    [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || fail "REVISION must be a full lowercase Git SHA"
     image_ref="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY@$IMAGE_DIGEST"
     host_bundle_sha256="$(sha256_file "$temp/host-release.tar.gz")"
     app_env_sha256="$(sha256_file "$temp/app.env")"
+    # shellcheck disable=SC2029
     ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
       /usr/local/bin/submit-idnest-release "$component" "$id" "$GITHUB_RUN_ID" \
-      "$REVISION" "$image_ref" "$host_bundle_sha256" "$app_env_sha256"
+      "$revision" "$image_ref" "$host_bundle_sha256" "$app_env_sha256"
     ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
       /usr/local/bin/wait-idnest-release "$component" "$id" 2200
     ;;
@@ -64,6 +66,7 @@ case "$mode" in
     host_bundle_sha256="$(sha256_file "$temp/host-release.tar.gz")"
     identity_env_sha256="$(sha256_file "$temp/idnest.env")"
     identity_config_sha256="$(sha256_file "$temp/idnest-config.tar.gz")"
+    # shellcheck disable=SC2029
     ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
       /usr/local/bin/submit-idnest-release identity "$id" "$GITHUB_RUN_ID" \
       "$revision" "$host_bundle_sha256" "$identity_env_sha256" "$identity_config_sha256"
@@ -79,13 +82,15 @@ case "$mode" in
     require_env ECR_REPOSITORY
     require_env IMAGE_DIGEST
     require_env REVISION
+    revision="${REVISION:-}"
     [[ "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "IMAGE_DIGEST is invalid"
-    [[ "$REVISION" =~ ^[a-f0-9]{40}$ ]] || fail "REVISION must be a full lowercase Git SHA"
+    [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || fail "REVISION must be a full lowercase Git SHA"
     image_ref="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY@$IMAGE_DIGEST"
     host_bundle_sha256="$(sha256_file "$temp/host-release.tar.gz")"
+    # shellcheck disable=SC2029
     ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
       /usr/local/bin/submit-idnest-release "$component" "$id" "$GITHUB_RUN_ID" \
-      "$REVISION" "$image_ref" "$host_bundle_sha256"
+      "$revision" "$image_ref" "$host_bundle_sha256"
     ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
       /usr/local/bin/wait-idnest-release "$component" "$id" 2200
     ;;

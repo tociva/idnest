@@ -70,7 +70,7 @@ require_text scripts/deploy/vps/idnest-cloudflared.service \
 require_text scripts/deploy/vps/idnest-cloudflared.service \
   '--metrics 127.0.0.1:20242'
 require_text scripts/deploy/vps/idnest-cloudflared.service \
-  '--token-file ${CREDENTIALS_DIRECTORY}/tunnel-token'
+  "--token-file \${CREDENTIALS_DIRECTORY}/tunnel-token"
 require_text scripts/deploy/vps/validate-development-host.sh \
   'http://127.0.0.1:20242/ready'
 require_text scripts/deploy/vps/bootstrap-development-vps.sh \

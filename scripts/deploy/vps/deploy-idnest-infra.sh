@@ -186,9 +186,9 @@ compose build --pull kratos
 # Docker network used by the running services. Successful migrations therefore
 # prove that both DSNs are reachable from Docker before services are replaced.
 compose run --rm --no-deps --entrypoint sh hydra -c \
-  'export DSN="$HYDRA_DSN"; exec hydra migrate sql up -e --yes'
+  "export DSN=\"\$HYDRA_DSN\"; exec hydra migrate sql up -e --yes"
 compose run --rm --no-deps --entrypoint sh kratos -c \
-  'export DSN="$KRATOS_DSN"; exec kratos migrate sql -e --yes'
+  "export DSN=\"\$KRATOS_DSN\"; exec kratos migrate sql -e --yes"
 
 compose up --detach --force-recreate
 

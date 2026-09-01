@@ -39,7 +39,7 @@ for command in awk dirname grep id sha256sum sudo tar tr wc; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
-SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 ARCHIVE_NAME=idnest-development-vps-bootstrap.tar.gz
 CHECKSUM_NAME=$ARCHIVE_NAME.sha256
 ARCHIVE_PATH=$SCRIPT_DIR/$ARCHIVE_NAME
@@ -153,6 +153,7 @@ done
 install_docker_engine() {
   [ -r /etc/os-release ] || fail "cannot detect the VPS operating system"
   # /etc/os-release is a root-owned operating-system interface on the VPS.
+  # shellcheck source=/dev/null
   . /etc/os-release
 
   case "${ID:-}" in

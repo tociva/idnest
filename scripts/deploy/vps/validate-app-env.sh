@@ -6,10 +6,14 @@ fail() {
   exit 1
 }
 
-[ "$#" -ge 1 ] && [ "$#" -le 2 ] || fail "usage: validate-app-env.sh ENV_FILE [auth|admin|identity|development-source]"
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+  fail "usage: validate-app-env.sh ENV_FILE [auth|admin|identity|development-source]"
+fi
 env_file=$1
 kind=${2:-}
-[ -f "$env_file" ] && [ ! -L "$env_file" ] || fail "environment file must be a regular file"
+if [ ! -f "$env_file" ] || [ -L "$env_file" ]; then
+  fail "environment file must be a regular file"
+fi
 [ -s "$env_file" ] || fail "environment file is empty"
 
 case "$kind" in
@@ -123,8 +127,9 @@ if [ "$kind" = auth ]; then
   delegation_grant_ttl=$(dotenv_value DELEGATION_GRANT_TTL_SECONDS)
   printf '%s\n' "$delegation_grant_ttl" | grep -Eq '^[0-9]{1,3}$' \
     || fail "DELEGATION_GRANT_TTL_SECONDS must be an integer"
-  [ "$delegation_grant_ttl" -ge 1 ] && [ "$delegation_grant_ttl" -le 300 ] \
-    || fail "DELEGATION_GRANT_TTL_SECONDS must be between 1 and 300"
+  if [ "$delegation_grant_ttl" -lt 1 ] || [ "$delegation_grant_ttl" -gt 300 ]; then
+    fail "DELEGATION_GRANT_TTL_SECONDS must be between 1 and 300"
+  fi
 fi
 
 if [ "$kind" = admin ]; then
@@ -223,8 +228,9 @@ if [ "$kind" = development-source ]; then
     || fail "VPS_HOST is not a valid hostname or IP address"
   printf '%s\n' "$vps_port" | grep -Eq '^[0-9]{1,5}$' \
     || fail "VPS_PORT is not a valid TCP port"
-  [ "$vps_port" -ge 1 ] && [ "$vps_port" -le 65535 ] \
-    || fail "VPS_PORT is not a valid TCP port"
+  if [ "$vps_port" -lt 1 ] || [ "$vps_port" -gt 65535 ]; then
+    fail "VPS_PORT is not a valid TCP port"
+  fi
   printf '%s\n' "$vps_user" | grep -Eq '^[A-Za-z_][A-Za-z0-9._-]*$' \
     || fail "VPS_USER is not a valid SSH user"
   [ "${#tunnel_token}" -ge 40 ] || fail "CLOUDFLARE_TUNNEL_TOKEN is too short"

@@ -198,6 +198,7 @@ run_one() {
   WORK_ROOT=
   SUCCEEDED=false
 
+  # shellcheck disable=SC2329
   finish_request() {
     exit_code=$?
     if [ "$SUCCEEDED" != true ] && valid_kind "$KIND" && valid_request_id "$REQUEST_ID"; then

@@ -69,7 +69,7 @@ if [ "$apple_value_count" -eq 4 ]; then
     BEGIN { printf "\"" }
     {
       gsub(/\\/, "\\\\")
-      gsub(/\"/, "\\\"")
+      gsub(/"/, "\\\"")
       gsub(/\r/, "")
       printf "%s\\n", $0
     }

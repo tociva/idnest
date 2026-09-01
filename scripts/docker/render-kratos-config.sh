@@ -67,7 +67,7 @@ render_apple_private_key_yaml() {
         BEGIN { printf "\"" }
         {
           gsub(/\\/, "\\\\")
-          gsub(/\"/, "\\\"")
+          gsub(/"/, "\\\"")
           gsub(/\r/, "")
           printf "%s\\n", $0
         }

@@ -98,12 +98,13 @@ case "$mode" in
     [[ "$#" -eq 1 ]] || { usage >&2; exit 2; }
     require_env COMPONENT
     require_env VERSION
-    valid_component "$COMPONENT" || fail "COMPONENT must be auth or admin"
+    component="${COMPONENT:-}"
+    valid_component "$component" || fail "COMPONENT must be auth or admin"
     [[ "$VERSION" =~ ^sha256:[a-f0-9]{64}$ || "$VERSION" =~ ^git-[a-f0-9]{40}-[1-9][0-9]*-[1-9][0-9]*$ ]] \
       || fail "VERSION is invalid"
     valid_aws_config
     valid_vps_config
-    valid_app_runtime_secrets "$COMPONENT"
+    valid_app_runtime_secrets "$component"
     bash -n "$REPO_ROOT/scripts/deploy/resolve-development-rollback-image.sh"
     bash -n "$REPO_ROOT/scripts/deploy/render-development-app-env.sh"
     bash "$REPO_ROOT/scripts/ci/test-deployment-contracts.sh"

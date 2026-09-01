@@ -22,9 +22,9 @@ for file in \
   /etc/idnest/idnest.conf \
   /etc/idnest/cloudflared.token \
   /etc/idnest/host-release-signing-public.pem; do
-  [ -f "$file" ] && [ ! -L "$file" ] \
-    && [ "$(stat -c '%U' "$file")" = root ] \
-    || fail "invalid root-owned file: $file"
+  if [ ! -f "$file" ] || [ -L "$file" ] || [ "$(stat -c '%U' "$file")" != root ]; then
+    fail "invalid root-owned file: $file"
+  fi
 done
 [ "$(stat -c '%a' /etc/idnest/cloudflared.token)" = 600 ] \
   || fail "cloudflared token must be mode 600"

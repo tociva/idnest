@@ -29,7 +29,7 @@ case "$KIND" in
     DEFAULT_HTTP_PORT=8444
     ;;
   admin)
-    SERVICE_NAME=admin
+    SERVICE_NAME='admin'
     APP_ENV=$CONFIG_ROOT/admin-app.env
     HTTP_PORT_VARIABLE=ADMIN_HTTP_PORT
     DEFAULT_HTTP_PORT=8445
@@ -60,8 +60,12 @@ eval "HTTP_PORT=\${$HTTP_PORT_VARIABLE:-$DEFAULT_HTTP_PORT}"
 HEALTH_TIMEOUT_SECONDS=${HEALTH_TIMEOUT_SECONDS:-120}
 APP_MEMORY_LIMIT=${APP_MEMORY_LIMIT:-768m}
 APP_CPU_LIMIT=${APP_CPU_LIMIT:-1.0}
-[ -n "${PREVIOUS_IMAGE:-}" ] && valid_image "$PREVIOUS_IMAGE" || fail "there is no valid previous image to restore"
-[ -n "${PREVIOUS_REVISION:-}" ] && valid_revision "$PREVIOUS_REVISION" || fail "there is no valid previous revision to restore"
+if [ -z "${PREVIOUS_IMAGE:-}" ] || ! valid_image "$PREVIOUS_IMAGE"; then
+  fail "there is no valid previous image to restore"
+fi
+if [ -z "${PREVIOUS_REVISION:-}" ] || ! valid_revision "$PREVIOUS_REVISION"; then
+  fail "there is no valid previous revision to restore"
+fi
 valid_image "$ACTIVE_IMAGE" || fail "active image state is invalid"
 valid_revision "$ACTIVE_REVISION" || fail "active revision state is invalid"
 

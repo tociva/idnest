@@ -156,7 +156,7 @@ case "$KIND" in
     DEFAULT_HTTP_PORT=8444
     ;;
   admin)
-    SERVICE_NAME=admin
+    SERVICE_NAME='admin'
     COMPOSE_FILE=$APP_ROOT/admin/compose.yaml
     DEPLOY_CONFIG=$CONFIG_ROOT/admin.conf
     APP_ENV=$CONFIG_ROOT/admin-app.env

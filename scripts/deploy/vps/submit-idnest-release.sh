@@ -72,7 +72,9 @@ case "$KIND" in
     ;;
 esac
 
-[ -d "$INCOMING_ROOT" ] && [ ! -L "$INCOMING_ROOT" ] || fail "release queue is not provisioned"
+if [ ! -d "$INCOMING_ROOT" ] || [ -L "$INCOMING_ROOT" ]; then
+  fail "release queue is not provisioned"
+fi
 [ "$(stat -c '%u' "$INCOMING_ROOT")" -eq "$(id -u)" ] || fail "current user does not own the release queue"
 
 case "$KIND" in
@@ -87,7 +89,9 @@ esac
 
 for name in $REQUIRED_UPLOADS; do
   upload="$INCOMING_ROOT/$name.$REQUEST_ID.upload"
-  [ -f "$upload" ] && [ ! -L "$upload" ] && [ -s "$upload" ] || fail "missing or invalid upload: $name"
+  if [ ! -f "$upload" ] || [ -L "$upload" ] || [ ! -s "$upload" ]; then
+    fail "missing or invalid upload: $name"
+  fi
   [ "$(stat -c '%u' "$upload")" -eq "$(id -u)" ] || fail "unexpected owner for upload: $name"
   [ ! -e "$INCOMING_ROOT/$name.$REQUEST_ID" ] || fail "release input already submitted: $name"
 done

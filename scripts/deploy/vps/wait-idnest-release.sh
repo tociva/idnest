@@ -9,7 +9,9 @@ fail() {
   exit 1
 }
 
-[ "$#" -ge 2 ] && [ "$#" -le 3 ] || fail "usage: wait-idnest-release KIND REQUEST_ID [TIMEOUT_SECONDS]"
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+  fail "usage: wait-idnest-release KIND REQUEST_ID [TIMEOUT_SECONDS]"
+fi
 KIND=$1
 REQUEST_ID=$2
 TIMEOUT_SECONDS=${3:-1800}

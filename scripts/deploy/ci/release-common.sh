@@ -8,8 +8,8 @@ fail() {
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-HOST_RELEASE_MANIFEST="$REPO_ROOT/scripts/deploy/manifests/host-release-files.txt"
-IDENTITY_CONFIG_MANIFEST="$REPO_ROOT/scripts/deploy/manifests/identity-config-files.txt"
+export HOST_RELEASE_MANIFEST="$REPO_ROOT/scripts/deploy/manifests/host-release-files.txt"
+export IDENTITY_CONFIG_MANIFEST="$REPO_ROOT/scripts/deploy/manifests/identity-config-files.txt"
 
 require_env() {
   local name=$1
