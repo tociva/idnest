@@ -58,7 +58,12 @@ process_one() {
 
   QUEUE_USER=$(stat -c '%U' "$INCOMING_ROOT")
   QUEUE_GROUP=$(stat -c '%G' "$RESULTS_ROOT")
-  [ -f "$request_path" ] && [ ! -L "$request_path" ] || fail "invalid request file"
+  if ! {
+    [ -f "$request_path" ] &&
+      [ ! -L "$request_path" ]
+  }; then
+    fail "invalid request file"
+  fi
   [ "$(stat -c '%U' "$request_path")" = "$QUEUE_USER" ] || fail "request owner does not match queue owner"
 
   case "$KIND" in
@@ -80,7 +85,13 @@ process_one() {
 
   for name in $REQUIRED_INPUTS; do
     input="$INCOMING_ROOT/$name.$REQUEST_ID"
-    [ -f "$input" ] && [ ! -L "$input" ] && [ -s "$input" ] || fail "invalid queued input: $name"
+    if ! {
+      [ -f "$input" ] &&
+        [ ! -L "$input" ] &&
+        [ -s "$input" ]
+    }; then
+      fail "invalid queued input: $name"
+    fi
     [ "$(stat -c '%U' "$input")" = "$QUEUE_USER" ] || fail "unexpected queued input owner: $name"
     mv -- "$INCOMING_ROOT/$name.$REQUEST_ID" "$WORK_ROOT/$name"
     chown root:root "$WORK_ROOT/$name"

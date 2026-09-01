@@ -20,9 +20,26 @@ REQUEST_ID=$5
 printf '%s\n' "$EXPECTED_SHA256" | grep -Eq '^[a-f0-9]{64}$' || fail "invalid expected checksum"
 printf '%s\n' "$REVISION" | grep -Eq '^[a-f0-9]{40}$' || fail "invalid Git revision"
 printf '%s\n' "$REQUEST_ID" | grep -Eq '^[1-9][0-9]*-[1-9][0-9]*$' || fail "invalid request ID"
-[ -f "$ARCHIVE" ] && [ ! -L "$ARCHIVE" ] && [ -s "$ARCHIVE" ] || fail "invalid host release archive"
-[ -f "$SIGNATURE" ] && [ ! -L "$SIGNATURE" ] && [ -s "$SIGNATURE" ] || fail "invalid host release signature"
-[ -f "$SIGNING_PUBLIC_KEY" ] && [ ! -L "$SIGNING_PUBLIC_KEY" ] || fail "host release signing public key is unavailable"
+if ! {
+  [ -f "$ARCHIVE" ] &&
+    [ ! -L "$ARCHIVE" ] &&
+    [ -s "$ARCHIVE" ]
+}; then
+  fail "invalid host release archive"
+fi
+if ! {
+  [ -f "$SIGNATURE" ] &&
+    [ ! -L "$SIGNATURE" ] &&
+    [ -s "$SIGNATURE" ]
+}; then
+  fail "invalid host release signature"
+fi
+if ! {
+  [ -f "$SIGNING_PUBLIC_KEY" ] &&
+    [ ! -L "$SIGNING_PUBLIC_KEY" ]
+}; then
+  fail "host release signing public key is unavailable"
+fi
 [ "$(stat -c '%U' "$SIGNING_PUBLIC_KEY")" = root ] || fail "host release signing public key must be root-owned"
 
 for command in awk cp grep id install mv openssl rm sha256sum stat systemctl tar; do
@@ -83,7 +100,12 @@ install_one() {
   target_file=$2
   mode=$3
   key=$4
-  [ -f "$source_file" ] && [ ! -L "$source_file" ] || fail "invalid release source: $source_file"
+  if ! {
+    [ -f "$source_file" ] &&
+      [ ! -L "$source_file" ]
+  }; then
+    fail "invalid release source: $source_file"
+  fi
   [ ! -L "$target_file" ] || fail "refusing to replace symbolic link: $target_file"
   if [ -e "$target_file" ]; then
     [ -f "$target_file" ] || fail "target is not a regular file: $target_file"

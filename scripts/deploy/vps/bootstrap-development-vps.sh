@@ -52,16 +52,25 @@ SCRIPT_PATH=$SCRIPT_DIR/bootstrap-development-vps.sh
 RUNTIME_NETWORK=idnest-runtime-development
 RUNTIME_SUBNET=172.23.0.0/16
 
-[ -f "$SCRIPT_PATH" ] && [ ! -L "$SCRIPT_PATH" ] \
-  || fail "the bootstrap script must be a regular file, not a symbolic link"
+if ! {
+  [ -f "$SCRIPT_PATH" ] &&
+    [ ! -L "$SCRIPT_PATH" ]
+}; then
+  fail "the bootstrap script must be a regular file, not a symbolic link"
+fi
 for required_file in \
   "$ARCHIVE_PATH" \
   "$CHECKSUM_PATH" \
   "$SIGNING_PUBLIC_KEY" \
   "$DEPLOY_SSH_PUBLIC_KEY" \
   "$CLOUDFLARED_TOKEN"; do
-  [ -f "$required_file" ] && [ ! -L "$required_file" ] && [ -s "$required_file" ] \
-    || fail "missing or invalid transferred file: $required_file"
+  if ! {
+    [ -f "$required_file" ] &&
+      [ ! -L "$required_file" ] &&
+      [ -s "$required_file" ]
+  }; then
+    fail "missing or invalid transferred file: $required_file"
+  fi
 done
 
 cd "$SCRIPT_DIR"
@@ -127,13 +136,20 @@ cleanup() {
 trap cleanup 0 1 2 15
 
 tar -xzf "$ARCHIVE_PATH" -C "$extraction_dir"
-[ -f "$extraction_dir/scripts/deploy/vps/provision-host.sh" ] \
-  && [ ! -L "$extraction_dir/scripts/deploy/vps/provision-host.sh" ] \
-  || fail "the extracted payload does not contain a valid host provisioner"
+if ! {
+  [ -f "$extraction_dir/scripts/deploy/vps/provision-host.sh" ] &&
+    [ ! -L "$extraction_dir/scripts/deploy/vps/provision-host.sh" ]
+}; then
+  fail "the extracted payload does not contain a valid host provisioner"
+fi
 
 if [ -e "$REPOSITORY_DIR" ] || [ -L "$REPOSITORY_DIR" ]; then
-  [ -d "$REPOSITORY_DIR" ] && [ ! -L "$REPOSITORY_DIR" ] \
-    || fail "$REPOSITORY_DIR exists but is not a regular directory"
+  if ! {
+    [ -d "$REPOSITORY_DIR" ] &&
+      [ ! -L "$REPOSITORY_DIR" ]
+  }; then
+    fail "$REPOSITORY_DIR exists but is not a regular directory"
+  fi
   [ "$(stat -c '%u' "$REPOSITORY_DIR")" -eq "$(id -u)" ] \
     || fail "$REPOSITORY_DIR is not owned by the current account"
   rm -rf -- "$REPOSITORY_DIR"

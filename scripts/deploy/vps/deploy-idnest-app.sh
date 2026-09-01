@@ -238,14 +238,22 @@ mkdir -p "$HISTORY_ROOT"
 
 app_env_install_candidate=$APP_ENV.candidate.$RUN_ID
 if [ "$APP_ENV_CANDIDATE_PRESENT" = true ]; then
-  [ ! -e "$APP_ENV_BACKUP" ] && [ ! -L "$APP_ENV_BACKUP" ] \
-    || fail "application environment backup path already exists"
+  if ! {
+    [ ! -e "$APP_ENV_BACKUP" ] &&
+      [ ! -L "$APP_ENV_BACKUP" ]
+  }; then
+    fail "application environment backup path already exists"
+  fi
   if [ -f "$APP_ENV" ]; then
     cp -p -- "$APP_ENV" "$APP_ENV_BACKUP"
     APP_ENV_PREVIOUSLY_PRESENT=true
   fi
-  [ ! -e "$app_env_install_candidate" ] && [ ! -L "$app_env_install_candidate" ] \
-    || fail "application environment candidate path already exists"
+  if ! {
+    [ ! -e "$app_env_install_candidate" ] &&
+      [ ! -L "$app_env_install_candidate" ]
+  }; then
+    fail "application environment candidate path already exists"
+  fi
   install -o root -g root -m 600 "$APP_ENV_CANDIDATE" "$app_env_install_candidate"
   mv -- "$app_env_install_candidate" "$APP_ENV"
   rm -f -- "$APP_ENV_CANDIDATE"
@@ -273,8 +281,14 @@ compose pull "$SERVICE_NAME" || { restore_application_env; restore_release_metad
 
 backup_hook=$CONFIG_ROOT/pre-deploy-backup
 if [ -e "$backup_hook" ] || [ -L "$backup_hook" ]; then
-  root_regular_file "$backup_hook" && [ -x "$backup_hook" ] \
-    || { restore_application_env; restore_release_metadata; fail "$backup_hook must be a root-owned executable regular file"; }
+  if ! {
+    root_regular_file "$backup_hook" &&
+      [ -x "$backup_hook" ]
+  }; then
+    restore_application_env
+    restore_release_metadata
+    fail "$backup_hook must be a root-owned executable regular file"
+  fi
   "$backup_hook" "$KIND" "$REVISION" \
     || { restore_application_env; restore_release_metadata; fail "pre-deployment backup failed"; }
 elif [ "$REQUIRE_BACKUP_HOOK" = true ]; then

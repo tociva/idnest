@@ -11,8 +11,13 @@ PASSWORD_FILE=/var/lib/idnest/incoming/ecr-password.$3
 IDNEST_CONFIG=/etc/idnest/idnest.conf
 [ "$(id -u)" -eq 0 ] || fail "deployment must run as root through the release queue processor"
 for file in "$PASSWORD_FILE" "$IDNEST_CONFIG"; do
-  [ -f "$file" ] && [ ! -L "$file" ] && [ -s "$file" ] \
-    || fail "invalid required file: $file"
+  if ! {
+    [ -f "$file" ] &&
+      [ ! -L "$file" ] &&
+      [ -s "$file" ]
+  }; then
+    fail "invalid required file: $file"
+  fi
   [ "$(stat -c '%U' "$file")" = root ] || fail "required file must be root-owned: $file"
 done
 command -v curl >/dev/null 2>&1 || fail "curl is required"

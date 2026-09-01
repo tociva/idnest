@@ -48,8 +48,18 @@ for file in "$COMPOSE_FILE" "$VALIDATOR" "$IDNEST_CONFIG"; do
   root_regular_file "$file" || fail "invalid root-owned required file: $file"
 done
 [ -x "$VALIDATOR" ] || fail "invalid environment validator"
-[ -d "$BUILD_CONTEXT/config" ] && [ ! -L "$BUILD_CONTEXT/config" ] || fail "invalid Kratos build configuration"
-[ -d "$CONFIG_HISTORY" ] && [ ! -L "$CONFIG_HISTORY" ] || fail "invalid configuration history directory"
+if ! {
+  [ -d "$BUILD_CONTEXT/config" ] &&
+    [ ! -L "$BUILD_CONTEXT/config" ]
+}; then
+  fail "invalid Kratos build configuration"
+fi
+if ! {
+  [ -d "$CONFIG_HISTORY" ] &&
+    [ ! -L "$CONFIG_HISTORY" ]
+}; then
+  fail "invalid configuration history directory"
+fi
 case "$(stat -c '%a' "$IDNEST_CONFIG")" in 600) ;; *) fail "Idnest deployment config mode must be 600" ;; esac
 
 IDNEST_ENV_CANDIDATE=$INCOMING_ROOT/idnest.env.$RUN_ID
@@ -57,8 +67,12 @@ CONFIG_ARCHIVE=$INCOMING_ROOT/idnest-config.tar.gz.$RUN_ID
 root_regular_file "$IDNEST_ENV_CANDIDATE" || fail "invalid staged Idnest environment"
 [ -s "$IDNEST_ENV_CANDIDATE" ] || fail "staged Idnest environment is empty"
 case "$(stat -c '%a' "$IDNEST_ENV_CANDIDATE")" in 600) ;; *) fail "staged Idnest environment mode must be 600" ;; esac
-root_regular_file "$CONFIG_ARCHIVE" && [ -s "$CONFIG_ARCHIVE" ] \
-  || fail "invalid staged Kratos configuration archive"
+if ! {
+  root_regular_file "$CONFIG_ARCHIVE" &&
+    [ -s "$CONFIG_ARCHIVE" ]
+}; then
+  fail "invalid staged Kratos configuration archive"
+fi
 "$VALIDATOR" "$IDNEST_ENV_CANDIDATE" identity >/dev/null
 
 if [ -e "$IDNEST_ENV" ] || [ -L "$IDNEST_ENV" ]; then
@@ -153,9 +167,18 @@ trap 'exit 1' HUP INT TERM
 
 [ ! -e "$STAGE_ROOT" ] || fail "staging directory already exists"
 [ ! -e "$BACKUP_ROOT" ] || fail "configuration history already exists for this run"
-[ ! -e "$ENV_BACKUP" ] && [ ! -L "$ENV_BACKUP" ] || fail "identity environment backup already exists for this run"
-[ ! -e "$ENV_INSTALL_CANDIDATE" ] && [ ! -L "$ENV_INSTALL_CANDIDATE" ] \
-  || fail "identity environment install candidate already exists"
+if ! {
+  [ ! -e "$ENV_BACKUP" ] &&
+    [ ! -L "$ENV_BACKUP" ]
+}; then
+  fail "identity environment backup already exists for this run"
+fi
+if ! {
+  [ ! -e "$ENV_INSTALL_CANDIDATE" ] &&
+    [ ! -L "$ENV_INSTALL_CANDIDATE" ]
+}; then
+  fail "identity environment install candidate already exists"
+fi
 
 install -d -o root -g root -m 700 "$STAGE_ROOT"
 tar -xzf "$CONFIG_ARCHIVE" --directory "$STAGE_ROOT" --no-same-owner --no-same-permissions
