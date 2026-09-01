@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/deploy/ci/release-common.sh
 . "$SCRIPT_DIR/release-common.sh"
 
+echo "submit-release-request.sh version: 2026-09-01.1-ssh-wait-heartbeat"
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -32,9 +34,32 @@ ssh_args=(
   -p "$port"
   -o BatchMode=yes
   -o IdentitiesOnly=yes
+  -o ServerAliveInterval=30
+  -o ServerAliveCountMax=120
   -o StrictHostKeyChecking=yes
   -o "UserKnownHostsFile=$temp/idnest-ssh/known_hosts"
 )
+
+wait_for_remote_release() {
+  local kind=$1 request=$2 timeout=$3
+  local remote_wait_pid started_at last_progress_at now elapsed
+  # shellcheck disable=SC2029
+  ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
+    /usr/local/bin/wait-idnest-release "$kind" "$request" "$timeout" &
+  remote_wait_pid=$!
+  started_at=$(date +%s)
+  last_progress_at=$started_at
+  while kill -0 "$remote_wait_pid" 2>/dev/null; do
+    sleep 5
+    now=$(date +%s)
+    if (( now - last_progress_at >= 30 )); then
+      elapsed=$((now - started_at))
+      echo "Still waiting for $kind release request $request after ${elapsed}s."
+      last_progress_at=$now
+    fi
+  done
+  wait "$remote_wait_pid"
+}
 
 case "$mode" in
   app)
@@ -56,8 +81,7 @@ case "$mode" in
     ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
       /usr/local/bin/submit-idnest-release "$component" "$id" "$GITHUB_RUN_ID" \
       "$revision" "$image_ref" "$host_bundle_sha256" "$app_env_sha256"
-    ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
-      /usr/local/bin/wait-idnest-release "$component" "$id" 2200
+    wait_for_remote_release "$component" "$id" 2200
     ;;
   identity)
     [[ "$#" -eq 1 ]] || { usage >&2; exit 2; }
@@ -70,8 +94,7 @@ case "$mode" in
     ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
       /usr/local/bin/submit-idnest-release identity "$id" "$GITHUB_RUN_ID" \
       "$revision" "$host_bundle_sha256" "$identity_env_sha256" "$identity_config_sha256"
-    ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
-      /usr/local/bin/wait-idnest-release identity "$id" 2200
+    wait_for_remote_release identity "$id" 2200
     ;;
   promotion)
     [[ "$#" -eq 2 ]] || { usage >&2; exit 2; }
@@ -91,8 +114,7 @@ case "$mode" in
     ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
       /usr/local/bin/submit-idnest-release "$component" "$id" "$GITHUB_RUN_ID" \
       "$revision" "$image_ref" "$host_bundle_sha256"
-    ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" \
-      /usr/local/bin/wait-idnest-release "$component" "$id" 2200
+    wait_for_remote_release "$component" "$id" 2200
     ;;
   -h|--help)
     usage

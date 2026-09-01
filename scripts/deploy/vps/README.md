@@ -118,6 +118,26 @@ network drift. The final host check proves Docker, the signed release queue,
 and `idnest-cloudflared.service` are active and rejects any Idnest origin port
 that is listening on a public interface.
 
+After the bootstrap runner completes, install and configure VPS-local
+PostgreSQL from the trusted Mac. The helper reads the protected
+`tmp/development.env` locally, derives the Hydra, Kratos, and Authz database
+roles, passwords, and database names from the DSNs, and sends only those
+database values over SSH. It does not copy the full development environment
+file to the VPS.
+
+```bash
+./scripts/deploy/setup-development-vps-postgres.sh \
+  idnest-admin \
+  /absolute/path/to/vps-admin-ssh-private-key \
+  tmp/development.env
+```
+
+The helper installs PostgreSQL when missing, creates or updates the required
+roles and databases, configures PostgreSQL to listen for Docker container
+traffic, adds `pg_hba.conf` entries for `idnest-runtime-development`
+(`172.23.0.0/16`), restarts PostgreSQL, and verifies connectivity from a Docker
+container before the first identity deployment.
+
 ## Validate Cloudflare Tunnel routing
 
 The application hostnames must be public-hostname routes on the named tunnel,

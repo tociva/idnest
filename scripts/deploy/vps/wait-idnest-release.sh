@@ -22,8 +22,12 @@ printf '%s\n' "$TIMEOUT_SECONDS" | grep -Eq '^[1-9][0-9]*$' || fail "timeout mus
 RESULT_FILE="$RESULTS_ROOT/$KIND.$REQUEST_ID.result"
 LOG_FILE="$LOG_ROOT/$KIND.$REQUEST_ID.log"
 started_at=$(date +%s)
+last_progress_at=0
+
+echo "Waiting for $KIND release request $REQUEST_ID; VPS log: $LOG_FILE"
 
 while :; do
+  status=pending
   if [ -f "$RESULT_FILE" ] && [ ! -L "$RESULT_FILE" ]; then
     [ "$(stat -c '%U' "$RESULT_FILE")" = root ] || fail "result has an unexpected owner"
     status=$(sed -n 's/^STATUS=//p' "$RESULT_FILE")
@@ -43,6 +47,11 @@ while :; do
   fi
 
   now=$(date +%s)
-  [ $((now - started_at)) -lt "$TIMEOUT_SECONDS" ] || fail "timed out; inspect $RESULT_FILE and $LOG_FILE on the VPS"
+  elapsed=$((now - started_at))
+  if [ $((now - last_progress_at)) -ge 30 ]; then
+    echo "Release request $REQUEST_ID is $status after ${elapsed}s; still waiting."
+    last_progress_at=$now
+  fi
+  [ "$elapsed" -lt "$TIMEOUT_SECONDS" ] || fail "timed out; inspect $RESULT_FILE and $LOG_FILE on the VPS"
   sleep 2
 done

@@ -25,7 +25,7 @@ bash scripts/ci/test-apple-login-contracts.sh
 
 if command -v shellcheck >/dev/null 2>&1; then
   mapfile -t shell_scripts < <(find scripts/deploy/ci scripts/deploy/vps scripts/ci -type f -name '*.sh' -print | sort)
-  shellcheck -x "${shell_scripts[@]}"
+  shellcheck -x "${shell_scripts[@]}" scripts/deploy/setup-development-vps-postgres.sh
 fi
 
 require_text() {
@@ -89,6 +89,12 @@ require_text scripts/deploy/ci/release-common.sh \
   'scripts/deploy/manifests/host-release-files.txt'
 require_text scripts/deploy/ci/release-common.sh \
   'COPYFILE_DISABLE=1'
+require_text scripts/deploy/ci/submit-release-request.sh \
+  'ServerAliveInterval=30'
+require_text scripts/deploy/ci/submit-release-request.sh \
+  "wait_for_remote_release identity \"\$id\" 2200"
+require_text scripts/deploy/vps/wait-idnest-release.sh \
+  'still waiting'
 
 expected_host_release_files='scripts/deploy/vps/Dockerfile.kratos
 scripts/deploy/vps/compose.admin.yaml
@@ -136,6 +142,10 @@ require_text scripts/deploy/render-development-app-env.sh \
   'ADMIN_OIDC_TOKEN_URL=http://idnest-hydra:4444/oauth2/token'
 require_text scripts/deploy/README.md \
   './scripts/deploy/create-development-env.sh'
+require_text scripts/deploy/README.md \
+  './scripts/deploy/setup-development-vps-postgres.sh'
+require_text scripts/deploy/vps/README.md \
+  './scripts/deploy/setup-development-vps-postgres.sh'
 
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/idnest-deployment-contract.XXXXXX")
 cleanup() {

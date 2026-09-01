@@ -274,11 +274,27 @@ URL-safe password for each role, then place it in the matching DSN. When
 PostgreSQL runs on the VPS, `host.docker.internal` is the container-to-host
 address configured by the deployment Compose files. For a managed database,
 replace the host, port, and `sslmode` with values supplied by that provider.
-The VPS bootstrap installs Docker and cloudflared; it does not install or
-manage PostgreSQL.
+The VPS bootstrap installs Docker and cloudflared; PostgreSQL setup is a
+separate step because it uses database credentials from the protected
+development environment.
 
-For PostgreSQL running on the development VPS, run these commands as a
-PostgreSQL administrator after generating the three database passwords above:
+For PostgreSQL running on the development VPS, run the setup helper from the
+trusted Mac after the VPS bootstrap runner has completed:
+
+```bash
+./scripts/deploy/setup-development-vps-postgres.sh \
+  idnest-admin \
+  /absolute/path/to/vps-admin-ssh-private-key \
+  tmp/development.env
+```
+
+The helper reads `HYDRA_DSN`, `KRATOS_DSN`, and `AUTHZ_DATABASE_URL` from
+`tmp/development.env`, installs PostgreSQL when missing, creates or updates the
+matching roles and databases, configures PostgreSQL for the pinned Docker
+runtime subnet, and verifies container-to-host database connectivity.
+
+For manual PostgreSQL setup, run these commands as a PostgreSQL administrator
+after generating the three database passwords above:
 
 ```bash
 sudo -u postgres psql \
