@@ -168,6 +168,8 @@ cleanup() {
 trap cleanup 0 1 2 15
 
 temporary_archive=$generation_dir/$ARCHIVE_NAME
+COPYFILE_DISABLE=1
+export COPYFILE_DISABLE
 (cd "$REPO_ROOT" && tar -czf "$temporary_archive" "$@")
 printf '%s\n' "$CLOUDFLARE_TUNNEL_TOKEN" >"$generation_dir/cloudflared.token"
 chmod 600 "$generation_dir/cloudflared.token"

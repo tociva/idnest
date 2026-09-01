@@ -54,6 +54,8 @@ create_archive_from_manifest() {
     files+=("$line")
   done <"$manifest"
   [[ "${#files[@]}" -gt 0 ]] || fail "manifest is empty: $manifest"
+  COPYFILE_DISABLE=1
+  export COPYFILE_DISABLE
   (cd "$REPO_ROOT" && tar --create --gzip --file "$archive" "${files[@]}")
 }
 

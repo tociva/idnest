@@ -72,6 +72,8 @@ require_text scripts/deploy/vps/bootstrap-development-vps.sh \
   '/etc/idnest/cloudflared.token'
 require_text scripts/deploy/transfer-development-vps-bootstrap.sh \
   'cloudflared.token'
+require_text scripts/deploy/transfer-development-vps-bootstrap.sh \
+  'COPYFILE_DISABLE=1'
 require_text scripts/deploy/vps/provision-host.sh \
   'idnest-cloudflared.service'
 require_text scripts/deploy/vps/activate-host-release.sh \
@@ -80,6 +82,8 @@ require_text scripts/deploy/manifests/host-release-files.txt \
   'scripts/deploy/vps/idnest-cloudflared.service'
 require_text scripts/deploy/ci/release-common.sh \
   'scripts/deploy/manifests/host-release-files.txt'
+require_text scripts/deploy/ci/release-common.sh \
+  'COPYFILE_DISABLE=1'
 
 expected_host_release_files='scripts/deploy/vps/Dockerfile.kratos
 scripts/deploy/vps/compose.admin.yaml
