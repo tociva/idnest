@@ -25,7 +25,10 @@ case "${1:-}" in
     exit 0
     ;;
 esac
-[ "$#" -ge 3 ] && [ "$#" -le 5 ] || { usage >&2; exit 2; }
+if [ "$#" -lt 3 ] || [ "$#" -gt 5 ]; then
+  usage >&2
+  exit 2
+fi
 
 VPS_ADMIN_USER=$1
 VPS_ADMIN_SSH_KEY=$2
