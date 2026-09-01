@@ -50,7 +50,7 @@ if ! {
   fail "DEVELOPMENT_ENV must be a non-empty regular file"
 fi
 
-for command in awk node ssh ssh-keygen stat uname; do
+for command in awk cat chmod grep mktemp node rm scp ssh ssh-keygen stat uname; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
@@ -184,6 +184,13 @@ ssh_args=(
   -o StrictHostKeyChecking=yes
   -o "UserKnownHostsFile=$KNOWN_HOSTS"
 )
+scp_args=(
+  -i "$VPS_ADMIN_SSH_KEY"
+  -P "$VPS_PORT"
+  -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=yes
+  -o "UserKnownHostsFile=$KNOWN_HOSTS"
+)
 
 remote_values=$(
   printf 'HYDRA_DB_USER=%s\n' "$(quote_shell "$HYDRA_DB_USER")"
@@ -197,8 +204,21 @@ remote_values=$(
   printf 'AUTHZ_DB_NAME=%s\n' "$(quote_shell "$AUTHZ_DB_NAME")"
 )
 
-# shellcheck disable=SC2029,SC2087
-ssh "${ssh_args[@]}" "$VPS_ADMIN_USER@$VPS_HOST" "bash -s" <<REMOTE
+temporary_parent=${TMPDIR:-/tmp}
+temporary_parent=${temporary_parent%/}
+local_work_directory=$(mktemp -d "$temporary_parent/idnest-vps-postgres.XXXXXX")
+remote_script=$local_work_directory/setup-development-vps-postgres-remote.sh
+remote_script_path=idnest-postgres-setup/setup-development-vps-postgres-remote.$$
+cleanup() {
+  case "${local_work_directory:-}" in
+    "$temporary_parent"/idnest-vps-postgres.*)
+      [ ! -L "$local_work_directory" ] && rm -rf -- "$local_work_directory"
+      ;;
+  esac
+}
+trap cleanup EXIT HUP INT TERM
+
+cat >"$remote_script" <<REMOTE
 set -euo pipefail
 
 $remote_values
@@ -323,3 +343,14 @@ check_from_docker "\$AUTHZ_DB_USER" "\$AUTHZ_DB_PASSWORD" "\$AUTHZ_DB_NAME"
 
 echo "Development VPS PostgreSQL is ready for Idnest containers."
 REMOTE
+chmod 600 "$remote_script"
+
+[ -t 0 ] || fail "run from an interactive terminal so remote sudo can prompt"
+ssh "${ssh_args[@]}" "$VPS_ADMIN_USER@$VPS_HOST" \
+  'install -d -m 700 "$HOME/idnest-postgres-setup"'
+scp "${scp_args[@]}" "$remote_script" "$VPS_ADMIN_USER@$VPS_HOST:$remote_script_path"
+ssh -tt "${ssh_args[@]}" "$VPS_ADMIN_USER@$VPS_HOST" \
+  "bash '$remote_script_path'; status=\$?; rm -f -- '$remote_script_path'; exit \$status"
+
+trap - EXIT HUP INT TERM
+cleanup

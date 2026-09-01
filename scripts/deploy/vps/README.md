@@ -136,7 +136,8 @@ The helper installs PostgreSQL when missing, creates or updates the required
 roles and databases, configures PostgreSQL to listen for Docker container
 traffic, adds `pg_hba.conf` entries for `idnest-runtime-development`
 (`172.23.0.0/16`), restarts PostgreSQL, and verifies connectivity from a Docker
-container before the first identity deployment.
+container before the first identity deployment. Run it from an interactive
+terminal; the remote `sudo` commands may prompt for the `idnest-admin` password.
 
 ## Validate Cloudflare Tunnel routing
 

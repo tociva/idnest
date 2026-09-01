@@ -291,7 +291,9 @@ trusted Mac after the VPS bootstrap runner has completed:
 The helper reads `HYDRA_DSN`, `KRATOS_DSN`, and `AUTHZ_DATABASE_URL` from
 `tmp/development.env`, installs PostgreSQL when missing, creates or updates the
 matching roles and databases, configures PostgreSQL for the pinned Docker
-runtime subnet, and verifies container-to-host database connectivity.
+runtime subnet, and verifies container-to-host database connectivity. Run it
+from an interactive terminal; the remote `sudo` commands may prompt for the
+`idnest-admin` password.
 
 For manual PostgreSQL setup, run these commands as a PostgreSQL administrator
 after generating the three database passwords above:
