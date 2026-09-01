@@ -12,7 +12,7 @@ KEY_VALIDATOR="$REPO_ROOT/scripts/deploy/validate-apple-private-key.sh"
 IDENTITY_RENDERER="$REPO_ROOT/scripts/deploy/render-development-identity-env.sh"
 KRATOS_RENDERER="$REPO_ROOT/scripts/docker/render-kratos-config.sh"
 
-for command in env envsubst grep mktemp openssl rg; do
+for command in env envsubst grep mktemp openssl; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
@@ -49,6 +49,13 @@ common_identity_env=(
   GOOGLE_CLIENT_ID=google-contract-client
   GOOGLE_CLIENT_SECRET=google-contract-secret
 )
+empty_apple_env=(
+  APPLE_CLIENT_ID=
+  APPLE_TEAM_ID=
+  APPLE_PRIVATE_KEY_ID=
+  APPLE_PRIVATE_KEY=
+  APPLE_PRIVATE_KEY_B64=
+)
 
 enabled_env="$temporary_directory/apple-enabled.env"
 env "${common_identity_env[@]}" \
@@ -68,13 +75,14 @@ grep -Fq 'APPLE_PRIVATE_KEY=' "$enabled_env" \
   || fail "enabled identity environment omitted APPLE_PRIVATE_KEY"
 
 disabled_env="$temporary_directory/apple-disabled.env"
-env "${common_identity_env[@]}" "$IDENTITY_RENDERER" "$disabled_env" >/dev/null
+env "${common_identity_env[@]}" "${empty_apple_env[@]}" \
+  "$IDENTITY_RENDERER" "$disabled_env" >/dev/null
 for apple_key in APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY; do
   grep -Fq "${apple_key}=''" "$disabled_env" \
     || fail "disabled identity environment did not empty $apple_key"
 done
 
-if env "${common_identity_env[@]}" \
+if env "${common_identity_env[@]}" "${empty_apple_env[@]}" \
   APPLE_CLIENT_ID=cloud.idnest.contract \
   "$IDENTITY_RENDERER" "$temporary_directory/partial.env" >/dev/null 2>&1; then
   fail "partial Apple configuration was accepted"
@@ -108,12 +116,12 @@ grep -Fq -- '- id: apple' "$enabled_config" || fail "rendered Kratos config omit
 grep -Fq 'provider: apple' "$enabled_config" || fail "rendered Kratos config omitted Apple provider type"
 grep -Fq 'issuer_url: https://appleid.apple.com' "$enabled_config" \
   || fail "rendered Kratos config omitted the Apple issuer"
-if rg -n '\$\{APPLE_' "$enabled_config" >/dev/null; then
+if grep -n -E -- '\$\{APPLE_' "$enabled_config" >/dev/null; then
   fail "rendered Kratos config contains unresolved Apple variables"
 fi
 
 raw_pem_config="$temporary_directory/kratos-apple-raw-pem.yml"
-env "${common_identity_env[@]}" \
+env "${common_identity_env[@]}" "${empty_apple_env[@]}" \
   AUTH_URL=https://auth-dev.idnest.cloud \
   KRATOS_CORS_ALLOWED_ORIGINS=https://auth-dev.idnest.cloud \
   KRATOS_TOTP_ISSUER='Idnest Development' \
@@ -135,7 +143,7 @@ if grep -Fq -- '- id: apple' "$disabled_config"; then
   fail "rendered Kratos config included disabled Apple provider"
 fi
 
-if env "${common_identity_env[@]}" \
+if env "${common_identity_env[@]}" "${empty_apple_env[@]}" \
   AUTH_URL=https://auth-dev.idnest.cloud \
   KRATOS_CORS_ALLOWED_ORIGINS=https://auth-dev.idnest.cloud \
   KRATOS_TOTP_ISSUER='Idnest Development' \

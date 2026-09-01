@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
-for command in awk bash docker grep mktemp openssl rg rm sh sort; do
+for command in awk bash docker grep mktemp openssl rm sh sort; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
@@ -35,10 +35,15 @@ require_text() {
 
 reject_pattern() {
   local pattern=$1
+  local status
   shift
-  if rg -n -S "$pattern" "$@"; then
-    fail "retired or unsafe deployment setting matched: $pattern"
-  fi
+  status=0
+  grep -R -n -E -- "$pattern" "$@" && status=0 || status=$?
+  case "$status" in
+    0) fail "retired or unsafe deployment setting matched: $pattern" ;;
+    1) ;;
+    *) fail "grep failed while checking deployment setting: $pattern" ;;
+  esac
 }
 
 require_text scripts/deploy/vps/compose.auth.yaml \
@@ -121,9 +126,7 @@ reject_pattern 'scp_args=|ssh_args=|base64 --decode|aws ecr get-login-password|s
   .github/workflows/rollback-development.yml \
   .github/workflows/deploy-production.yml
 
-if rg -n 'CLOUDFLARE_TUNNEL_TOKEN|cloudflared\.token' .github/workflows; then
-  fail "the tunnel credential must not be available to GitHub Actions"
-fi
+reject_pattern 'CLOUDFLARE_TUNNEL_TOKEN|cloudflared\.token' .github/workflows
 
 require_text scripts/deploy/render-development-app-env.sh \
   'HYDRA_ADMIN_URL=http://idnest-hydra:4445'
