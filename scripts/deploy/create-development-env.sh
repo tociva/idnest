@@ -10,17 +10,18 @@ usage() {
   cat <<'EOF'
 Usage: scripts/deploy/create-development-env.sh [DEVELOPMENT_ENV] [TERRAFORM_DIRECTORY]
 
-Creates or overwrites the combined protected development environment file.
+Creates or reconciles the combined protected development environment file.
 
 Defaults:
   DEVELOPMENT_ENV=tmp/development.env
   TERRAFORM_DIRECTORY=infrastructure/terraform/aws-development
 
-The generator writes tracked development defaults, generates local database
-passwords, DSNs, application secrets, and the delegation signing key. When
-Terraform state is available, it also imports the non-secret AWS and VPS values.
-External provider values such as Google and the bootstrap admin email remain
-replace-with-* placeholders.
+The generator writes tracked development defaults, generates missing local
+database passwords, DSNs, application secrets, and the delegation signing key,
+and removes keys that are no longer tracked. Existing manually configured
+application values are preserved. When Terraform state is available, it imports
+the non-secret AWS and VPS values. External provider values such as Google and
+the bootstrap admin email remain replace-with-* placeholders until configured.
 EOF
 }
 
@@ -63,13 +64,18 @@ else
   install -d -m 700 "$development_directory" \
     || fail "could not create protected input directory: $development_directory"
 fi
+if [ -e "$DEVELOPMENT_ENV" ]; then
+  [ -f "$DEVELOPMENT_ENV" ] \
+    || fail "development environment must be a regular file: $DEVELOPMENT_ENV"
+fi
 
 temporary_parent=${TMPDIR:-/tmp}
 temporary_parent=${temporary_parent%/}
 WORK_DIRECTORY=$(mktemp -d "$temporary_parent/idnest-development-env.XXXXXX")
 candidate=$(mktemp "$development_directory/.development.env.XXXXXX")
+merged_candidate=
 cleanup() {
-  rm -f -- "${candidate:-}"
+  rm -f -- "${candidate:-}" "${merged_candidate:-}"
   case "${WORK_DIRECTORY:-}" in
     "$temporary_parent"/idnest-development-env.*)
       [ ! -L "$WORK_DIRECTORY" ] && rm -rf -- "$WORK_DIRECTORY"
@@ -207,14 +213,58 @@ DELEGATION_SIGNING_PRIVATE_KEY_B64=$(openssl base64 -A -in "$delegation_private_
   printf 'ADMIN_OIDC_CLIENT_SECRET=%s\n' "$ADMIN_OIDC_CLIENT_SECRET"
 } >"$candidate"
 
-mv "$candidate" "$DEVELOPMENT_ENV"
-candidate=
+if [ -e "$DEVELOPMENT_ENV" ]; then
+  merged_candidate=$(mktemp "$development_directory/.development.env.XXXXXX")
+  chmod 600 "$merged_candidate"
+
+  preserve_keys='HYDRA_DSN KRATOS_DSN HYDRA_SECRETS_SYSTEM KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET DELEGATION_ENABLED DELEGATION_SIGNING_PRIVATE_KEY_B64 ADMIN_BOOTSTRAP_EMAILS ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET'
+  if [ "$terraform_values_loaded" != true ]; then
+    preserve_keys="$preserve_keys AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_AWS_DEPLOY_ROLE_ARN ADMIN_AWS_DEPLOY_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER"
+  fi
+
+  awk -v preserve="$preserve_keys" '
+    BEGIN {
+      preserve_count = split(preserve, preserve_list, " ")
+      for (idx = 1; idx <= preserve_count; idx++) {
+        if (length(preserve_list[idx]) > 0) preserved[preserve_list[idx]] = 1
+      }
+    }
+    /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=/ {
+      separator = index($0, "=")
+      key = substr($0, 1, separator - 1)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+      value = substr($0, separator + 1)
+      if (NR == FNR) {
+        generated_values[key] = value
+        generated_order[++generated_count] = key
+        generated_keys[key] = 1
+      } else if ((key in generated_keys) && (key in preserved)) {
+        existing_values[key] = value
+      }
+    }
+    END {
+      for (idx = 1; idx <= generated_count; idx++) {
+        key = generated_order[idx]
+        value = (key in existing_values) ? existing_values[key] : generated_values[key]
+        print key "=" value
+      }
+    }
+  ' "$candidate" "$DEVELOPMENT_ENV" >"$merged_candidate"
+
+  mv "$merged_candidate" "$DEVELOPMENT_ENV"
+  merged_candidate=
+  rm -f -- "$candidate"
+  candidate=
+else
+  mv "$candidate" "$DEVELOPMENT_ENV"
+  candidate=
+fi
 chmod 600 "$DEVELOPMENT_ENV"
 
 if [ "$terraform_values_loaded" = true ]; then
-  echo "Created $DEVELOPMENT_ENV with generated secrets, defaults, and Terraform-derived infrastructure values."
+  echo "Reconciled $DEVELOPMENT_ENV with generated defaults and Terraform-derived infrastructure values."
 else
-  echo "Created $DEVELOPMENT_ENV with generated secrets and defaults."
-  echo "Terraform output was not available; run update-development-env-from-terraform.sh after terraform apply."
+  echo "Reconciled $DEVELOPMENT_ENV with generated defaults."
+  echo "Terraform output was not available; existing infrastructure values were preserved and missing ones use placeholders."
 fi
 echo "Replace remaining replace-with-* values before bootstrap or GitHub Environment upload."

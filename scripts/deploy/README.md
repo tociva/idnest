@@ -117,12 +117,13 @@ Then create or refresh the protected combined development dotenv source:
 ./scripts/deploy/create-development-env.sh
 ```
 
-This helper creates `tmp/development.env` with mode `0600`, overwriting an
-existing file atomically. It fills tracked development defaults, generates the
-Hydra, Kratos, AuthZ, admin, and delegation secrets, and builds the development
-database URLs. If Terraform state is already available, it imports the non-secret
-AWS and VPS values; otherwise those values remain
-`replace-with-terraform-output` until
+This helper creates or reconciles `tmp/development.env` with mode `0600`,
+atomically removing untracked keys, adding missing tracked keys, and refreshing
+tracked development defaults. It generates any missing Hydra, Kratos, AuthZ,
+admin, and delegation secrets and builds missing development database URLs
+without rotating existing application values. If Terraform state is already
+available, it imports the non-secret AWS and VPS values; otherwise those values
+remain or are added as `replace-with-terraform-output` until
 `update-development-env-from-terraform.sh` is run after Terraform apply.
 
 Before Terraform output is available, the first eleven infrastructure fields may

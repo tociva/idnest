@@ -50,11 +50,11 @@ hostname routes to that tunnel:
 
 The dashboard creates the proxied DNS records for these routes. Install and run
 the Cloudflare-provided `cloudflared` connector command on the VPS outside this
-bootstrap flow. Initialize the protected local environment if it does not
-already exist and synchronize the Terraform-owned VPS values:
+bootstrap flow. Initialize or reconcile the protected local environment and
+synchronize the Terraform-owned VPS values:
 
 ```bash
-test -e tmp/development.env || ./scripts/deploy/create-development-env.sh
+./scripts/deploy/create-development-env.sh
 ./scripts/deploy/update-development-env-from-terraform.sh
 ```
 

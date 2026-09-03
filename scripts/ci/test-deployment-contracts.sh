@@ -186,6 +186,42 @@ printf '%s' "$(awk -F= '$1 == "DELEGATION_SIGNING_PRIVATE_KEY_B64" { print $2 }'
   | grep -Eq 'ASN1 OID: prime256v1|NIST CURVE: P-256' \
   || fail "development environment generator wrote an invalid delegation key"
 
+cat >"$generated_development_env" <<'EOF'
+AWS_ACCOUNT_ID=123456789012
+AUTH_URL=https://old-auth-dev.invalid
+HYDRA_DSN=postgres://hydrau:keep-hydra@db.invalid:5432/hydra?sslmode=disable
+HYDRA_SECRETS_SYSTEM=keep-hydra-system-secret-0123456789
+GOOGLE_CLIENT_ID=keep-google-client-id
+DELEGATION_ENABLED=true
+ADMIN_BOOTSTRAP_EMAILS=admin@idnest.cloud
+STALE_DEVELOPMENT_KEY=remove-me
+EOF
+chmod 600 "$generated_development_env"
+bash scripts/deploy/create-development-env.sh \
+  "$generated_development_env" \
+  "$temporary_directory/missing-terraform" >/dev/null
+reconciled_keys=$(awk -F= 'NF >= 2 { print $1 }' "$generated_development_env" | sort | tr '\n' ' ')
+[ "$reconciled_keys" = "$expected_generated_keys" ] \
+  || fail "development environment generator did not reconcile existing keys to development.env.example"
+[ "$(awk -F= '$1 == "STALE_DEVELOPMENT_KEY" { print $2 }' "$generated_development_env")" = "" ] \
+  || fail "development environment generator did not remove stale keys"
+[ "$(awk -F= '$1 == "AUTH_URL" { print $2 }' "$generated_development_env")" = "https://auth-dev.idnest.cloud" ] \
+  || fail "development environment generator did not refresh tracked defaults"
+[ "$(awk -F= '$1 == "AWS_ACCOUNT_ID" { print $2 }' "$generated_development_env")" = "123456789012" ] \
+  || fail "development environment generator did not preserve existing infrastructure values without Terraform"
+[ "$(awk -F= '$1 == "HYDRA_DSN" { print substr($0, index($0, "=") + 1) }' "$generated_development_env")" = "postgres://hydrau:keep-hydra@db.invalid:5432/hydra?sslmode=disable" ] \
+  || fail "development environment generator did not preserve existing application values"
+[ "$(awk -F= '$1 == "GOOGLE_CLIENT_ID" { print $2 }' "$generated_development_env")" = "keep-google-client-id" ] \
+  || fail "development environment generator did not preserve existing provider values"
+[ "$(awk -F= '$1 == "DELEGATION_ENABLED" { print $2 }' "$generated_development_env")" = "true" ] \
+  || fail "development environment generator did not preserve existing feature toggles"
+reconciled_admin_csrf_secret=$(awk -F= '$1 == "ADMIN_CSRF_SECRET" { print $2 }' "$generated_development_env")
+[ -n "$reconciled_admin_csrf_secret" ] \
+  || fail "development environment generator did not add missing keys"
+case "$reconciled_admin_csrf_secret" in
+  *replace-with-*) fail "development environment generator did not generate missing secrets" ;;
+esac
+
 HYDRA_DSN='postgres://hydra:test@db.invalid:5432/hydra?sslmode=disable' \
 HYDRA_SECRETS_SYSTEM='0123456789abcdef0123456789abcdef' \
 KRATOS_DSN='postgres://kratos:test@db.invalid:5432/kratos?sslmode=disable' \
