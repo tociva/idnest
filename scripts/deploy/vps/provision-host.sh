@@ -52,7 +52,7 @@ ssh-keygen -l -f "$DEPLOY_SSH_PUBLIC_KEY" >/dev/null 2>&1 || fail "deployment SS
 
 SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../../.." && pwd)
-for file in compose.auth.yaml compose.admin.yaml compose.idnest.yaml Dockerfile.kratos deploy-idnest-app.sh deploy-idnest-infra.sh deploy-idnest-auth.sh deploy-idnest-admin.sh rollback-idnest-app.sh rollback-idnest-auth.sh rollback-idnest-admin.sh validate-app-env.sh validate-development-host.sh activate-host-release.sh process-idnest-release-queue.sh submit-idnest-release.sh wait-idnest-release.sh idnest-release-queue.path idnest-release-queue.service idnest-cloudflared.service auth.conf.example admin.conf.example idnest.conf.example; do
+for file in compose.auth.yaml compose.admin.yaml compose.idnest.yaml Dockerfile.kratos deploy-idnest-app.sh deploy-idnest-infra.sh deploy-idnest-auth.sh deploy-idnest-admin.sh rollback-idnest-app.sh rollback-idnest-auth.sh rollback-idnest-admin.sh validate-app-env.sh validate-development-host.sh activate-host-release.sh process-idnest-release-queue.sh submit-idnest-release.sh wait-idnest-release.sh idnest-release-queue.path idnest-release-queue.service auth.conf.example admin.conf.example idnest.conf.example; do
   if ! {
     [ -f "$SCRIPT_DIR/$file" ] &&
       [ ! -L "$SCRIPT_DIR/$file" ]
@@ -93,7 +93,6 @@ install -o root -g root -m 755 "$SCRIPT_DIR/submit-idnest-release.sh" /usr/local
 install -o root -g root -m 755 "$SCRIPT_DIR/wait-idnest-release.sh" /usr/local/bin/wait-idnest-release
 install -o root -g root -m 644 "$SCRIPT_DIR/idnest-release-queue.path" /etc/systemd/system/idnest-release-queue.path
 install -o root -g root -m 644 "$SCRIPT_DIR/idnest-release-queue.service" /etc/systemd/system/idnest-release-queue.service
-install -o root -g root -m 644 "$SCRIPT_DIR/idnest-cloudflared.service" /etc/systemd/system/idnest-cloudflared.service
 
 [ -e /etc/idnest/auth.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/auth.conf.example" /etc/idnest/auth.conf
 [ -e /etc/idnest/admin.conf ] || install -o root -g root -m 600 "$SCRIPT_DIR/admin.conf.example" /etc/idnest/admin.conf

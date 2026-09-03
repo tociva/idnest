@@ -10,5 +10,4 @@ scripts/deploy/vps/rollback-idnest-app.sh
 scripts/deploy/vps/rollback-idnest-auth.sh
 scripts/deploy/vps/rollback-idnest-admin.sh
 scripts/deploy/vps/validate-app-env.sh
-scripts/deploy/vps/idnest-cloudflared.service
 scripts/docker/render-kratos-config.sh

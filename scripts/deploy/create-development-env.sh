@@ -19,8 +19,8 @@ Defaults:
 The generator writes tracked development defaults, generates local database
 passwords, DSNs, application secrets, and the delegation signing key. When
 Terraform state is available, it also imports the non-secret AWS and VPS values.
-External provider values such as Cloudflare, Google, and the bootstrap admin
-email remain replace-with-* placeholders.
+External provider values such as Google and the bootstrap admin email remain
+replace-with-* placeholders.
 EOF
 }
 
@@ -170,7 +170,6 @@ DELEGATION_SIGNING_PRIVATE_KEY_B64=$(openssl base64 -A -in "$delegation_private_
   printf 'VPS_HOST=%s\n' "$VPS_HOST"
   printf 'VPS_PORT=%s\n' "$VPS_PORT"
   printf 'VPS_USER=%s\n' "$VPS_USER"
-  printf '%s\n' 'CLOUDFLARE_TUNNEL_TOKEN=replace-with-cloudflare-tunnel-token'
   printf '%s\n' 'AUTH_URL=https://auth-dev.idnest.cloud'
   printf '%s\n' 'HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud'
   printf '%s\n' 'KRATOS_CORS_ALLOWED_ORIGINS=https://auth-dev.idnest.cloud'

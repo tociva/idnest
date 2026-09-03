@@ -12,7 +12,6 @@ readonly STATE_FILE=$APP_ROOT/identity/state.env
 readonly IDNEST_ENV=$CONFIG_ROOT/idnest.env
 readonly IDNEST_CONFIG=$CONFIG_ROOT/idnest.conf
 readonly VALIDATOR=/usr/local/sbin/validate-idnest-app-env
-readonly CLOUDFLARED_READY_URL=http://127.0.0.1:20242/ready
 
 fail() {
   echo "Idnest identity deployment failed: $*" >&2
@@ -95,8 +94,6 @@ for port in "$HYDRA_PUBLIC_HTTP_PORT" "$HYDRA_ADMIN_HTTP_PORT" "$KRATOS_PUBLIC_H
 done
 case "$HYDRA_PUBLIC_HEALTH_URL" in https://*) ;; *) fail "Hydra public health URL must use HTTPS" ;; esac
 case "$KRATOS_PUBLIC_HEALTH_URL" in https://*) ;; *) fail "Kratos public health URL must use HTTPS" ;; esac
-curl --fail --silent --show-error --noproxy '*' "$CLOUDFLARED_READY_URL" >/dev/null \
-  || fail "Cloudflare Tunnel connector is not ready"
 
 entries=$(tar -tzf "$CONFIG_ARCHIVE") || fail "cannot read Kratos configuration archive"
 [ -n "$entries" ] || fail "Kratos configuration archive is empty"
@@ -231,12 +228,10 @@ until curl --fail --silent --show-error --noproxy '*' \
   sleep 2
 done
 
-curl --fail --silent --show-error --noproxy '*' "$CLOUDFLARED_READY_URL" >/dev/null \
-  || fail "Cloudflare Tunnel connector lost readiness"
 curl --fail --silent --show-error --retry 8 --retry-delay 3 "$HYDRA_PUBLIC_HEALTH_URL" >/dev/null \
-  || fail "Hydra failed public Cloudflare readiness"
+  || fail "Hydra failed public HTTPS readiness"
 curl --fail --silent --show-error --retry 8 --retry-delay 3 "$KRATOS_PUBLIC_HEALTH_URL" >/dev/null \
-  || fail "Kratos failed public Cloudflare readiness"
+  || fail "Kratos failed public HTTPS readiness"
 
 umask 077
 {

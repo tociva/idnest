@@ -52,10 +52,10 @@ All public development services use the `idnest.cloud` zone. The development
 VPS SSH endpoint is `vps-dev.idnest.cloud`, while the four public service records
 above remain proxied through Cloudflare.
 
-Hydra admin `4445` and Kratos admin `4434` are also loopback-only. A
-root-managed `cloudflared` connector publishes the four public hostnames over
-one outbound-only named tunnel. Containers serve plain HTTP on the private
-Docker network; browsers still use normal Cloudflare HTTPS endpoints.
+Hydra admin `4445` and Kratos admin `4434` are also loopback-only. A manually
+managed Cloudflare Tunnel publishes the four public hostnames to these loopback
+origins. Containers serve plain HTTP on the private Docker network; browsers
+still use normal Cloudflare HTTPS endpoints.
 
 Before starting, the development VPS must be running and reachable at
 `VPS_PUBLIC_IP:22`, where `VPS_PUBLIC_IP` is the address assigned by the VPS
@@ -72,7 +72,7 @@ Follow the detailed guides in this order:
 2. [Create development deployment credentials](#create-development-deployment-credentials)
 3. [Bootstrap the development VPS](vps/README.md)
 4. [Configure development runtime and databases](#configure-development-runtime-and-databases)
-5. [Validate Cloudflare Tunnel routing](vps/README.md#validate-cloudflare-tunnel-routing)
+5. [Validate public hostname routing](vps/README.md#validate-public-hostname-routing)
 6. [Configure Hydra discovery CORS](#configure-hydra-discovery-cors)
 7. [Configure GitHub environments](#configure-github-environments)
 8. [Run and verify the first deployment](#run-and-verify-the-first-deployment)
@@ -127,10 +127,9 @@ AWS and VPS values; otherwise those values remain
 
 Before Terraform output is available, the first eleven infrastructure fields may
 remain `replace-with-terraform-output`. Apart from those tool-filled fields,
-only values that require manual input remain as `replace-with-*`, such as the
-Cloudflare tunnel token, Google OAuth client values, and the real bootstrap
-admin email address. Review the file and replace those values before VPS
-bootstrap or GitHub Environment upload.
+only values that require manual input remain as `replace-with-*`, such as
+Google OAuth client values and the real bootstrap admin email address. Review
+the file and replace those values before GitHub Environment upload.
 
 ## Configure development runtime and databases
 
@@ -175,7 +174,6 @@ BUILDER_ECR_REPOSITORY=replace-with-terraform-output
 VPS_HOST=replace-with-terraform-output
 VPS_PORT=replace-with-terraform-output
 VPS_USER=replace-with-terraform-output
-CLOUDFLARE_TUNNEL_TOKEN=replace-with-cloudflare-tunnel-token
 GOOGLE_CLIENT_ID=replace-with-google-client-id
 GOOGLE_CLIENT_SECRET=replace-with-google-client-secret
 ADMIN_BOOTSTRAP_EMAILS=replace-with-real-admin-email-address
@@ -191,10 +189,6 @@ The helper validates the exact contract and rejects missing, duplicate,
 unexpected, empty required, partial Apple, or placeholder values. Only
 configurable values are uploaded; each workflow regenerates current
 development defaults from tracked templates.
-
-`CLOUDFLARE_TUNNEL_TOKEN` is required only for
-`transfer-development-vps-bootstrap.sh`. It is not uploaded to GitHub and is not
-placed in any application runtime environment.
 
 ### Generate development values
 
@@ -274,9 +268,8 @@ URL-safe password for each role, then place it in the matching DSN. When
 PostgreSQL runs on the VPS, `host.docker.internal` is the container-to-host
 address configured by the deployment Compose files. For a managed database,
 replace the host, port, and `sslmode` with values supplied by that provider.
-The VPS bootstrap installs Docker and cloudflared; PostgreSQL setup is a
-separate step because it uses database credentials from the protected
-development environment.
+The VPS bootstrap installs Docker; PostgreSQL setup is a separate step because
+it uses database credentials from the protected development environment.
 
 For PostgreSQL running on the development VPS, run the setup helper from the
 trusted Mac after the VPS bootstrap runner has completed:
@@ -363,10 +356,9 @@ routes, VPC routes, and VPN routes before assigning a new subnet.
 | `ADMIN_OIDC_CLIENT_SECRET` | Run `openssl rand -hex 32`, then use this exact value when provisioning the confidential `idnest-admin` Hydra client after the first admin deployment. |
 | `ADMIN_BOOTSTRAP_EMAILS` | Enter the real, verified email allowed to receive initial system-admin access. Separate multiple emails with commas. |
 
-Never reuse a database password, the VPS sudo password, an SSH passphrase, the
-Cloudflare Tunnel token, or another application secret. Do not rotate
-Hydra/Kratos encryption secrets without first planning how existing encrypted
-data will be handled.
+Never reuse a database password, the VPS sudo password, an SSH passphrase, or
+another application secret. Do not rotate Hydra/Kratos encryption secrets
+without first planning how existing encrypted data will be handled.
 
 ### Google social-login properties
 
@@ -421,8 +413,7 @@ required by the development workflows.
 | `development-identity` | `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, `HOST_RELEASE_SIGNING_PRIVATE_KEY_B64`, `HYDRA_DSN`, `HYDRA_SECRETS_SYSTEM`, `KRATOS_DSN`, `KRATOS_CSRF_COOKIE_SECRET`, `KRATOS_CIPHER_SECRET`, `GOOGLE_CLIENT_SECRET`, optional `APPLE_PRIVATE_KEY_B64` | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `GOOGLE_CLIENT_ID`, optional `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, and `APPLE_PRIVATE_KEY_ID` |
 
 Identity receives the shared VPS target but no AWS role because it does not
-pull application images from ECR. `CLOUDFLARE_TUNNEL_TOKEN` remains local-only
-after VPS bootstrap and is not a GitHub variable or secret.
+pull application images from ECR.
 
 The single `AUTHZ_DATABASE_URL` and `ADMIN_BOOTSTRAP_EMAILS` values are uploaded
 to both application environments. Generate independent random values for every
@@ -449,11 +440,11 @@ The `.conf` defaults are already suitable for development:
 | `admin.conf` | Compose project `idnest-admin-development`, `PUBLIC_HEALTH_URL=https://admin-dev.idnest.cloud/health`, origin port `8445`, network `idnest-runtime-development` |
 | `idnest.conf` | Compose project `idnest-infra-development`, network `idnest-runtime-development`, Hydra origin `8446`, Hydra admin `4445`, Kratos origin `8447`, Kratos admin `4434` |
 
-The public health URLs intentionally use normal HTTPS port `443`; cloudflared
-forwards each hostname to its loopback HTTP port. Change resource limits or
-ports only when the matching tunnel route and tracked host configuration also
-change. Confirm the three VPS-owned `.conf` files are appropriate, then rerun
-the host validator:
+The public health URLs intentionally use normal HTTPS port `443`; the manually
+managed Cloudflare Tunnel forwards each hostname to its loopback HTTP port.
+Change resource limits or ports only when the matching tunnel route and tracked
+host configuration also change. Confirm the three VPS-owned `.conf` files are
+appropriate, then rerun the host validator:
 
 ```bash
 sudo /usr/local/sbin/validate-idnest-development-host

@@ -64,12 +64,11 @@ scripts/deploy/vps/rollback-idnest-app.sh
 scripts/deploy/vps/rollback-idnest-auth.sh
 scripts/deploy/vps/rollback-idnest-admin.sh
 scripts/deploy/vps/validate-app-env.sh
-scripts/deploy/vps/idnest-cloudflared.service
 scripts/docker/render-kratos-config.sh'
 
 entries=$(tar -tzf "$ARCHIVE") || fail "cannot list host release archive"
 [ -n "$entries" ] || fail "host release archive is empty"
-[ "$(printf '%s\n' "$entries" | wc -l | tr -d ' ')" -eq 14 ] || fail "host release archive must contain exactly 14 files"
+[ "$(printf '%s\n' "$entries" | wc -l | tr -d ' ')" -eq 13 ] || fail "host release archive must contain exactly 13 files"
 printf '%s\n' "$entries" | while IFS= read -r entry; do
   printf '%s\n' "$REQUIRED_FILES" | grep -Fx "$entry" >/dev/null || fail "unexpected archive entry: $entry"
 done
@@ -153,11 +152,7 @@ install_one "$RELEASE_DIR/scripts/deploy/vps/rollback-idnest-app.sh" /usr/local/
 install_one "$RELEASE_DIR/scripts/deploy/vps/rollback-idnest-auth.sh" /usr/local/sbin/rollback-idnest-auth 755 rollback-idnest-auth
 install_one "$RELEASE_DIR/scripts/deploy/vps/rollback-idnest-admin.sh" /usr/local/sbin/rollback-idnest-admin 755 rollback-idnest-admin
 install_one "$RELEASE_DIR/scripts/deploy/vps/validate-app-env.sh" /usr/local/sbin/validate-idnest-app-env 755 validate-app-env
-install_one "$RELEASE_DIR/scripts/deploy/vps/idnest-cloudflared.service" /etc/systemd/system/idnest-cloudflared.service 644 idnest-cloudflared-service
 systemctl daemon-reload
-systemctl try-restart idnest-cloudflared.service
-systemctl is-active --quiet idnest-cloudflared.service \
-  || fail "Cloudflare Tunnel connector is not active after host release activation"
 
 umask 077
 {

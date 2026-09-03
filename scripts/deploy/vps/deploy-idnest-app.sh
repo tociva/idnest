@@ -6,7 +6,6 @@ readonly CONFIG_ROOT=/etc/idnest
 readonly INCOMING_ROOT=/var/lib/idnest/incoming
 readonly LOCK_FILE=/var/lock/idnest-deploy.lock
 readonly ENV_VALIDATOR=/usr/local/sbin/validate-idnest-app-env
-readonly CLOUDFLARED_READY_URL=http://127.0.0.1:20242/ready
 
 fail() {
   echo "Deployment failed: $*" >&2
@@ -85,10 +84,6 @@ wait_until_healthy() {
 host_local_ready() {
   curl --fail --silent --show-error --noproxy '*' \
     "http://127.0.0.1:$HTTP_PORT/health" >/dev/null
-}
-
-tunnel_ready() {
-  curl --fail --silent --show-error --noproxy '*' "$CLOUDFLARED_READY_URL" >/dev/null
 }
 
 restore_release_metadata() {
@@ -230,7 +225,6 @@ if [ -e "$APP_ENV" ] || [ -L "$APP_ENV" ]; then
   root_regular_file "$APP_ENV" || fail "existing application environment must be a root-owned regular file"
   case "$(stat -c '%a' "$APP_ENV")" in 600) ;; *) fail "existing application environment mode must be 600" ;; esac
 fi
-tunnel_ready || fail "Cloudflare Tunnel connector is not ready"
 
 exec 9>"$LOCK_FILE"
 flock -n 9 || fail "another auth/admin deployment is running"
@@ -311,17 +305,17 @@ if ! compose up --detach --no-deps "$SERVICE_NAME"; then
   fail "candidate failed to start"
 fi
 CANDIDATE_STARTED=true
-if ! wait_until_healthy || ! host_local_ready || ! tunnel_ready; then
+if ! wait_until_healthy || ! host_local_ready; then
   restore_previous_release || true
   CANDIDATE_STARTED=false
-  fail "candidate failed its container, loopback HTTP, or Tunnel readiness check"
+  fail "candidate failed its container or loopback HTTP readiness check"
 fi
 
 if ! curl --fail --silent --show-error --retry 5 --retry-delay 3 \
   --header 'Cache-Control: no-cache' "$PUBLIC_HEALTH_URL" >/dev/null; then
   restore_previous_release || true
   CANDIDATE_STARTED=false
-  fail "candidate failed the public Cloudflare readiness check"
+  fail "candidate failed the public HTTPS readiness check"
 fi
 
 DEPLOYED_AT=$(date -u '+%Y%m%dT%H%M%SZ')

@@ -12,8 +12,8 @@ Usage: bootstrap-development-vps.sh
 
 Run as a non-root administrative account with sudo access from the transferred
 ~/idnest-bootstrap directory. The script verifies the complete payload,
-installs Docker and cloudflared, provisions the signed release queue, starts
-the Cloudflare Tunnel connector, and validates the fresh host.
+installs Docker, provisions the signed release queue, and validates the fresh
+host.
 EOF
 }
 
@@ -46,7 +46,6 @@ ARCHIVE_PATH=$SCRIPT_DIR/$ARCHIVE_NAME
 CHECKSUM_PATH=$SCRIPT_DIR/$CHECKSUM_NAME
 SIGNING_PUBLIC_KEY=$SCRIPT_DIR/host-release-signing-public.pem
 DEPLOY_SSH_PUBLIC_KEY=$SCRIPT_DIR/idnest-deploy-ed25519.pub
-CLOUDFLARED_TOKEN=$SCRIPT_DIR/cloudflared.token
 REPOSITORY_DIR=$SCRIPT_DIR/repository
 SCRIPT_PATH=$SCRIPT_DIR/bootstrap-development-vps.sh
 RUNTIME_NETWORK=idnest-runtime-development
@@ -62,8 +61,7 @@ for required_file in \
   "$ARCHIVE_PATH" \
   "$CHECKSUM_PATH" \
   "$SIGNING_PUBLIC_KEY" \
-  "$DEPLOY_SSH_PUBLIC_KEY" \
-  "$CLOUDFLARED_TOKEN"; do
+  "$DEPLOY_SSH_PUBLIC_KEY"; do
   if ! {
     [ -f "$required_file" ] &&
       [ ! -L "$required_file" ] &&
@@ -96,7 +94,6 @@ scripts/deploy/vps/submit-idnest-release.sh
 scripts/deploy/vps/wait-idnest-release.sh
 scripts/deploy/vps/idnest-release-queue.path
 scripts/deploy/vps/idnest-release-queue.service
-scripts/deploy/vps/idnest-cloudflared.service
 scripts/deploy/vps/validate-development-host.sh
 scripts/deploy/vps/auth.conf.example
 scripts/deploy/vps/admin.conf.example
@@ -107,8 +104,8 @@ config/kratos/identity.schema.json
 config/kratos/oidc.apple.mapper.jsonnet
 config/kratos/oidc.google.mapper.jsonnet'
 members=$(tar -tzf "$ARCHIVE_PATH") || fail "cannot list bootstrap archive"
-[ "$(printf '%s\n' "$members" | wc -l | tr -d ' ')" -eq 29 ] \
-  || fail "bootstrap archive must contain exactly 29 files"
+[ "$(printf '%s\n' "$members" | wc -l | tr -d ' ')" -eq 28 ] \
+  || fail "bootstrap archive must contain exactly 28 files"
 printf '%s\n' "$members" | while IFS= read -r member; do
   printf '%s\n' "$required_members" | grep -Fx "$member" >/dev/null \
     || fail "unexpected bootstrap archive member: $member"
@@ -162,7 +159,7 @@ sudo apt-get update
 sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
   adduser ca-certificates coreutils curl grep iproute2 openssl tar util-linux
 
-for command in cat curl dpkg grep systemctl; do
+for command in cat curl docker grep systemctl; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command after package installation: $command"
 done
 
@@ -250,52 +247,6 @@ fi
 sudo docker compose version >/dev/null 2>&1 \
   || fail "the Docker Compose plugin is not available to the administrative account"
 
-install_cloudflared() {
-  cloudflared_setup_dir=$(mktemp -d "$SCRIPT_DIR/.cloudflared-setup.XXXXXX")
-  cleanup_cloudflared_setup() {
-    case "${cloudflared_setup_dir:-}" in
-      "$SCRIPT_DIR"/.cloudflared-setup.*) rm -rf -- "$cloudflared_setup_dir" ;;
-    esac
-  }
-  trap cleanup_cloudflared_setup 0 1 2 15
-
-  curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
-    -o "$cloudflared_setup_dir/cloudflare-main.gpg"
-  [ -s "$cloudflared_setup_dir/cloudflare-main.gpg" ] \
-    || fail "Cloudflare repository signing key download was empty"
-  {
-    printf 'Types: deb\n'
-    printf 'URIs: https://pkg.cloudflare.com/cloudflared\n'
-    printf 'Suites: any\n'
-    printf 'Components: main\n'
-    printf 'Signed-By: /usr/share/keyrings/cloudflare-main.gpg\n'
-  } >"$cloudflared_setup_dir/cloudflared.sources"
-
-  sudo install -d -o root -g root -m 755 /usr/share/keyrings
-  sudo test ! -L /usr/share/keyrings/cloudflare-main.gpg \
-    || fail "/usr/share/keyrings/cloudflare-main.gpg must not be a symbolic link"
-  sudo test ! -L /etc/apt/sources.list.d/cloudflared.sources \
-    || fail "/etc/apt/sources.list.d/cloudflared.sources must not be a symbolic link"
-  sudo install -o root -g root -m 644 \
-    "$cloudflared_setup_dir/cloudflare-main.gpg" /usr/share/keyrings/cloudflare-main.gpg
-  sudo install -o root -g root -m 644 \
-    "$cloudflared_setup_dir/cloudflared.sources" /etc/apt/sources.list.d/cloudflared.sources
-  sudo apt-get update
-  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y cloudflared
-
-  cleanup_cloudflared_setup
-  cloudflared_setup_dir=
-  trap - 0 1 2 15
-}
-
-if ! command -v cloudflared >/dev/null 2>&1; then
-  install_cloudflared
-fi
-cloudflared_version=$(cloudflared --version | awk 'NR == 1 {print $3}')
-[ -n "$cloudflared_version" ] || fail "cloudflared 2025.4.0 or newer is required"
-dpkg --compare-versions "$cloudflared_version" ge 2025.4.0 \
-  || fail "cloudflared 2025.4.0 or newer is required"
-
 if ! id idnest-deploy >/dev/null 2>&1; then
   sudo adduser --disabled-password --gecos '' idnest-deploy
 fi
@@ -309,22 +260,6 @@ sudo "$REPOSITORY_DIR/scripts/deploy/vps/provision-host.sh" \
   "$SIGNING_PUBLIC_KEY" \
   "$DEPLOY_SSH_PUBLIC_KEY"
 
-sudo test ! -L /etc/idnest/cloudflared.token \
-  || fail "/etc/idnest/cloudflared.token must not be a symbolic link"
-sudo install -o root -g root -m 600 \
-  "$CLOUDFLARED_TOKEN" /etc/idnest/cloudflared.token
-sudo systemctl daemon-reload
-sudo systemctl enable --now idnest-cloudflared.service
-
-tunnel_attempt=0
-until sudo curl --fail --silent --show-error \
-  http://127.0.0.1:20242/ready >/dev/null 2>&1; do
-  tunnel_attempt=$((tunnel_attempt + 1))
-  [ "$tunnel_attempt" -lt 30 ] \
-    || fail "Cloudflare Tunnel did not become ready"
-  sleep 2
-done
-
 sudo systemctl is-active --quiet idnest-release-queue.path \
   || fail "the development release queue watcher is not active"
 sudo /usr/local/sbin/validate-idnest-development-host
@@ -333,6 +268,4 @@ echo "Development VPS host bootstrap complete."
 echo "Docker runtime network $RUNTIME_NETWORK uses pinned subnet $RUNTIME_SUBNET."
 echo "Review the three VPS-owned *.conf files under /etc/idnest."
 echo "Signed GitHub deployments install idnest.env, auth-app.env, and admin-app.env."
-echo "Cloudflare Tunnel is active; configure its four public hostname routes before deploying."
-
-sudo rm -f "$CLOUDFLARED_TOKEN"
+echo "Configure the four public hostname routes before deploying."

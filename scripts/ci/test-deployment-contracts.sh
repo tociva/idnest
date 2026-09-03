@@ -65,26 +65,21 @@ reject_pattern "TLS_CERT|TLS_KEY|TLS_SERVER|HTTPS_ENABLED|ORIGIN_HTTPS|SERVE_TLS
   scripts/docker/Dockerfile.admin-app config/kratos.tpl.yml
 reject_pattern "origin-ca|origin-cert|Origin CA|Origin Rules" README.md scripts/deploy
 
-require_text scripts/deploy/vps/idnest-cloudflared.service \
-  'LoadCredential=tunnel-token:/etc/idnest/cloudflared.token'
-require_text scripts/deploy/vps/idnest-cloudflared.service \
-  '--metrics 127.0.0.1:20242'
-require_text scripts/deploy/vps/idnest-cloudflared.service \
-  "--token-file \${CREDENTIALS_DIRECTORY}/tunnel-token"
-require_text scripts/deploy/vps/validate-development-host.sh \
-  'http://127.0.0.1:20242/ready'
-require_text scripts/deploy/vps/bootstrap-development-vps.sh \
-  '/etc/idnest/cloudflared.token'
-require_text scripts/deploy/transfer-development-vps-bootstrap.sh \
-  'cloudflared.token'
+reject_pattern 'CLOUDFLARE_TUNNEL_TOKEN|cloudflared|idnest-cloudflared|cloudflared\.token|CLOUDFLARED_READY_URL|127\.0\.0\.1:20242' \
+  scripts/deploy/transfer-development-vps-bootstrap.sh \
+  scripts/deploy/create-development-env.sh \
+  scripts/deploy/env/development.env.example \
+  scripts/deploy/vps/activate-host-release.sh \
+  scripts/deploy/vps/bootstrap-development-vps.sh \
+  scripts/deploy/vps/deploy-idnest-app.sh \
+  scripts/deploy/vps/deploy-idnest-infra.sh \
+  scripts/deploy/vps/provision-host.sh \
+  scripts/deploy/vps/rollback-idnest-app.sh \
+  scripts/deploy/vps/validate-app-env.sh \
+  scripts/deploy/vps/validate-development-host.sh \
+  scripts/deploy/manifests/host-release-files.txt
 require_text scripts/deploy/transfer-development-vps-bootstrap.sh \
   'COPYFILE_DISABLE=1'
-require_text scripts/deploy/vps/provision-host.sh \
-  'idnest-cloudflared.service'
-require_text scripts/deploy/vps/activate-host-release.sh \
-  'scripts/deploy/vps/idnest-cloudflared.service'
-require_text scripts/deploy/manifests/host-release-files.txt \
-  'scripts/deploy/vps/idnest-cloudflared.service'
 require_text scripts/deploy/ci/release-common.sh \
   'scripts/deploy/manifests/host-release-files.txt'
 require_text scripts/deploy/ci/release-common.sh \
@@ -104,7 +99,6 @@ scripts/deploy/vps/deploy-idnest-admin.sh
 scripts/deploy/vps/deploy-idnest-app.sh
 scripts/deploy/vps/deploy-idnest-auth.sh
 scripts/deploy/vps/deploy-idnest-infra.sh
-scripts/deploy/vps/idnest-cloudflared.service
 scripts/deploy/vps/rollback-idnest-admin.sh
 scripts/deploy/vps/rollback-idnest-app.sh
 scripts/deploy/vps/rollback-idnest-auth.sh
@@ -183,7 +177,7 @@ generated_cipher_secret=$(awk -F= '$1 == "KRATOS_CIPHER_SECRET" { print $2 }' "$
 [ "${#generated_cipher_secret}" -eq 32 ] \
   || fail "development environment generator wrote invalid KRATOS_CIPHER_SECRET length"
 generated_placeholder_keys=$(awk -F= '$2 ~ /^replace-with-/ { print $1 }' "$generated_development_env" | sort | tr '\n' ' ')
-expected_placeholder_keys="ADMIN_AWS_DEPLOY_ROLE_ARN ADMIN_BOOTSTRAP_EMAILS ADMIN_ECR_REPOSITORY AUTH_AWS_DEPLOY_ROLE_ARN AUTH_ECR_REPOSITORY AWS_ACCOUNT_ID AWS_BUILD_ROLE_ARN AWS_REGION BUILDER_ECR_REPOSITORY CLOUDFLARE_TUNNEL_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET VPS_HOST VPS_PORT VPS_USER "
+expected_placeholder_keys="ADMIN_AWS_DEPLOY_ROLE_ARN ADMIN_BOOTSTRAP_EMAILS ADMIN_ECR_REPOSITORY AUTH_AWS_DEPLOY_ROLE_ARN AUTH_ECR_REPOSITORY AWS_ACCOUNT_ID AWS_BUILD_ROLE_ARN AWS_REGION BUILDER_ECR_REPOSITORY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET VPS_HOST VPS_PORT VPS_USER "
 [ "$generated_placeholder_keys" = "$expected_placeholder_keys" ] \
   || fail "development environment generator wrote unexpected replace-with placeholders"
 printf '%s' "$(awk -F= '$1 == "DELEGATION_SIGNING_PRIVATE_KEY_B64" { print $2 }' "$generated_development_env")" \
@@ -234,4 +228,4 @@ IDNEST_ENV_FILE="$temporary_directory/idnest.env" \
 IDNEST_RUNTIME_NETWORK=idnest-runtime-development \
   docker compose --file scripts/deploy/vps/compose.idnest.yaml config --quiet
 
-echo "Cloudflare Tunnel deployment contracts passed."
+echo "Deployment contracts passed."

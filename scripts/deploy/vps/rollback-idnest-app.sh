@@ -4,7 +4,6 @@ set -eu
 readonly APP_ROOT=/opt/idnest
 readonly CONFIG_ROOT=/etc/idnest
 readonly LOCK_FILE=/var/lock/idnest-deploy.lock
-readonly CLOUDFLARED_READY_URL=http://127.0.0.1:20242/ready
 
 fail() {
   echo "Rollback failed: $*" >&2
@@ -108,10 +107,8 @@ done
 curl --fail --silent --show-error --noproxy '*' \
   "http://127.0.0.1:$HTTP_PORT/health" >/dev/null \
   || fail "previous release failed host-local HTTP readiness"
-curl --fail --silent --show-error --noproxy '*' "$CLOUDFLARED_READY_URL" >/dev/null \
-  || fail "Cloudflare Tunnel connector is not ready"
 curl --fail --silent --show-error --retry 5 --retry-delay 3 "$PUBLIC_HEALTH_URL" >/dev/null \
-  || fail "previous release failed public Cloudflare readiness"
+  || fail "previous release failed public HTTPS readiness"
 
 ROLLED_BACK_AT=$(date -u '+%Y%m%dT%H%M%SZ')
 state_candidate=$STATE_FILE.rollback.$$.tmp
