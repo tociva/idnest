@@ -63,8 +63,8 @@ if ! ss -H -ltn | awk '
   fail "an Idnest origin or connector metrics port is listening publicly"
 fi
 
-deploy_groups=$(id -nG github-deploy)
+deploy_groups=$(id -nG idnest-deploy)
 printf '%s\n' "$deploy_groups" | grep -Eq '(^| )(sudo|docker)( |$)' \
-  && fail "github-deploy has privileged group membership"
+  && fail "idnest-deploy has privileged group membership"
 
 echo "Idnest development host validation passed."

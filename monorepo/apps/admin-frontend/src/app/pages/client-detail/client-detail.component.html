@@ -207,6 +207,79 @@
             </div>
           </section>
 
+          @if (showLoginAccessRule) {
+            <section class="form-section">
+              <div class="section-label">Login access rule</div>
+              <div class="field-grid">
+                <div class="row toggle-row full">
+                  <tng-switch
+                    [(checked)]="form.loginAccessEnabled"
+                    [disabled]="protectedAdminClient"
+                    ariaLabel="Create authentication mapping"
+                  ></tng-switch>
+                  <span>Create authentication mapping</span>
+                </div>
+                @if (form.loginAccessEnabled) {
+                  <tng-form-field class="full">
+                    <tng-label>Allowed users</tng-label>
+                    <tng-select
+                      [options]="loginAccessModeOptions"
+                      [value]="form.loginAccessMode"
+                      (valueChange)="onLoginAccessModeSelect($event)"
+                      [disabled]="protectedAdminClient"
+                      [getOptionValue]="getSelectOptionValue"
+                      [getOptionLabel]="getSelectOptionLabel"
+                    />
+                  </tng-form-field>
+                  <div class="login-provider-grid full">
+                    <div class="row toggle-row">
+                      <tng-switch
+                        [(checked)]="form.loginAccessGoogle"
+                        [disabled]="protectedAdminClient"
+                        ariaLabel="Allow Google login"
+                      ></tng-switch>
+                      <span>Google</span>
+                    </div>
+                    <div class="row toggle-row">
+                      <tng-switch
+                        [(checked)]="form.loginAccessApple"
+                        [disabled]="protectedAdminClient"
+                        ariaLabel="Allow Apple login"
+                      ></tng-switch>
+                      <span>Apple</span>
+                    </div>
+                  </div>
+                  @if (showLoginAllowedDomains) {
+                    <tng-form-field class="full">
+                      <tng-label>Allowed email domains</tng-label>
+                      <tng-textarea
+                        name="login_allowed_domains"
+                        [rows]="3"
+                        [value]="form.loginAllowedDomains"
+                        (valueChange)="form.loginAllowedDomains = $event ?? ''"
+                        [readonly]="protectedAdminClient"
+                        placeholder="example.com"
+                      />
+                    </tng-form-field>
+                  }
+                  @if (showLoginAllowedEmails) {
+                    <tng-form-field class="full">
+                      <tng-label>Allowed email addresses</tng-label>
+                      <tng-textarea
+                        name="login_allowed_emails"
+                        [rows]="3"
+                        [value]="form.loginAllowedEmails"
+                        (valueChange)="form.loginAllowedEmails = $event ?? ''"
+                        [readonly]="protectedAdminClient"
+                        placeholder="user@example.com"
+                      />
+                    </tng-form-field>
+                  }
+                }
+              </div>
+            </section>
+          }
+
           @if (showRedirectFields) {
             <section class="form-section">
               <div class="section-label">Redirects</div>

@@ -88,9 +88,9 @@ archive, checksum, VPS bootstrap runner, release-signing public key, deployment
 SSH public key, and a standalone tunnel-token file. It then verifies every
 upload on the VPS. Its explicit archive manifest excludes production files and
 all application and identity secrets.
-It rejects `root` and `github-deploy` as the administrative account; use a
+It rejects `root` and `idnest-deploy` as the administrative account; use a
 separate non-root account that already has `sudo` access. The administrative
-key is not the generated `github-deploy` key.
+key is not the generated `idnest-deploy` key.
 
 The tunnel token is never placed in the archive, GitHub, or an application
 container. Bootstrap installs it as root-owned mode `0600`, passes it to the
@@ -107,7 +107,7 @@ account:
 The runner verifies all transferred checksums again before doing any
 privileged work. It extracts a fresh repository tree, installs the minimum host
 packages, Docker, and cloudflared from their official Apt repositories, checks
-cloudflared is new enough for `--token-file`, creates `github-deploy` when
+cloudflared is new enough for `--token-file`, creates `idnest-deploy` when
 needed, provisions the release processor, and installs the development
 configuration templates. It invokes `sudo` only
 for operations that require host privileges and refuses direct execution as

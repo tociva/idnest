@@ -4,13 +4,24 @@
  * script so clients created here stay consistent with provisioned clients.
  */
 import {
+  createAuthPolicy,
+  getAuthzPool,
+  listAuthBrands,
+  upsertOAuthClientAuthConfig,
+  type Db,
+} from "@idnest/authz-store";
+import {
   OAUTH_CLIENT_PROFILES,
   isKnownOAuthClientType,
   normalizeClientCorsOrigin,
   type KnownOAuthClientType,
   type OAuthClientType,
+  type AuthPolicyDefinition,
+  type ConsentMode,
+  type IdentityGate,
 } from "@idnest/shared-types";
-import { getAdminOidcClientId, getHydraAdminUrl } from "../config";
+import { randomUUID } from "node:crypto";
+import { getAdminOidcClientId, getAuthzDatabaseUrl, getHydraAdminUrl } from "../config";
 import { errorBody, readError, type HandlerResult } from "./types";
 
 const clientsBase = (): string => `${getHydraAdminUrl().replace(/\/+$/, "")}/admin/clients`;
@@ -41,10 +52,32 @@ export interface ClientPayload {
   post_logout_redirect_uris?: string[];
   allowed_cors_origins?: string[];
   audience?: string[];
+  login_access_rule?: ClientLoginAccessRulePayload | null;
+  actor?: string | null;
 }
 
 const MAX_CLIENT_ORIGINS = 20;
+const MAX_LOGIN_RULE_ENTRIES = 50;
 const CORS_ORIGIN_OPTIONS = { allowHttpLoopback: true } as const;
+const PROVIDER = /^[a-z0-9][a-z0-9_-]{0,62}$/;
+const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+type LoginAccessMode = "public" | "email-allowlist" | "domain-allowlist";
+
+interface ClientLoginAccessRulePayload {
+  enabled?: boolean;
+  mode?: LoginAccessMode;
+  allowed_oidc_providers?: string[];
+  allowed_email_domains?: string[];
+  allowed_emails?: string[];
+}
+
+interface ParsedClientLoginAccessRule {
+  mode: LoginAccessMode;
+  allowedOidcProviders: string[];
+  allowedEmailDomains: string[];
+  allowedEmails: string[];
+}
 
 function normalizeCorsOrigins(values: string[] | undefined): string[] {
   if (!values) return [];
@@ -91,6 +124,102 @@ function normalizeReturnUris(values: string[] | undefined): string[] {
   return [...new Set(normalized)];
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeStringList(values: unknown, key: string, maxItems = MAX_LOGIN_RULE_ENTRIES): string[] {
+  if (values === undefined || values === null) return [];
+  if (!Array.isArray(values) || values.length > maxItems) {
+    throw new Error(`${key} must be an array with at most ${maxItems} entries`);
+  }
+  return [
+    ...new Set(
+      values.map((value) => {
+        if (typeof value !== "string" || !value.trim()) {
+          throw new Error(`${key} entries must be non-empty strings`);
+        }
+        const normalized = value.trim();
+        if (normalized.length > 254) throw new Error(`${key} entries are too long`);
+        return normalized;
+      }),
+    ),
+  ];
+}
+
+function normalizeEmailDomains(values: unknown): string[] {
+  const domains = normalizeStringList(values, "login_access_rule.allowed_email_domains").map((domain) =>
+    domain.toLowerCase(),
+  );
+  if (
+    domains.some(
+      (domain) =>
+        domain.startsWith(".") ||
+        domain.endsWith(".") ||
+        !/^[a-z0-9.-]+$/.test(domain) ||
+        !domain.includes("."),
+    )
+  ) {
+    throw new Error("login_access_rule.allowed_email_domains contains an invalid domain");
+  }
+  return domains;
+}
+
+function normalizeEmails(values: unknown): string[] {
+  const emails = normalizeStringList(values, "login_access_rule.allowed_emails").map((email) =>
+    email.toLowerCase(),
+  );
+  if (emails.some((email) => !EMAIL.test(email))) {
+    throw new Error("login_access_rule.allowed_emails contains an invalid email address");
+  }
+  return emails;
+}
+
+function normalizeOidcProviders(values: unknown): string[] {
+  const providers = normalizeStringList(
+    values ?? ["google", "apple"],
+    "login_access_rule.allowed_oidc_providers",
+    20,
+  ).map((provider) => provider.toLowerCase());
+  if (providers.length === 0) throw new Error("login_access_rule.allowed_oidc_providers is required");
+  if (providers.some((provider) => !PROVIDER.test(provider))) {
+    throw new Error("login_access_rule.allowed_oidc_providers contains an invalid provider identifier");
+  }
+  return providers;
+}
+
+function parseLoginAccessRule(input: ClientPayload): ParsedClientLoginAccessRule | null {
+  const raw = input.login_access_rule;
+  if (raw === undefined || raw === null) return null;
+  if (!isObject(raw)) throw new Error("login_access_rule must be an object");
+  if (raw.enabled === false) return null;
+
+  const clientType = resolveClientType(input);
+  if (clientType === "service") {
+    throw new Error("login_access_rule is only supported for interactive OAuth clients");
+  }
+
+  const mode = raw.mode ?? "public";
+  if (mode !== "public" && mode !== "email-allowlist" && mode !== "domain-allowlist") {
+    throw new Error("login_access_rule.mode is invalid");
+  }
+  const allowedOidcProviders = normalizeOidcProviders(raw.allowed_oidc_providers);
+  const allowedEmailDomains = normalizeEmailDomains(raw.allowed_email_domains);
+  const allowedEmails = normalizeEmails(raw.allowed_emails);
+
+  if (mode === "public" && (allowedEmailDomains.length > 0 || allowedEmails.length > 0)) {
+    throw new Error("login_access_rule public mode cannot include email or domain allowlists");
+  }
+  if (mode === "domain-allowlist" && allowedEmailDomains.length === 0) {
+    throw new Error("login_access_rule.allowed_email_domains is required for domain allowlist mode");
+  }
+  if (mode === "email-allowlist" && allowedEmails.length === 0) {
+    throw new Error("login_access_rule.allowed_emails is required for email allowlist mode");
+  }
+
+  return { mode, allowedOidcProviders, allowedEmailDomains, allowedEmails };
+}
+
 /** Required fields for creating a client. */
 function validateForCreate(input: ClientPayload): string | null {
   const clientType = resolveClientType(input);
@@ -114,6 +243,87 @@ function normalizedMetadata(input: ClientPayload["metadata"]) {
     remember_offline_access: input?.remember_offline_access === true,
     allowed_return_uris: normalizeReturnUris(input?.allowed_return_uris),
   };
+}
+
+function policyNameForClient(clientId: string): string {
+  const safeClient = clientId.trim().replace(/\s+/g, "-").slice(0, 70) || "oauth-client";
+  return `${safeClient} login access ${randomUUID().slice(0, 8)}`;
+}
+
+function policyForLoginAccessRule(
+  clientId: string,
+  rule: ParsedClientLoginAccessRule,
+): AuthPolicyDefinition {
+  return {
+    name: policyNameForClient(clientId),
+    passwordEnabled: false,
+    passkeyEnabled: false,
+    allowedOidcProviders: rule.allowedOidcProviders,
+    totpEnabled: false,
+    minimumAal: "aal1",
+    registrationMode: "enabled",
+    identityGate: rule.mode as IdentityGate,
+    allowedEmailDomains: rule.mode === "domain-allowlist" ? rule.allowedEmailDomains : [],
+    allowedEmails: rule.mode === "email-allowlist" ? rule.allowedEmails : [],
+    requireVerifiedEmail: true,
+    forceReauthentication: false,
+    sessionMaximumAgeSeconds: 3600,
+  };
+}
+
+async function withTransaction<T>(db: ReturnType<typeof getAuthzPool>, fn: (client: Db) => Promise<T>): Promise<T> {
+  if (!db) throw new Error("AUTHZ_DATABASE_URL is not configured");
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function createClientLoginAccessConfiguration(
+  input: ClientPayload,
+  rule: ParsedClientLoginAccessRule,
+): Promise<void> {
+  const db = getAuthzPool(getAuthzDatabaseUrl());
+  const metadata = normalizedMetadata(input.metadata);
+  await withTransaction(db, async (client) => {
+    const brands = await listAuthBrands(client);
+    const brand = brands.find((candidate) => candidate.key === "idnest-default" && candidate.status === "active");
+    if (!brand) throw new Error("Default Idnest brand is not configured");
+
+    const policy = await createAuthPolicy(client, {
+      status: "active",
+      definition: policyForLoginAccessRule(input.client_id as string, rule),
+      actor: input.actor,
+      reason: "Created with OAuth client login access rule",
+    });
+
+    const isFirstParty = metadata.trust_tier === "first_party";
+    const consentMode: ConsentMode = isFirstParty ? "skip-for-first-party" : "follow-hydra";
+    await upsertOAuthClientAuthConfig(client, {
+      hydraClientId: input.client_id as string,
+      brandId: brand.id,
+      authPolicyId: policy.id,
+      status: "active",
+      isFirstParty,
+      consentMode,
+      actor: input.actor,
+      reason: "Created with OAuth client",
+    });
+  });
+}
+
+async function deleteHydraClient(clientId: string | undefined): Promise<boolean> {
+  if (!clientId) return false;
+  const res = await fetch(`${clientsBase()}/${encodeURIComponent(clientId)}`, { method: "DELETE" });
+  return res.ok || res.status === 404;
 }
 
 function validateClientBrowserConfiguration(input: ClientPayload): string | null {
@@ -290,6 +500,15 @@ export async function createClient(input: ClientPayload): Promise<HandlerResult>
     if (invalidPostLogoutRedirect) return { status: 400, body: { error: invalidPostLogoutRedirect } };
     const invalidPolicy = validateRememberOfflineAccess(input);
     if (invalidPolicy) return { status: 400, body: { error: invalidPolicy } };
+    let loginAccessRule: ParsedClientLoginAccessRule | null = null;
+    try {
+      loginAccessRule = parseLoginAccessRule(input);
+    } catch (error) {
+      return { status: 400, body: errorBody(error) };
+    }
+    if (loginAccessRule && !getAuthzPool(getAuthzDatabaseUrl())) {
+      return { status: 503, body: { error: "AUTHZ_DATABASE_URL is not configured" } };
+    }
     const res = await fetch(clientsBase(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -298,7 +517,22 @@ export async function createClient(input: ClientPayload): Promise<HandlerResult>
     if (!res.ok) {
       return { status: 500, body: { error: `Failed to create client: ${await readError(res)}` } };
     }
-    return { status: 201, body: await res.json() };
+    const created = await res.json();
+    if (loginAccessRule) {
+      try {
+        await createClientLoginAccessConfiguration(input, loginAccessRule);
+      } catch (error) {
+        const rolledBack = await deleteHydraClient(input.client_id).catch(() => false);
+        return {
+          status: 500,
+          body: {
+            ...errorBody(error),
+            hydra_client_rolled_back: rolledBack,
+          },
+        };
+      }
+    }
+    return { status: 201, body: created };
   } catch (err) {
     return { status: 500, body: errorBody(err) };
   }

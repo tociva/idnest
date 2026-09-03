@@ -67,7 +67,7 @@ if [ "$DEVELOPMENT_ENV" = "$REPO_ROOT/tmp/development.env" ] \
 fi
 
 for required_file in \
-  "$DEPLOY_KEYS_DIR/github-deploy-ed25519" \
+  "$DEPLOY_KEYS_DIR/idnest-deploy-ed25519" \
   "$DEPLOY_KEYS_DIR/vps-known-hosts" \
   "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" \
   "$DEVELOPMENT_ENV"; do
@@ -100,7 +100,7 @@ trap cleanup EXIT HUP INT TERM
 chmod 700 "$PREPARED_DIRECTORY"
 
 "$SCRIPT_DIR/prepare-github-environments.sh" \
-  "$DEPLOY_KEYS_DIR/github-deploy-ed25519" \
+  "$DEPLOY_KEYS_DIR/idnest-deploy-ed25519" \
   "$DEPLOY_KEYS_DIR/vps-known-hosts" \
   "$DEPLOY_KEYS_DIR/host-release-signing-private.pem" \
   "$DEVELOPMENT_ENV" \

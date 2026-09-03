@@ -9,6 +9,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.ADMIN_OIDC_CLIENT_ID;
+  delete process.env.AUTHZ_DATABASE_URL;
 });
 
 describe("oauth client management", () => {
@@ -42,6 +43,76 @@ describe("oauth client management", () => {
     expect(body.token_endpoint_auth_method).toBe("none");
     expect(body.grant_types).toContain("authorization_code");
     expect(body.allowed_cors_origins).toEqual(["https://app1"]);
+  });
+
+  it("requires the authz database before creating a client with a login access rule", async () => {
+    const fetchMock = mockFetchByUrl([]);
+
+    const res = await createClient({
+      client_id: "restricted-spa",
+      client_type: "spa",
+      redirect_uris: ["https://restricted.example/callback"],
+      allowed_cors_origins: ["https://restricted.example"],
+      login_access_rule: {
+        enabled: true,
+        mode: "domain-allowlist",
+        allowed_oidc_providers: ["google", "apple"],
+        allowed_email_domains: ["example.com"],
+        allowed_emails: [],
+      },
+    });
+
+    expect(res).toMatchObject({
+      status: 503,
+      body: { error: "AUTHZ_DATABASE_URL is not configured" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid login access rule domains before creating a Hydra client", async () => {
+    const fetchMock = mockFetchByUrl([]);
+
+    const res = await createClient({
+      client_id: "restricted-spa",
+      client_type: "spa",
+      redirect_uris: ["https://restricted.example/callback"],
+      allowed_cors_origins: ["https://restricted.example"],
+      login_access_rule: {
+        enabled: true,
+        mode: "domain-allowlist",
+        allowed_oidc_providers: ["google"],
+        allowed_email_domains: ["*.example.com"],
+        allowed_emails: [],
+      },
+    });
+
+    expect(res).toMatchObject({
+      status: 400,
+      body: { error: "login_access_rule.allowed_email_domains contains an invalid domain" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects login access rules for machine-to-machine clients", async () => {
+    const fetchMock = mockFetchByUrl([]);
+
+    const res = await createClient({
+      client_id: "service-with-rule",
+      client_type: "service",
+      login_access_rule: {
+        enabled: true,
+        mode: "public",
+        allowed_oidc_providers: ["google"],
+        allowed_email_domains: [],
+        allowed_emails: [],
+      },
+    });
+
+    expect(res).toMatchObject({
+      status: 400,
+      body: { error: "login_access_rule is only supported for interactive OAuth clients" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("normalizes, deduplicates, and preserves every supported SPA browser-origin class", async () => {

@@ -36,7 +36,7 @@ VPS_ADMIN_SSH_KEY=$2
 DEVELOPMENT_ENV=$3
 
 case "$VPS_ADMIN_USER" in
-  root|github-deploy) fail "VPS_ADMIN_USER must be a separate non-root administrative account" ;;
+  root|idnest-deploy) fail "VPS_ADMIN_USER must be a separate non-root administrative account" ;;
   ""|*[!a-z0-9_-]*|[!a-z_]*) fail "VPS_ADMIN_USER is not a valid Linux account name" ;;
 esac
 [ -f "$VPS_ADMIN_SSH_KEY" ] && [ ! -L "$VPS_ADMIN_SSH_KEY" ] && [ -s "$VPS_ADMIN_SSH_KEY" ] \
@@ -57,7 +57,7 @@ ARCHIVE_PATH=$DEPLOY_KEYS_DIR/$ARCHIVE_NAME
 CHECKSUM_PATH=$ARCHIVE_PATH.sha256
 KNOWN_HOSTS=$DEPLOY_KEYS_DIR/vps-known-hosts
 SIGNING_PUBLIC_KEY=$DEPLOY_KEYS_DIR/host-release-signing-public.pem
-DEPLOY_SSH_PUBLIC_KEY=$DEPLOY_KEYS_DIR/github-deploy-ed25519.pub
+DEPLOY_SSH_PUBLIC_KEY=$DEPLOY_KEYS_DIR/idnest-deploy-ed25519.pub
 BOOTSTRAP_RUNNER_NAME=bootstrap-development-vps.sh
 BOOTSTRAP_RUNNER_PATH=$REPO_ROOT/scripts/deploy/vps/$BOOTSTRAP_RUNNER_NAME
 
@@ -183,7 +183,7 @@ deploy_public_key_digest=$(shasum -a 256 "$DEPLOY_SSH_PUBLIC_KEY" | awk '{print 
   printf '%s  %s\n' "$runner_digest" "$BOOTSTRAP_RUNNER_NAME"
   printf '%s  %s\n' "$token_digest" cloudflared.token
   printf '%s  %s\n' "$signing_public_key_digest" host-release-signing-public.pem
-  printf '%s  %s\n' "$deploy_public_key_digest" github-deploy-ed25519.pub
+  printf '%s  %s\n' "$deploy_public_key_digest" idnest-deploy-ed25519.pub
 } > "$generation_dir/$ARCHIVE_NAME.sha256"
 
 install -m 600 "$temporary_archive" "$ARCHIVE_PATH"
@@ -198,7 +198,7 @@ ssh \
   "$VPS_ADMIN_USER@$VPS_HOST" \
   'staging="$HOME/idnest-bootstrap"
    test ! -L "$staging" && install -d -m 700 "$staging" || exit 1
-   for file in idnest-development-vps-bootstrap.tar.gz idnest-development-vps-bootstrap.tar.gz.sha256 bootstrap-development-vps.sh host-release-signing-public.pem github-deploy-ed25519.pub cloudflared.token; do
+   for file in idnest-development-vps-bootstrap.tar.gz idnest-development-vps-bootstrap.tar.gz.sha256 bootstrap-development-vps.sh host-release-signing-public.pem idnest-deploy-ed25519.pub cloudflared.token; do
      test ! -L "$staging/$file" || exit 1
    done'
 

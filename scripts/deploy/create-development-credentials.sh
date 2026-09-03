@@ -49,8 +49,8 @@ install -d -m 700 "$DEPLOY_KEYS_DIR"
 chmod 700 "$DEPLOY_KEYS_DIR"
 
 for filename in \
-  github-deploy-ed25519 \
-  github-deploy-ed25519.pub \
+  idnest-deploy-ed25519 \
+  idnest-deploy-ed25519.pub \
   host-release-signing-private.pem \
   host-release-signing-public.pem \
   vps-known-hosts; do
@@ -68,8 +68,8 @@ cleanup() {
 trap cleanup 0 1 2 15
 
 ssh-keygen -q -t ed25519 -a 64 -N '' \
-  -C 'github-deploy@idnest-development' \
-  -f "$generation_dir/github-deploy-ed25519"
+  -C 'idnest-deploy@idnest-development' \
+  -f "$generation_dir/idnest-deploy-ed25519"
 
 openssl genpkey -algorithm ED25519 \
   -out "$generation_dir/host-release-signing-private.pem"
@@ -83,7 +83,7 @@ ssh-keyscan -T 10 -p "$VPS_PORT" "$VPS_HOST" \
 [ -s "$generation_dir/vps-known-hosts" ] \
   || fail "ssh-keyscan returned no host keys for $VPS_HOST:$VPS_PORT"
 
-ssh-keygen -l -f "$generation_dir/github-deploy-ed25519.pub" >/dev/null \
+ssh-keygen -l -f "$generation_dir/idnest-deploy-ed25519.pub" >/dev/null \
   || fail "generated deployment SSH public key is invalid"
 openssl pkey -pubin \
   -in "$generation_dir/host-release-signing-public.pem" \
@@ -91,11 +91,11 @@ openssl pkey -pubin \
   || fail "generated release-signing public key is invalid"
 
 install -m 600 \
-  "$generation_dir/github-deploy-ed25519" \
-  "$DEPLOY_KEYS_DIR/github-deploy-ed25519"
+  "$generation_dir/idnest-deploy-ed25519" \
+  "$DEPLOY_KEYS_DIR/idnest-deploy-ed25519"
 install -m 644 \
-  "$generation_dir/github-deploy-ed25519.pub" \
-  "$DEPLOY_KEYS_DIR/github-deploy-ed25519.pub"
+  "$generation_dir/idnest-deploy-ed25519.pub" \
+  "$DEPLOY_KEYS_DIR/idnest-deploy-ed25519.pub"
 install -m 600 \
   "$generation_dir/host-release-signing-private.pem" \
   "$DEPLOY_KEYS_DIR/host-release-signing-private.pem"
@@ -114,4 +114,4 @@ echo "Development deployment credentials created in: $DEPLOY_KEYS_DIR"
 echo "VPS host-key fingerprints (verify through a second trusted channel):"
 ssh-keygen -lf "$DEPLOY_KEYS_DIR/vps-known-hosts"
 echo "Private keys stay on this workstation and are uploaded only to protected GitHub environment secrets."
-echo "Only github-deploy-ed25519.pub and host-release-signing-public.pem are copied to the VPS."
+echo "Only idnest-deploy-ed25519.pub and host-release-signing-public.pem are copied to the VPS."

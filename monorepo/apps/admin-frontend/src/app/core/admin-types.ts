@@ -86,6 +86,17 @@ export interface ClientFormValue {
   post_logout_redirect_uris: string[];
   allowed_cors_origins: string[];
   audience: string[];
+  login_access_rule?: ClientLoginAccessRuleValue;
+}
+
+export type ClientLoginAccessMode = "public" | "email-allowlist" | "domain-allowlist";
+
+export interface ClientLoginAccessRuleValue {
+  enabled: boolean;
+  mode: ClientLoginAccessMode;
+  allowed_oidc_providers: string[];
+  allowed_email_domains: string[];
+  allowed_emails: string[];
 }
 
 export interface ClientAccessGrant {

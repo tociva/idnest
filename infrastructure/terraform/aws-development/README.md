@@ -58,17 +58,17 @@ github_deployment_targets = {
   development-auth = {
     vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
-    vps_user = "github-deploy"
+    vps_user = "idnest-deploy"
   }
   development-admin = {
     vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
-    vps_user = "github-deploy"
+    vps_user = "idnest-deploy"
   }
   development-identity = {
     vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
-    vps_user = "github-deploy"
+    vps_user = "idnest-deploy"
   }
 }
 
@@ -101,7 +101,7 @@ GitHub CLI session.
 Cloudflare. Auth, admin, and identity share this VPS but remain separate GitHub
 deployment environments. `development-identity` receives only the VPS values;
 it needs no AWS role because Hydra and Kratos use public upstream images.
-`vps_user` is intentionally `github-deploy`: Terraform records it in the
+`vps_user` is intentionally `idnest-deploy`: Terraform records it in the
 validated output, and the development deployment guide synchronizes it through
 `tmp/development.env` to GitHub Actions, which must not connect as `root`.
 

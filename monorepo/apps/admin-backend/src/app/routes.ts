@@ -183,7 +183,7 @@ export function createAdminRouter(): Router {
     "/clients/:clientId/identities",
     adapt(listClientIdentityGrants, (req) => ({ client_id: req.params.clientId })),
   );
-  router.post("/clients", adapt(createClient, fromBody));
+  router.post("/clients", adapt(createClient, (req) => ({ ...fromBody(req), actor: actorFrom(req) })));
   router.put(
     "/clients/:clientId",
     adapt(updateClient, (req) => ({ ...fromBody(req), client_id: req.params.clientId })),

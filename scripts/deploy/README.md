@@ -10,7 +10,7 @@ The development workflows submit signed auth, admin, and identity release
 requests to the VPS. Auth and admin build native ARM64 images and publish
 immutable digests to Amazon ECR. The separate identity workflow renders
 `idnest.env`, migrates and starts Hydra and Kratos, and does not use AWS or ECR.
-The VPS runs the root-owned release processor; the `github-deploy` SSH account
+The VPS runs the root-owned release processor; the `idnest-deploy` SSH account
 does not receive Docker or sudo access.
 
 The deployment command surface is intentionally split by where the command
@@ -105,7 +105,7 @@ Verify the displayed VPS host-key fingerprint through a second trusted channel
 before uploading the known-hosts value to GitHub.
 
 Only the public halves are installed on the VPS: the deployment SSH public key
-becomes `github-deploy`'s `authorized_keys`, and the release-signing public key
+becomes `idnest-deploy`'s `authorized_keys`, and the release-signing public key
 is installed as `/etc/idnest/host-release-signing-public.pem`. The two private
 keys remain in the protected GitHub environment secrets prepared in
 [Configure GitHub environments](#configure-github-environments); they are never
@@ -239,7 +239,7 @@ value.
 | `BUILDER_ECR_REPOSITORY` | ARM64 dependency-builder image repository name. |
 | `VPS_HOST` | Shared development deployment hostname. |
 | `VPS_PORT` | SSH port used by all three deployment workflows. |
-| `VPS_USER` | Unprivileged deployment account, normally `github-deploy`. |
+| `VPS_USER` | Unprivileged deployment account, normally `idnest-deploy`. |
 
 ### Development URL and behavior properties
 

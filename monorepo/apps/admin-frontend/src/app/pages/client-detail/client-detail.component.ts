@@ -31,6 +31,7 @@ import {
   IDNEST_ADMIN_CLIENT_ID,
   type ClientAccessGrant,
   type ClientFormValue,
+  type ClientLoginAccessMode,
   type HydraClient,
 } from "../../core/admin-types";
 import {
@@ -73,10 +74,16 @@ interface ClientForm {
   corsOrigins: string;
   returnUris: string;
   audience: string;
+  loginAccessEnabled: boolean;
+  loginAccessMode: ClientLoginAccessMode;
+  loginAccessGoogle: boolean;
+  loginAccessApple: boolean;
+  loginAllowedDomains: string;
+  loginAllowedEmails: string;
 }
 
-interface SelectOption {
-  value: string;
+interface SelectOption<T extends string = string> {
+  value: T;
   label: string;
 }
 
@@ -84,6 +91,11 @@ const TRUST_TIER_OPTIONS: readonly SelectOption[] = [
   { value: "first_party", label: "First party" },
   { value: "partner", label: "Partner" },
   { value: "third_party", label: "Third party" },
+];
+const LOGIN_ACCESS_MODE_OPTIONS: readonly SelectOption<ClientLoginAccessMode>[] = [
+  { value: "public", label: "Any verified social user" },
+  { value: "domain-allowlist", label: "Only email domains" },
+  { value: "email-allowlist", label: "Only email addresses" },
 ];
 const SCOPE_PLACEHOLDER = "Select scopes";
 const DEFAULT_CLIENT_TYPE: KnownOAuthClientType = "spa";
@@ -112,6 +124,12 @@ const emptyForm = (): ClientForm => ({
   corsOrigins: "",
   returnUris: "",
   audience: "",
+  loginAccessEnabled: true,
+  loginAccessMode: "public",
+  loginAccessGoogle: true,
+  loginAccessApple: true,
+  loginAllowedDomains: "",
+  loginAllowedEmails: "",
 });
 
 const splitList = (value: string): string[] =>
@@ -176,6 +194,7 @@ export class ClientDetailComponent implements OnInit {
   revealClientSecret = false;
   readonly clientProfileOptions = CLIENT_PROFILE_OPTIONS;
   readonly trustTierOptions = TRUST_TIER_OPTIONS;
+  readonly loginAccessModeOptions = LOGIN_ACCESS_MODE_OPTIONS;
   readonly scopePlaceholder = SCOPE_PLACEHOLDER;
   readonly getScopeOptionValue = getScopeOptionValue;
   readonly getScopeOptionLabel = getScopeOptionLabel;
@@ -216,6 +235,18 @@ export class ClientDetailComponent implements OnInit {
 
   get showReturnUris(): boolean {
     return this.form.client_type === "spa" || this.form.client_type === "web" || this.customClient;
+  }
+
+  get showLoginAccessRule(): boolean {
+    return this.createMode && this.form.client_type !== "service";
+  }
+
+  get showLoginAllowedDomains(): boolean {
+    return this.form.loginAccessEnabled && this.form.loginAccessMode === "domain-allowlist";
+  }
+
+  get showLoginAllowedEmails(): boolean {
+    return this.form.loginAccessEnabled && this.form.loginAccessMode === "email-allowlist";
   }
 
   get supportsRefreshToken(): boolean {
@@ -271,6 +302,15 @@ export class ClientDetailComponent implements OnInit {
     if (this.busy || this.protectedAdminClient || !this.form.client_id.trim()) return false;
     if (this.selectedProfile?.requiresRedirectUris && splitList(this.form.redirectUris).length === 0) return false;
     if (this.form.client_type === "spa" && splitList(this.form.corsOrigins).length === 0) return false;
+    if (this.showLoginAccessRule && this.form.loginAccessEnabled) {
+      if (!this.form.loginAccessGoogle && !this.form.loginAccessApple) return false;
+      if (this.form.loginAccessMode === "domain-allowlist" && splitList(this.form.loginAllowedDomains).length === 0) {
+        return false;
+      }
+      if (this.form.loginAccessMode === "email-allowlist" && splitList(this.form.loginAllowedEmails).length === 0) {
+        return false;
+      }
+    }
     return true;
   }
 
@@ -333,6 +373,12 @@ export class ClientDetailComponent implements OnInit {
       corsOrigins: (client.allowed_cors_origins ?? []).join("\n"),
       returnUris: (client.metadata?.allowed_return_uris ?? []).join("\n"),
       audience: (client.audience ?? []).join(", "),
+      loginAccessEnabled: false,
+      loginAccessMode: "public",
+      loginAccessGoogle: true,
+      loginAccessApple: true,
+      loginAllowedDomains: "",
+      loginAllowedEmails: "",
     };
     if (!this.supportsRefreshToken) {
       this.form.remember_offline_access = false;
@@ -343,7 +389,7 @@ export class ClientDetailComponent implements OnInit {
   private toPayload(): ClientFormValue {
     const profile = this.selectedProfile;
     const customProtocol = this.customClient;
-    return {
+    const payload: ClientFormValue = {
       client_id: this.form.client_id.trim(),
       client_name: this.form.client_name.trim(),
       client_uri: this.form.client_uri.trim(),
@@ -370,6 +416,24 @@ export class ClientDetailComponent implements OnInit {
       allowed_cors_origins: this.showBrowserOrigins ? splitList(this.form.corsOrigins) : [],
       audience: splitList(this.form.audience),
     };
+    if (this.showLoginAccessRule && this.form.loginAccessEnabled) {
+      const allowedOidcProviders = [
+        this.form.loginAccessGoogle ? "google" : "",
+        this.form.loginAccessApple ? "apple" : "",
+      ].filter(Boolean);
+      payload.login_access_rule = {
+        enabled: true,
+        mode: this.form.loginAccessMode,
+        allowed_oidc_providers: allowedOidcProviders,
+        allowed_email_domains: this.form.loginAccessMode === "domain-allowlist"
+          ? splitList(this.form.loginAllowedDomains)
+          : [],
+        allowed_emails: this.form.loginAccessMode === "email-allowlist"
+          ? splitList(this.form.loginAllowedEmails)
+          : [],
+      };
+    }
+    return payload;
   }
 
   onTrustTierChange(): void {
@@ -406,7 +470,23 @@ export class ClientDetailComponent implements OnInit {
     if (clientType !== "spa" && clientType !== "web") {
       this.form.returnUris = "";
     }
+    if (clientType === "service") {
+      this.form.loginAccessEnabled = false;
+    } else if (this.createMode) {
+      this.form.loginAccessEnabled = true;
+    }
     this.onTrustTierChange();
+  }
+
+  onLoginAccessModeSelect(value: string | null): void {
+    if (
+      value !== "public" &&
+      value !== "domain-allowlist" &&
+      value !== "email-allowlist"
+    ) {
+      return;
+    }
+    this.form.loginAccessMode = value;
   }
 
   useRedirectOrigins(): void {

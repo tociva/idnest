@@ -35,7 +35,7 @@ VPS_HOST=${3:-vps-dev.idnest.cloud}
 VPS_PORT=${4:-22}
 
 case "$VPS_ADMIN_USER" in
-  root|github-deploy) fail "VPS_ADMIN_USER must be a separate administrative account" ;;
+  root|idnest-deploy) fail "VPS_ADMIN_USER must be a separate administrative account" ;;
   ""|*[!a-z0-9_-]*|[!a-z_]*) fail "VPS_ADMIN_USER is not a valid Linux account name" ;;
 esac
 case "$VPS_HOST" in
@@ -105,7 +105,7 @@ admin_key_type=$2
 admin_key_data=$3
 
 case "$admin_user" in
-  root|github-deploy|""|*[!a-z0-9_-]*|[!a-z_]*) fail "invalid administrative account" ;;
+  root|idnest-deploy|""|*[!a-z0-9_-]*|[!a-z_]*) fail "invalid administrative account" ;;
 esac
 case "$admin_key_type" in
   ""|*[!A-Za-z0-9@._+-]*) fail "invalid SSH public key type" ;;

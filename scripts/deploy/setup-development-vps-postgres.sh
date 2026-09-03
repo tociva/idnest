@@ -35,7 +35,7 @@ VPS_ADMIN_SSH_KEY=$2
 DEVELOPMENT_ENV=$3
 
 case "$VPS_ADMIN_USER" in
-  root|github-deploy) fail "VPS_ADMIN_USER must be a separate non-root administrative account" ;;
+  root|idnest-deploy) fail "VPS_ADMIN_USER must be a separate non-root administrative account" ;;
   ""|*[!a-z0-9_-]*|[!a-z_]*) fail "VPS_ADMIN_USER is not a valid Linux account name" ;;
 esac
 if ! {

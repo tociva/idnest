@@ -32,8 +32,8 @@ esac
 
 [ "$(id -u)" -ne 0 ] \
   || fail "do not run this script as root; use a non-root account with sudo access"
-[ "$(id -un)" != github-deploy ] \
-  || fail "github-deploy is deployment-only; use a separate non-root administrative account"
+[ "$(id -un)" != idnest-deploy ] \
+  || fail "idnest-deploy is deployment-only; use a separate non-root administrative account"
 
 for command in awk dirname grep id sha256sum sudo tar tr wc; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
@@ -45,7 +45,7 @@ CHECKSUM_NAME=$ARCHIVE_NAME.sha256
 ARCHIVE_PATH=$SCRIPT_DIR/$ARCHIVE_NAME
 CHECKSUM_PATH=$SCRIPT_DIR/$CHECKSUM_NAME
 SIGNING_PUBLIC_KEY=$SCRIPT_DIR/host-release-signing-public.pem
-DEPLOY_SSH_PUBLIC_KEY=$SCRIPT_DIR/github-deploy-ed25519.pub
+DEPLOY_SSH_PUBLIC_KEY=$SCRIPT_DIR/idnest-deploy-ed25519.pub
 CLOUDFLARED_TOKEN=$SCRIPT_DIR/cloudflared.token
 REPOSITORY_DIR=$SCRIPT_DIR/repository
 SCRIPT_PATH=$SCRIPT_DIR/bootstrap-development-vps.sh
@@ -296,14 +296,14 @@ cloudflared_version=$(cloudflared --version | awk 'NR == 1 {print $3}')
 dpkg --compare-versions "$cloudflared_version" ge 2025.4.0 \
   || fail "cloudflared 2025.4.0 or newer is required"
 
-if ! id github-deploy >/dev/null 2>&1; then
-  sudo adduser --disabled-password --gecos '' github-deploy
+if ! id idnest-deploy >/dev/null 2>&1; then
+  sudo adduser --disabled-password --gecos '' idnest-deploy
 fi
-[ "$(id -u github-deploy)" -ne 0 ] \
-  || fail "github-deploy must never resolve to UID 0"
+[ "$(id -u idnest-deploy)" -ne 0 ] \
+  || fail "idnest-deploy must never resolve to UID 0"
 
 sudo "$REPOSITORY_DIR/scripts/deploy/vps/provision-host.sh" \
-  github-deploy \
+  idnest-deploy \
   "$RUNTIME_NETWORK" \
   "$RUNTIME_SUBNET" \
   "$SIGNING_PUBLIC_KEY" \

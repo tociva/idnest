@@ -102,6 +102,44 @@ describe("evaluateAuthenticationPolicy", () => {
       evaluateAuthenticationPolicy(session(), { ...policy, minimumAal: "aal2" }, { now }).code,
     ).toBe("aal2_required");
   });
+
+  it("allows exact email or domain allowlist matches after normalizing case", () => {
+    const now = Date.parse("2026-01-01T00:10:00.000Z");
+
+    expect(
+      evaluateAuthenticationPolicy(
+        session({
+          identity: {
+            ...session().identity,
+            traits: { email: "Ada@Example.COM" },
+            verifiable_addresses: [{ via: "email", value: "Ada@Example.COM", verified: true }],
+          },
+        }),
+        { ...policy, identityGate: "email-allowlist", allowedEmails: ["ada@example.com"] },
+        { now },
+      ),
+    ).toMatchObject({ allowed: true });
+    expect(
+      evaluateAuthenticationPolicy(
+        session({ identity: { ...session().identity, traits: { email: "ada@example.com" } } }),
+        { ...policy, identityGate: "domain-allowlist", allowedEmailDomains: ["Example.com"] },
+        { now },
+      ),
+    ).toMatchObject({ allowed: true });
+    expect(
+      evaluateAuthenticationPolicy(
+        session({
+          identity: {
+            ...session().identity,
+            traits: { email: "ada@other.test" },
+            verifiable_addresses: [{ via: "email", value: "ada@other.test", verified: true }],
+          },
+        }),
+        { ...policy, identityGate: "domain-allowlist", allowedEmailDomains: ["example.com"] },
+        { now },
+      ).code,
+    ).toBe("email_domain_not_allowed");
+  });
 });
 
 describe("shouldRequireFreshLogin", () => {

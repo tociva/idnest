@@ -34,17 +34,17 @@ github_deployment_targets = {
   development-auth = {
     vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
-    vps_user = "github-deploy"
+    vps_user = "idnest-deploy"
   }
   development-admin = {
     vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
-    vps_user = "github-deploy"
+    vps_user = "idnest-deploy"
   }
   development-identity = {
     vps_host = "vps-dev.idnest.cloud"
     vps_port = 22
-    vps_user = "github-deploy"
+    vps_user = "idnest-deploy"
   }
 }
 
