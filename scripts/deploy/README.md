@@ -273,7 +273,8 @@ The VPS bootstrap installs Docker; PostgreSQL setup is a separate step because
 it uses database credentials from the protected development environment.
 
 For PostgreSQL running on the development VPS, run the setup helper from the
-trusted Mac after the VPS bootstrap runner has completed:
+trusted Mac after the
+[VPS bootstrap runner](vps/bootstrap-development-vps.sh) has completed:
 
 ```bash
 ./scripts/deploy/setup-development-vps-postgres.sh \
