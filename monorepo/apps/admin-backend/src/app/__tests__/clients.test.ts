@@ -1,16 +1,90 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createClient, deleteClient, getClient, updateClient } from "../handlers/clients";
 import { mockFetchByUrl } from "./helpers";
+
+const store = vi.hoisted(() => ({
+  createAuthPolicy: vi.fn(),
+  getAuthPolicy: vi.fn(),
+  getAuthzPool: vi.fn(() => null),
+  listAuthBrands: vi.fn(),
+  upsertOAuthClientAuthConfig: vi.fn(),
+}));
+
+vi.mock("@idnest/authz-store", () => store);
+
+import { createClient, deleteClient, getClient, updateClient } from "../handlers/clients";
 
 beforeEach(() => {
   process.env.HYDRA_ADMIN_URL = "http://hydra:4445";
   process.env.ADMIN_OIDC_CLIENT_ID = "idnest-admin-client";
+  store.getAuthzPool.mockReturnValue(null);
+  store.listAuthBrands.mockResolvedValue([]);
+  store.getAuthPolicy.mockResolvedValue(null);
+  store.createAuthPolicy.mockReset();
+  store.upsertOAuthClientAuthConfig.mockReset();
 });
 afterEach(() => {
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
   delete process.env.ADMIN_OIDC_CLIENT_ID;
   delete process.env.AUTHZ_DATABASE_URL;
 });
+
+const brand = {
+  id: "11111111-1111-4111-8111-111111111111",
+  key: "idnest-default",
+  status: "active" as const,
+  version: 1,
+  definition: {},
+  created_at: "then",
+  updated_at: "now",
+};
+const existingPolicyId = "22222222-2222-4222-8222-222222222222";
+const newPolicyId = "33333333-3333-4333-8333-333333333333";
+
+function useAuthzStore() {
+  const dbClient = {
+    query: vi.fn(async () => ({ rows: [] })),
+    release: vi.fn(),
+  };
+  const pool = {
+    connect: vi.fn(async () => dbClient),
+  };
+  process.env.AUTHZ_DATABASE_URL = "postgres://authz";
+  store.getAuthzPool.mockReturnValue(pool);
+  store.listAuthBrands.mockResolvedValue([brand]);
+  store.createAuthPolicy.mockResolvedValue({
+    id: newPolicyId,
+    name: "Example policy",
+    status: "active",
+    version: 1,
+    definition: {},
+    created_at: "then",
+    updated_at: "now",
+  });
+  store.getAuthPolicy.mockResolvedValue({
+    id: existingPolicyId,
+    name: "Public Social",
+    status: "active",
+    version: 1,
+    definition: {},
+    created_at: "then",
+    updated_at: "now",
+  });
+  store.upsertOAuthClientAuthConfig.mockResolvedValue({
+    hydra_client_id: "app1",
+    brand_id: brand.id,
+    brand_key: brand.key,
+    authentication_policy_id: existingPolicyId,
+    authentication_policy_name: "Public Social",
+    status: "active",
+    is_first_party: true,
+    consent_mode: "skip-for-first-party",
+    version: 1,
+    created_at: "then",
+    updated_at: "now",
+  });
+  return { dbClient, pool };
+}
 
 describe("oauth client management", () => {
   it("gets a client by id", async () => {
@@ -43,6 +117,164 @@ describe("oauth client management", () => {
     expect(body.token_endpoint_auth_method).toBe("none");
     expect(body.grant_types).toContain("authorization_code");
     expect(body.allowed_cors_origins).toEqual(["https://app1"]);
+  });
+
+  it("creates a named access policy and maps it to the new OAuth client", async () => {
+    useAuthzStore();
+    mockFetchByUrl([
+      { match: "/admin/clients", result: { ok: true, status: 201, json: { client_id: "app1" } } },
+    ]);
+
+    const res = await createClient({
+      client_id: "app1",
+      client_type: "spa",
+      redirect_uris: ["https://app1/callback"],
+      allowed_cors_origins: ["https://app1"],
+      auth_mapping: {
+        mode: "new_policy",
+        policy_name: "Example App login access",
+        access_rule: {
+          enabled: true,
+          mode: "domain-allowlist",
+          allowed_oidc_providers: ["google", "apple"],
+          allowed_email_domains: ["example.com"],
+          allowed_emails: [],
+        },
+      },
+    });
+
+    expect(res.status).toBe(201);
+    expect(store.createAuthPolicy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        status: "active",
+        definition: expect.objectContaining({
+          name: "Example App login access",
+          allowedOidcProviders: ["google", "apple"],
+          identityGate: "domain-allowlist",
+          allowedEmailDomains: ["example.com"],
+          allowedEmails: [],
+        }),
+        reason: "Created with OAuth client access policy",
+      }),
+    );
+    expect(store.upsertOAuthClientAuthConfig).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        hydraClientId: "app1",
+        brandId: brand.id,
+        authPolicyId: newPolicyId,
+        status: "active",
+        isFirstParty: true,
+        consentMode: "skip-for-first-party",
+      }),
+    );
+  });
+
+  it("maps a new OAuth client to a selected existing active authentication policy", async () => {
+    useAuthzStore();
+    mockFetchByUrl([
+      { match: "/admin/clients", result: { ok: true, status: 201, json: { client_id: "app1" } } },
+    ]);
+
+    const res = await createClient({
+      client_id: "app1",
+      client_type: "spa",
+      redirect_uris: ["https://app1/callback"],
+      allowed_cors_origins: ["https://app1"],
+      auth_mapping: {
+        mode: "existing_policy",
+        auth_policy_id: existingPolicyId,
+      },
+    });
+
+    expect(res.status).toBe(201);
+    expect(store.createAuthPolicy).not.toHaveBeenCalled();
+    expect(store.getAuthPolicy).toHaveBeenCalledWith(expect.anything(), existingPolicyId);
+    expect(store.upsertOAuthClientAuthConfig).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        hydraClientId: "app1",
+        authPolicyId: existingPolicyId,
+      }),
+    );
+  });
+
+  it("rejects an invalid existing authentication policy id before creating a Hydra client", async () => {
+    const fetchMock = mockFetchByUrl([]);
+
+    const res = await createClient({
+      client_id: "app1",
+      client_type: "spa",
+      redirect_uris: ["https://app1/callback"],
+      allowed_cors_origins: ["https://app1"],
+      auth_mapping: {
+        mode: "existing_policy",
+        auth_policy_id: "not-a-uuid",
+      },
+    });
+
+    expect(res).toMatchObject({
+      status: 400,
+      body: { error: "auth_mapping.auth_policy_id must be a valid UUID" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rolls back Hydra client creation when the selected authentication policy is not active", async () => {
+    useAuthzStore();
+    store.getAuthPolicy.mockResolvedValue({
+      id: existingPolicyId,
+      name: "Disabled policy",
+      status: "disabled",
+      version: 1,
+      definition: {},
+      created_at: "then",
+      updated_at: "now",
+    });
+    const fetchMock = mockFetchByUrl([
+      { match: "/admin/clients", result: { ok: true, status: 201, json: { client_id: "app1" } } },
+    ]);
+
+    const res = await createClient({
+      client_id: "app1",
+      client_type: "spa",
+      redirect_uris: ["https://app1/callback"],
+      allowed_cors_origins: ["https://app1"],
+      auth_mapping: {
+        mode: "existing_policy",
+        auth_policy_id: existingPolicyId,
+      },
+    });
+
+    expect(res).toMatchObject({
+      status: 500,
+      body: {
+        error: "Selected authentication policy must be active",
+        hydra_client_rolled_back: true,
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store.upsertOAuthClientAuthConfig).not.toHaveBeenCalled();
+  });
+
+  it("rejects auth mappings for machine-to-machine clients", async () => {
+    const fetchMock = mockFetchByUrl([]);
+
+    const res = await createClient({
+      client_id: "service-with-mapping",
+      client_type: "service",
+      auth_mapping: {
+        mode: "existing_policy",
+        auth_policy_id: existingPolicyId,
+      },
+    });
+
+    expect(res).toMatchObject({
+      status: 400,
+      body: { error: "auth_mapping is only supported for interactive OAuth clients" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("requires the authz database before creating a client with a login access rule", async () => {

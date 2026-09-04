@@ -86,6 +86,7 @@ export interface ClientFormValue {
   post_logout_redirect_uris: string[];
   allowed_cors_origins: string[];
   audience: string[];
+  auth_mapping?: ClientAuthMappingValue;
   login_access_rule?: ClientLoginAccessRuleValue;
 }
 
@@ -98,6 +99,17 @@ export interface ClientLoginAccessRuleValue {
   allowed_email_domains: string[];
   allowed_emails: string[];
 }
+
+export type ClientAuthMappingValue =
+  | {
+      mode: "existing_policy";
+      auth_policy_id: string;
+    }
+  | {
+      mode: "new_policy";
+      policy_name: string;
+      access_rule: ClientLoginAccessRuleValue;
+    };
 
 export interface ClientAccessGrant {
   id: string;

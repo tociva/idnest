@@ -20,6 +20,7 @@ import {
 } from "@tailng-ui/components";
 import { TngIcon } from "@tailng-ui/icons";
 import {
+  DEFAULT_AUTH_POLICY_NAME,
   OAUTH_CLIENT_PROFILES,
   clientCorsOriginsFromRedirectUris,
   isKnownOAuthClientType,
@@ -29,6 +30,7 @@ import {
 import { AdminApiService, describeError } from "../../core/admin-api.service";
 import {
   IDNEST_ADMIN_CLIENT_ID,
+  type AuthPolicyRecord,
   type ClientAccessGrant,
   type ClientFormValue,
   type ClientLoginAccessMode,
@@ -74,7 +76,9 @@ interface ClientForm {
   corsOrigins: string;
   returnUris: string;
   audience: string;
-  loginAccessEnabled: boolean;
+  createNewAuthPolicy: boolean;
+  existingAuthPolicyId: string;
+  newAuthPolicyName: string;
   loginAccessMode: ClientLoginAccessMode;
   loginAccessGoogle: boolean;
   loginAccessApple: boolean;
@@ -124,7 +128,9 @@ const emptyForm = (): ClientForm => ({
   corsOrigins: "",
   returnUris: "",
   audience: "",
-  loginAccessEnabled: true,
+  createNewAuthPolicy: true,
+  existingAuthPolicyId: "",
+  newAuthPolicyName: "New OAuth client login access",
   loginAccessMode: "public",
   loginAccessGoogle: true,
   loginAccessApple: true,
@@ -187,6 +193,7 @@ export class ClientDetailComponent implements OnInit {
   error = "";
   notice = "";
   form: ClientForm = emptyForm();
+  authPolicies: AuthPolicyRecord[] = [];
   identityGrants: ClientAccessGrant[] = [];
   customScope = "";
   customScopeOptions: ScopeOption[] = [];
@@ -204,6 +211,7 @@ export class ClientDetailComponent implements OnInit {
 
   private clientId = "";
   private existingMetadata: Record<string, unknown> = {};
+  private lastGeneratedPolicyName = "";
 
   get protectedAdminClient(): boolean {
     return !this.createMode && this.form.client_id.trim() === IDNEST_ADMIN_CLIENT_ID;
@@ -242,11 +250,15 @@ export class ClientDetailComponent implements OnInit {
   }
 
   get showLoginAllowedDomains(): boolean {
-    return this.form.loginAccessEnabled && this.form.loginAccessMode === "domain-allowlist";
+    return this.form.createNewAuthPolicy && this.form.loginAccessMode === "domain-allowlist";
   }
 
   get showLoginAllowedEmails(): boolean {
-    return this.form.loginAccessEnabled && this.form.loginAccessMode === "email-allowlist";
+    return this.form.createNewAuthPolicy && this.form.loginAccessMode === "email-allowlist";
+  }
+
+  get activeAuthPolicies(): AuthPolicyRecord[] {
+    return this.authPolicies.filter((policy) => policy.status === "active");
   }
 
   get supportsRefreshToken(): boolean {
@@ -280,6 +292,13 @@ export class ClientDetailComponent implements OnInit {
     );
   }
 
+  get authPolicySelectOptions(): SelectOption[] {
+    return this.activeAuthPolicies.map((policy) => ({
+      value: policy.id,
+      label: policy.definition.name || policy.name,
+    }));
+  }
+
   get protocolSummary(): Array<{ label: string; value: string }> {
     const profile = this.selectedProfile;
     return [
@@ -302,7 +321,9 @@ export class ClientDetailComponent implements OnInit {
     if (this.busy || this.protectedAdminClient || !this.form.client_id.trim()) return false;
     if (this.selectedProfile?.requiresRedirectUris && splitList(this.form.redirectUris).length === 0) return false;
     if (this.form.client_type === "spa" && splitList(this.form.corsOrigins).length === 0) return false;
-    if (this.showLoginAccessRule && this.form.loginAccessEnabled) {
+    if (this.showLoginAccessRule) {
+      if (!this.form.createNewAuthPolicy) return Boolean(this.form.existingAuthPolicyId);
+      if (!this.form.newAuthPolicyName.trim()) return false;
       if (!this.form.loginAccessGoogle && !this.form.loginAccessApple) return false;
       if (this.form.loginAccessMode === "domain-allowlist" && splitList(this.form.loginAllowedDomains).length === 0) {
         return false;
@@ -332,6 +353,9 @@ export class ClientDetailComponent implements OnInit {
       if (this.createMode) {
         this.form = emptyForm();
         this.customScopeOptions = [];
+        this.authPolicies = await this.api.listAuthPolicies();
+        this.form.existingAuthPolicyId = this.defaultAuthPolicyId();
+        this.syncDefaultNewAuthPolicyName();
       } else {
         this.applyClient(await this.api.getClient(this.clientId));
         await this.loadIdentityGrants();
@@ -373,7 +397,9 @@ export class ClientDetailComponent implements OnInit {
       corsOrigins: (client.allowed_cors_origins ?? []).join("\n"),
       returnUris: (client.metadata?.allowed_return_uris ?? []).join("\n"),
       audience: (client.audience ?? []).join(", "),
-      loginAccessEnabled: false,
+      createNewAuthPolicy: true,
+      existingAuthPolicyId: "",
+      newAuthPolicyName: "New OAuth client login access",
       loginAccessMode: "public",
       loginAccessGoogle: true,
       loginAccessApple: true,
@@ -416,22 +442,31 @@ export class ClientDetailComponent implements OnInit {
       allowed_cors_origins: this.showBrowserOrigins ? splitList(this.form.corsOrigins) : [],
       audience: splitList(this.form.audience),
     };
-    if (this.showLoginAccessRule && this.form.loginAccessEnabled) {
+    if (this.showLoginAccessRule) {
       const allowedOidcProviders = [
         this.form.loginAccessGoogle ? "google" : "",
         this.form.loginAccessApple ? "apple" : "",
       ].filter(Boolean);
-      payload.login_access_rule = {
-        enabled: true,
-        mode: this.form.loginAccessMode,
-        allowed_oidc_providers: allowedOidcProviders,
-        allowed_email_domains: this.form.loginAccessMode === "domain-allowlist"
-          ? splitList(this.form.loginAllowedDomains)
-          : [],
-        allowed_emails: this.form.loginAccessMode === "email-allowlist"
-          ? splitList(this.form.loginAllowedEmails)
-          : [],
-      };
+      payload.auth_mapping = this.form.createNewAuthPolicy
+        ? {
+            mode: "new_policy",
+            policy_name: this.form.newAuthPolicyName.trim(),
+            access_rule: {
+              enabled: true,
+              mode: this.form.loginAccessMode,
+              allowed_oidc_providers: allowedOidcProviders,
+              allowed_email_domains: this.form.loginAccessMode === "domain-allowlist"
+                ? splitList(this.form.loginAllowedDomains)
+                : [],
+              allowed_emails: this.form.loginAccessMode === "email-allowlist"
+                ? splitList(this.form.loginAllowedEmails)
+                : [],
+            },
+          }
+        : {
+            mode: "existing_policy",
+            auth_policy_id: this.form.existingAuthPolicyId,
+          };
     }
     return payload;
   }
@@ -471,11 +506,15 @@ export class ClientDetailComponent implements OnInit {
       this.form.returnUris = "";
     }
     if (clientType === "service") {
-      this.form.loginAccessEnabled = false;
+      this.form.createNewAuthPolicy = false;
     } else if (this.createMode) {
-      this.form.loginAccessEnabled = true;
+      this.form.createNewAuthPolicy = true;
     }
     this.onTrustTierChange();
+  }
+
+  onExistingAuthPolicySelect(value: string | null): void {
+    if (typeof value === "string") this.form.existingAuthPolicyId = value;
   }
 
   onLoginAccessModeSelect(value: string | null): void {
@@ -487,6 +526,17 @@ export class ClientDetailComponent implements OnInit {
       return;
     }
     this.form.loginAccessMode = value;
+  }
+
+  syncDefaultNewAuthPolicyName(): void {
+    const nextName = this.defaultNewPolicyName();
+    if (
+      !this.form.newAuthPolicyName.trim() ||
+      this.form.newAuthPolicyName === this.lastGeneratedPolicyName
+    ) {
+      this.form.newAuthPolicyName = nextName;
+    }
+    this.lastGeneratedPolicyName = nextName;
   }
 
   useRedirectOrigins(): void {
@@ -527,7 +577,13 @@ export class ClientDetailComponent implements OnInit {
         ? "Client ID is required."
         : this.selectedProfile?.requiresRedirectUris && splitList(this.form.redirectUris).length === 0
           ? "A redirect URI is required for this client type."
-          : "At least one browser origin is required for a single-page app.";
+          : this.form.client_type === "spa" && splitList(this.form.corsOrigins).length === 0
+            ? "At least one browser origin is required for a single-page app."
+            : this.showLoginAccessRule && !this.form.createNewAuthPolicy && !this.form.existingAuthPolicyId
+              ? "Choose an authentication policy."
+              : this.showLoginAccessRule && this.form.createNewAuthPolicy && !this.form.newAuthPolicyName.trim()
+                ? "Policy name is required."
+                : "Complete the authentication mapping.";
       this.toast.danger(this.error);
       return;
     }
@@ -563,6 +619,19 @@ export class ClientDetailComponent implements OnInit {
     } catch {
       this.identityGrants = [];
     }
+  }
+
+  private defaultAuthPolicyId(): string {
+    return (
+      this.activeAuthPolicies.find((policy) => policy.name === DEFAULT_AUTH_POLICY_NAME)?.id ??
+      this.activeAuthPolicies[0]?.id ??
+      ""
+    );
+  }
+
+  private defaultNewPolicyName(): string {
+    const base = this.form.client_name.trim() || this.form.client_id.trim() || "New OAuth client";
+    return `${base} login access`;
   }
 
   async revokeIdentity(identityId: string): Promise<void> {

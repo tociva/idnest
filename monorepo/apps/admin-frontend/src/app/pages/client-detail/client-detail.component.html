@@ -89,6 +89,7 @@
                   [(ngModel)]="form.client_id"
                   [readonly]="!createMode"
                   placeholder="example-spa"
+                  (ngModelChange)="syncDefaultNewAuthPolicyName()"
                 />
               </tng-form-field>
               <tng-form-field>
@@ -99,6 +100,7 @@
                   [(ngModel)]="form.client_name"
                   [readonly]="protectedAdminClient"
                   placeholder="Example SPA"
+                  (ngModelChange)="syncDefaultNewAuthPolicyName()"
                 />
               </tng-form-field>
               <tng-form-field class="full">
@@ -209,17 +211,42 @@
 
           @if (showLoginAccessRule) {
             <section class="form-section">
-              <div class="section-label">Login access rule</div>
+              <div class="section-label">Authentication mapping</div>
               <div class="field-grid">
                 <div class="row toggle-row full">
                   <tng-switch
-                    [(checked)]="form.loginAccessEnabled"
+                    [(checked)]="form.createNewAuthPolicy"
                     [disabled]="protectedAdminClient"
-                    ariaLabel="Create authentication mapping"
+                    ariaLabel="Create new access policy"
                   ></tng-switch>
-                  <span>Create authentication mapping</span>
+                  <span>Create new access policy</span>
                 </div>
-                @if (form.loginAccessEnabled) {
+                @if (!form.createNewAuthPolicy) {
+                  <tng-form-field class="full">
+                    <tng-label>Authentication policy</tng-label>
+                    <tng-select
+                      [options]="authPolicySelectOptions"
+                      [value]="form.existingAuthPolicyId"
+                      (valueChange)="onExistingAuthPolicySelect($event)"
+                      [disabled]="protectedAdminClient"
+                      [getOptionValue]="getSelectOptionValue"
+                      [getOptionLabel]="getSelectOptionLabel"
+                    />
+                  </tng-form-field>
+                  @if (authPolicySelectOptions.length === 0) {
+                    <p class="field-help full">No active authentication policies are available.</p>
+                  }
+                } @else {
+                  <tng-form-field class="full">
+                    <tng-label>Policy name</tng-label>
+                    <tng-input
+                      tngAngularForms
+                      name="new_auth_policy_name"
+                      [(ngModel)]="form.newAuthPolicyName"
+                      [readonly]="protectedAdminClient"
+                      placeholder="Example SPA login access"
+                    />
+                  </tng-form-field>
                   <tng-form-field class="full">
                     <tng-label>Allowed users</tng-label>
                     <tng-select

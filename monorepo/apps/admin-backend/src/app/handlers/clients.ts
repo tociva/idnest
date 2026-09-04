@@ -5,6 +5,7 @@
  */
 import {
   createAuthPolicy,
+  getAuthPolicy,
   getAuthzPool,
   listAuthBrands,
   upsertOAuthClientAuthConfig,
@@ -52,6 +53,7 @@ export interface ClientPayload {
   post_logout_redirect_uris?: string[];
   allowed_cors_origins?: string[];
   audience?: string[];
+  auth_mapping?: ClientAuthMappingPayload | null;
   login_access_rule?: ClientLoginAccessRulePayload | null;
   actor?: string | null;
 }
@@ -61,6 +63,7 @@ const MAX_LOGIN_RULE_ENTRIES = 50;
 const CORS_ORIGIN_OPTIONS = { allowHttpLoopback: true } as const;
 const PROVIDER = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type LoginAccessMode = "public" | "email-allowlist" | "domain-allowlist";
 
@@ -72,12 +75,34 @@ interface ClientLoginAccessRulePayload {
   allowed_emails?: string[];
 }
 
+type ClientAuthMappingPayload =
+  | {
+      mode?: "existing_policy";
+      auth_policy_id?: string;
+    }
+  | {
+      mode?: "new_policy";
+      policy_name?: string;
+      access_rule?: ClientLoginAccessRulePayload;
+    };
+
 interface ParsedClientLoginAccessRule {
   mode: LoginAccessMode;
   allowedOidcProviders: string[];
   allowedEmailDomains: string[];
   allowedEmails: string[];
 }
+
+type ParsedClientAuthMapping =
+  | {
+      mode: "existing_policy";
+      authPolicyId: string;
+    }
+  | {
+      mode: "new_policy";
+      policyName: string;
+      rule: ParsedClientLoginAccessRule;
+    };
 
 function normalizeCorsOrigins(values: string[] | undefined): string[] {
   if (!values) return [];
@@ -147,8 +172,8 @@ function normalizeStringList(values: unknown, key: string, maxItems = MAX_LOGIN_
   ];
 }
 
-function normalizeEmailDomains(values: unknown): string[] {
-  const domains = normalizeStringList(values, "login_access_rule.allowed_email_domains").map((domain) =>
+function normalizeEmailDomains(values: unknown, keyPrefix: string): string[] {
+  const domains = normalizeStringList(values, `${keyPrefix}.allowed_email_domains`).map((domain) =>
     domain.toLowerCase(),
   );
   if (
@@ -160,64 +185,114 @@ function normalizeEmailDomains(values: unknown): string[] {
         !domain.includes("."),
     )
   ) {
-    throw new Error("login_access_rule.allowed_email_domains contains an invalid domain");
+    throw new Error(`${keyPrefix}.allowed_email_domains contains an invalid domain`);
   }
   return domains;
 }
 
-function normalizeEmails(values: unknown): string[] {
-  const emails = normalizeStringList(values, "login_access_rule.allowed_emails").map((email) =>
+function normalizeEmails(values: unknown, keyPrefix: string): string[] {
+  const emails = normalizeStringList(values, `${keyPrefix}.allowed_emails`).map((email) =>
     email.toLowerCase(),
   );
   if (emails.some((email) => !EMAIL.test(email))) {
-    throw new Error("login_access_rule.allowed_emails contains an invalid email address");
+    throw new Error(`${keyPrefix}.allowed_emails contains an invalid email address`);
   }
   return emails;
 }
 
-function normalizeOidcProviders(values: unknown): string[] {
+function normalizeOidcProviders(values: unknown, keyPrefix: string): string[] {
   const providers = normalizeStringList(
     values ?? ["google", "apple"],
-    "login_access_rule.allowed_oidc_providers",
+    `${keyPrefix}.allowed_oidc_providers`,
     20,
   ).map((provider) => provider.toLowerCase());
-  if (providers.length === 0) throw new Error("login_access_rule.allowed_oidc_providers is required");
+  if (providers.length === 0) throw new Error(`${keyPrefix}.allowed_oidc_providers is required`);
   if (providers.some((provider) => !PROVIDER.test(provider))) {
-    throw new Error("login_access_rule.allowed_oidc_providers contains an invalid provider identifier");
+    throw new Error(`${keyPrefix}.allowed_oidc_providers contains an invalid provider identifier`);
   }
   return providers;
 }
 
-function parseLoginAccessRule(input: ClientPayload): ParsedClientLoginAccessRule | null {
-  const raw = input.login_access_rule;
+function parseLoginAccessRulePayload(
+  raw: unknown,
+  keyPrefix: string,
+): ParsedClientLoginAccessRule | null {
   if (raw === undefined || raw === null) return null;
-  if (!isObject(raw)) throw new Error("login_access_rule must be an object");
+  if (!isObject(raw)) throw new Error(`${keyPrefix} must be an object`);
   if (raw.enabled === false) return null;
-
-  const clientType = resolveClientType(input);
-  if (clientType === "service") {
-    throw new Error("login_access_rule is only supported for interactive OAuth clients");
-  }
 
   const mode = raw.mode ?? "public";
   if (mode !== "public" && mode !== "email-allowlist" && mode !== "domain-allowlist") {
-    throw new Error("login_access_rule.mode is invalid");
+    throw new Error(`${keyPrefix}.mode is invalid`);
   }
-  const allowedOidcProviders = normalizeOidcProviders(raw.allowed_oidc_providers);
-  const allowedEmailDomains = normalizeEmailDomains(raw.allowed_email_domains);
-  const allowedEmails = normalizeEmails(raw.allowed_emails);
+  const allowedOidcProviders = normalizeOidcProviders(raw.allowed_oidc_providers, keyPrefix);
+  const allowedEmailDomains = normalizeEmailDomains(raw.allowed_email_domains, keyPrefix);
+  const allowedEmails = normalizeEmails(raw.allowed_emails, keyPrefix);
 
   if (mode === "public" && (allowedEmailDomains.length > 0 || allowedEmails.length > 0)) {
-    throw new Error("login_access_rule public mode cannot include email or domain allowlists");
+    throw new Error(`${keyPrefix} public mode cannot include email or domain allowlists`);
   }
   if (mode === "domain-allowlist" && allowedEmailDomains.length === 0) {
-    throw new Error("login_access_rule.allowed_email_domains is required for domain allowlist mode");
+    throw new Error(`${keyPrefix}.allowed_email_domains is required for domain allowlist mode`);
   }
   if (mode === "email-allowlist" && allowedEmails.length === 0) {
-    throw new Error("login_access_rule.allowed_emails is required for email allowlist mode");
+    throw new Error(`${keyPrefix}.allowed_emails is required for email allowlist mode`);
   }
 
   return { mode, allowedOidcProviders, allowedEmailDomains, allowedEmails };
+}
+
+function parseLoginAccessRule(input: ClientPayload): ParsedClientLoginAccessRule | null {
+  const rule = parseLoginAccessRulePayload(input.login_access_rule, "login_access_rule");
+  if (rule && resolveClientType(input) === "service") {
+    throw new Error("login_access_rule is only supported for interactive OAuth clients");
+  }
+  return rule;
+}
+
+function normalizePolicyName(value: unknown): string {
+  if (typeof value !== "string") throw new Error("auth_mapping.policy_name is required");
+  const normalized = value.trim();
+  if (!normalized) throw new Error("auth_mapping.policy_name is required");
+  if (normalized.length > 100) throw new Error("auth_mapping.policy_name is too long");
+  return normalized;
+}
+
+function parseAuthMapping(input: ClientPayload): ParsedClientAuthMapping | null {
+  const raw = input.auth_mapping;
+  if (raw === undefined || raw === null) {
+    const legacyRule = parseLoginAccessRule(input);
+    return legacyRule
+      ? {
+          mode: "new_policy",
+          policyName: policyNameForClient(input.client_id ?? ""),
+          rule: legacyRule,
+        }
+      : null;
+  }
+  if (!isObject(raw)) throw new Error("auth_mapping must be an object");
+  if (resolveClientType(input) === "service") {
+    throw new Error("auth_mapping is only supported for interactive OAuth clients");
+  }
+
+  if (raw.mode === "existing_policy") {
+    if (typeof raw.auth_policy_id !== "string" || !UUID.test(raw.auth_policy_id.trim())) {
+      throw new Error("auth_mapping.auth_policy_id must be a valid UUID");
+    }
+    return { mode: "existing_policy", authPolicyId: raw.auth_policy_id.trim() };
+  }
+
+  if (raw.mode === "new_policy") {
+    const rule = parseLoginAccessRulePayload(raw.access_rule, "auth_mapping.access_rule");
+    if (!rule) throw new Error("auth_mapping.access_rule is required");
+    return {
+      mode: "new_policy",
+      policyName: normalizePolicyName(raw.policy_name),
+      rule,
+    };
+  }
+
+  throw new Error("auth_mapping.mode is invalid");
 }
 
 /** Required fields for creating a client. */
@@ -250,12 +325,9 @@ function policyNameForClient(clientId: string): string {
   return `${safeClient} login access ${randomUUID().slice(0, 8)}`;
 }
 
-function policyForLoginAccessRule(
-  clientId: string,
-  rule: ParsedClientLoginAccessRule,
-): AuthPolicyDefinition {
+function policyForLoginAccessRule(policyName: string, rule: ParsedClientLoginAccessRule): AuthPolicyDefinition {
   return {
-    name: policyNameForClient(clientId),
+    name: policyName,
     passwordEnabled: false,
     passkeyEnabled: false,
     allowedOidcProviders: rule.allowedOidcProviders,
@@ -287,9 +359,9 @@ async function withTransaction<T>(db: ReturnType<typeof getAuthzPool>, fn: (clie
   }
 }
 
-async function createClientLoginAccessConfiguration(
+async function createClientAuthConfiguration(
   input: ClientPayload,
-  rule: ParsedClientLoginAccessRule,
+  mapping: ParsedClientAuthMapping,
 ): Promise<void> {
   const db = getAuthzPool(getAuthzDatabaseUrl());
   const metadata = normalizedMetadata(input.metadata);
@@ -298,19 +370,16 @@ async function createClientLoginAccessConfiguration(
     const brand = brands.find((candidate) => candidate.key === "idnest-default" && candidate.status === "active");
     if (!brand) throw new Error("Default Idnest brand is not configured");
 
-    const policy = await createAuthPolicy(client, {
-      status: "active",
-      definition: policyForLoginAccessRule(input.client_id as string, rule),
-      actor: input.actor,
-      reason: "Created with OAuth client login access rule",
-    });
+    const policyId = mapping.mode === "existing_policy"
+      ? await resolveExistingPolicyId(client, mapping.authPolicyId)
+      : (await createPolicyForAuthMapping(client, input, mapping)).id;
 
     const isFirstParty = metadata.trust_tier === "first_party";
     const consentMode: ConsentMode = isFirstParty ? "skip-for-first-party" : "follow-hydra";
     await upsertOAuthClientAuthConfig(client, {
       hydraClientId: input.client_id as string,
       brandId: brand.id,
-      authPolicyId: policy.id,
+      authPolicyId: policyId,
       status: "active",
       isFirstParty,
       consentMode,
@@ -318,6 +387,38 @@ async function createClientLoginAccessConfiguration(
       reason: "Created with OAuth client",
     });
   });
+}
+
+async function resolveExistingPolicyId(db: Db, policyId: string): Promise<string> {
+  const policy = await getAuthPolicy(db, policyId);
+  if (!policy) throw new Error("Selected authentication policy does not exist");
+  if (policy.status !== "active") throw new Error("Selected authentication policy must be active");
+  return policy.id;
+}
+
+async function createPolicyForAuthMapping(
+  db: Db,
+  input: ClientPayload,
+  mapping: Extract<ParsedClientAuthMapping, { mode: "new_policy" }>,
+) {
+  try {
+    return await createAuthPolicy(db, {
+      status: "active",
+      definition: policyForLoginAccessRule(mapping.policyName, mapping.rule),
+      actor: input.actor,
+      reason: "Created with OAuth client access policy",
+    });
+  } catch (error) {
+    if (!isObject(error) || error["code"] !== "23505") throw error;
+    const suffix = randomUUID().slice(0, 8);
+    const base = mapping.policyName.slice(0, 91).trim() || "OAuth client login access";
+    return createAuthPolicy(db, {
+      status: "active",
+      definition: policyForLoginAccessRule(`${base} ${suffix}`, mapping.rule),
+      actor: input.actor,
+      reason: "Created with OAuth client access policy",
+    });
+  }
 }
 
 async function deleteHydraClient(clientId: string | undefined): Promise<boolean> {
@@ -500,13 +601,13 @@ export async function createClient(input: ClientPayload): Promise<HandlerResult>
     if (invalidPostLogoutRedirect) return { status: 400, body: { error: invalidPostLogoutRedirect } };
     const invalidPolicy = validateRememberOfflineAccess(input);
     if (invalidPolicy) return { status: 400, body: { error: invalidPolicy } };
-    let loginAccessRule: ParsedClientLoginAccessRule | null = null;
+    let authMapping: ParsedClientAuthMapping | null = null;
     try {
-      loginAccessRule = parseLoginAccessRule(input);
+      authMapping = parseAuthMapping(input);
     } catch (error) {
       return { status: 400, body: errorBody(error) };
     }
-    if (loginAccessRule && !getAuthzPool(getAuthzDatabaseUrl())) {
+    if (authMapping && !getAuthzPool(getAuthzDatabaseUrl())) {
       return { status: 503, body: { error: "AUTHZ_DATABASE_URL is not configured" } };
     }
     const res = await fetch(clientsBase(), {
@@ -518,9 +619,9 @@ export async function createClient(input: ClientPayload): Promise<HandlerResult>
       return { status: 500, body: { error: `Failed to create client: ${await readError(res)}` } };
     }
     const created = await res.json();
-    if (loginAccessRule) {
+    if (authMapping) {
       try {
-        await createClientLoginAccessConfiguration(input, loginAccessRule);
+        await createClientAuthConfiguration(input, authMapping);
       } catch (error) {
         const rolledBack = await deleteHydraClient(input.client_id).catch(() => false);
         return {
