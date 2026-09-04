@@ -159,7 +159,7 @@ sudo apt-get update
 sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
   adduser ca-certificates coreutils curl grep iproute2 openssl tar util-linux
 
-for command in cat curl docker grep systemctl; do
+for command in cat curl grep systemctl; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command after package installation: $command"
 done
 
@@ -244,6 +244,8 @@ EOF
 if ! command -v docker >/dev/null 2>&1; then
   install_docker_engine
 fi
+command -v docker >/dev/null 2>&1 \
+  || fail "Docker installation completed but docker is still unavailable"
 sudo docker compose version >/dev/null 2>&1 \
   || fail "the Docker Compose plugin is not available to the administrative account"
 

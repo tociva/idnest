@@ -90,6 +90,16 @@ require_text scripts/deploy/ci/submit-release-request.sh \
   "wait_for_remote_release identity \"\$id\" 2200"
 require_text scripts/deploy/vps/wait-idnest-release.sh \
   'still waiting'
+if awk '
+  /for command in cat curl/ { in_base_check = 1 }
+  in_base_check && /done/ { in_base_check = 0 }
+  in_base_check && /docker/ { found = 1 }
+  END { exit found ? 0 : 1 }
+' scripts/deploy/vps/bootstrap-development-vps.sh; then
+  fail "VPS bootstrap requires docker before the Docker installer can run"
+fi
+require_text scripts/deploy/vps/bootstrap-development-vps.sh \
+  'Docker installation completed but docker is still unavailable'
 
 expected_host_release_files='scripts/deploy/vps/Dockerfile.kratos
 scripts/deploy/vps/compose.admin.yaml
