@@ -67,6 +67,16 @@ browser-accessible.
 See [scripts/setup/README.md](scripts/setup/README.md) for the full local setup.
 The short version is:
 
+Start hydra and kratos
+```bash
+docker compose -f scripts/docker/docker-compose.yml up -d
+docker compose -f scripts/docker/docker-compose.yml down
+```
+
+See [scripts/docker/README.md](scripts/docker/README.md) for local Hydra,
+Kratos, image, and builder-image operations.
+
+
 ```bash
 nvm use
 corepack enable
@@ -107,9 +117,6 @@ Run commands from the repository root.
 | `pnpm admin-frontend:build` | Build only the admin frontend |
 | `pnpm authz:migrate` | Run authorization-store migrations |
 | `pnpm nx -- graph` | Open the Nx project graph |
-
-See [scripts/docker/README.md](scripts/docker/README.md) for local Hydra,
-Kratos, image, and builder-image operations.
 
 ## Security notes
 
