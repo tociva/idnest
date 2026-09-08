@@ -22,6 +22,60 @@
   }
 
   <div class="stack">
+    @if (canManageClientSecret) {
+      <tng-card>
+        <tng-card-header>
+          <tng-card-title>Client secret</tng-card-title>
+          <tng-card-description>
+            Replace the confidential credential used by this server application.
+          </tng-card-description>
+        </tng-card-header>
+        <tng-card-content>
+          @if (oneTimeClientSecret) {
+            <div class="secret-panel" role="status" aria-live="polite">
+              <div>
+                <strong>New client secret</strong>
+                <code>{{ revealClientSecret ? oneTimeClientSecret : maskedClientSecret }}</code>
+                <span>This value is shown only on this page. Store it before leaving or refreshing.</span>
+              </div>
+              <div class="secret-actions">
+                <tng-button
+                  appearance="outline"
+                  tone="neutral"
+                  size="sm"
+                  [disabled]="busy"
+                  (click)="revealClientSecret = !revealClientSecret"
+                >
+                  <tng-icon [icon]="revealClientSecret ? 'eye-off' : 'eye'" size="0.95rem" aria-hidden="true" />
+                  {{ revealClientSecret ? "Hide" : "Reveal" }}
+                </tng-button>
+                <tng-button appearance="outline" tone="neutral" size="sm" [disabled]="busy" (click)="copyClientSecret()">
+                  <tng-icon icon="copy" size="0.95rem" aria-hidden="true" />
+                  Copy
+                </tng-button>
+              </div>
+            </div>
+
+            <ol class="replacement-steps">
+              <li>Store the new secret in the server application's secret manager.</li>
+              <li>Redeploy the application and verify a complete login callback.</li>
+            </ol>
+          } @else {
+            <p class="secret-card-copy">
+              The current secret cannot be viewed. Replacing it immediately revokes the old secret, so coordinate the
+              application deployment to minimize interruption.
+            </p>
+          }
+
+          <div class="row secret-management-actions">
+            <tng-button appearance="solid" tone="danger" [disabled]="busy" (click)="openReplaceSecretDialog()">
+              {{ replacingSecret ? "Replacing..." : "Replace secret" }}
+            </tng-button>
+          </div>
+        </tng-card-content>
+      </tng-card>
+    }
+
     <tng-card>
       <tng-card-header>
         <div class="section-heading">
@@ -453,60 +507,6 @@
         </div>
       </tng-card-content>
     </tng-card>
-
-    @if (canManageClientSecret) {
-      <tng-card>
-        <tng-card-header>
-          <tng-card-title>Client secret</tng-card-title>
-          <tng-card-description>
-            Replace the confidential credential used by this server application.
-          </tng-card-description>
-        </tng-card-header>
-        <tng-card-content>
-          @if (oneTimeClientSecret) {
-            <div class="secret-panel" role="status" aria-live="polite">
-              <div>
-                <strong>New client secret</strong>
-                <code>{{ revealClientSecret ? oneTimeClientSecret : maskedClientSecret }}</code>
-                <span>This value is shown only on this page. Store it before leaving or refreshing.</span>
-              </div>
-              <div class="secret-actions">
-                <tng-button
-                  appearance="outline"
-                  tone="neutral"
-                  size="sm"
-                  [disabled]="busy"
-                  (click)="revealClientSecret = !revealClientSecret"
-                >
-                  <tng-icon [icon]="revealClientSecret ? 'eye-off' : 'eye'" size="0.95rem" aria-hidden="true" />
-                  {{ revealClientSecret ? "Hide" : "Reveal" }}
-                </tng-button>
-                <tng-button appearance="outline" tone="neutral" size="sm" [disabled]="busy" (click)="copyClientSecret()">
-                  <tng-icon icon="copy" size="0.95rem" aria-hidden="true" />
-                  Copy
-                </tng-button>
-              </div>
-            </div>
-
-            <ol class="replacement-steps">
-              <li>Store the new secret in the server application's secret manager.</li>
-              <li>Redeploy the application and verify a complete login callback.</li>
-            </ol>
-          } @else {
-            <p class="secret-card-copy">
-              The current secret cannot be viewed. Replacing it immediately revokes the old secret, so coordinate the
-              application deployment to minimize interruption.
-            </p>
-          }
-
-          <div class="row secret-management-actions">
-            <tng-button appearance="solid" tone="danger" [disabled]="busy" (click)="openReplaceSecretDialog()">
-              {{ replacingSecret ? "Replacing..." : "Replace secret" }}
-            </tng-button>
-          </div>
-        </tng-card-content>
-      </tng-card>
-    }
 
     @if (!createMode) {
       <tng-card>
