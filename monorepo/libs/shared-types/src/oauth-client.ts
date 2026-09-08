@@ -1,6 +1,16 @@
 export type OAuthClientType = "spa" | "web" | "service" | "native" | "custom";
 export type KnownOAuthClientType = Exclude<OAuthClientType, "custom">;
 
+const CLIENT_SECRET_AUTH_METHODS = new Set([
+  "client_secret_basic",
+  "client_secret_post",
+]);
+
+/** Whether the token endpoint authentication method uses a client secret. */
+export function usesOAuthClientSecret(value: unknown): boolean {
+  return typeof value === "string" && CLIENT_SECRET_AUTH_METHODS.has(value);
+}
+
 export interface OAuthClientProfile {
   type: KnownOAuthClientType;
   label: string;

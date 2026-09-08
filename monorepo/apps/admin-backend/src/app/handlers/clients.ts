@@ -8,6 +8,7 @@ import {
   getAuthPolicy,
   getAuthzPool,
   listAuthBrands,
+  recordAuthAuditEvent,
   upsertOAuthClientAuthConfig,
   type Db,
 } from "@idnest/authz-store";
@@ -15,13 +16,14 @@ import {
   OAUTH_CLIENT_PROFILES,
   isKnownOAuthClientType,
   normalizeClientCorsOrigin,
+  usesOAuthClientSecret,
   type KnownOAuthClientType,
   type OAuthClientType,
   type AuthPolicyDefinition,
   type ConsentMode,
   type IdentityGate,
 } from "@idnest/shared-types";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { getAdminOidcClientId, getAuthzDatabaseUrl, getHydraAdminUrl } from "../config";
 import { errorBody, readError, type HandlerResult } from "./types";
 
@@ -575,6 +577,130 @@ export async function listClients(): Promise<HandlerResult> {
 
 export interface ClientIdInput {
   client_id?: string;
+}
+
+export interface ClientSecretInput extends ClientIdInput {
+  actor?: string | null;
+}
+
+type SecretEligibleClient = {
+  clientId: string;
+  client: Record<string, unknown>;
+  tokenEndpointAuthMethod: string;
+};
+
+async function inspectSecretEligibleClient(
+  clientId: string,
+): Promise<SecretEligibleClient | HandlerResult> {
+  const res = await fetch(`${clientsBase()}/${encodeURIComponent(clientId)}`);
+  if (res.status === 404) return { status: 404, body: { error: "Client not found" } };
+  if (!res.ok) {
+    return {
+      status: 502,
+      body: { error: `Failed to inspect client before secret operation: ${await readError(res)}` },
+    };
+  }
+
+  const client: unknown = await res.json();
+  const authMethod = isObject(client) ? client["token_endpoint_auth_method"] : undefined;
+  if (!usesOAuthClientSecret(authMethod)) {
+    return {
+      status: 400,
+      body: {
+        error: "Client secret replacement requires client_secret_basic or client_secret_post",
+      },
+    };
+  }
+
+  return {
+    clientId,
+    client: client as Record<string, unknown>,
+    tokenEndpointAuthMethod: authMethod as string,
+  };
+}
+
+function isHandlerResult(value: SecretEligibleClient | HandlerResult): value is HandlerResult {
+  return "status" in value;
+}
+
+async function auditClientSecretOperation(
+  eventType: string,
+  input: ClientSecretInput,
+  tokenEndpointAuthMethod: string,
+): Promise<void> {
+  const db = getAuthzPool(getAuthzDatabaseUrl());
+  if (!db) return;
+  try {
+    await recordAuthAuditEvent(db, {
+      eventType,
+      hydraClientId: input.client_id,
+      result: "success",
+      metadata: {
+        actor: input.actor ?? "unknown",
+        token_endpoint_auth_method: tokenEndpointAuthMethod,
+      },
+    });
+  } catch {
+    // The secret is returned only once. Do not hide a successful Hydra operation
+    // or prompt an unsafe retry merely because the secondary audit write failed.
+    console.error(
+      `Failed to record ${eventType} audit event for OAuth client ${input.client_id ?? "unknown"}`,
+    );
+  }
+}
+
+function clientWithReplacementSecret(
+  client: Record<string, unknown>,
+  clientId: string,
+  clientSecret: string,
+): Record<string, unknown> {
+  const {
+    client_secret: _clientSecret,
+    registration_access_token: _registrationAccessToken,
+    registration_client_uri: _registrationClientUri,
+    created_at: _createdAt,
+    updated_at: _updatedAt,
+    ...writable
+  } = client;
+  return { ...writable, client_id: clientId, client_secret: clientSecret };
+}
+
+export async function replaceClientSecret(input: ClientSecretInput): Promise<HandlerResult> {
+  try {
+    if (!input.client_id) return { status: 400, body: { error: "client_id is required" } };
+    if (isProtectedAdminClient(input.client_id)) {
+      return { status: 403, body: { error: "The admin OAuth client secret cannot be replaced here" } };
+    }
+
+    const eligible = await inspectSecretEligibleClient(input.client_id);
+    if (isHandlerResult(eligible)) return eligible;
+
+    const clientSecret = randomBytes(32).toString("base64url");
+    const res = await fetch(`${clientsBase()}/${encodeURIComponent(input.client_id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(clientWithReplacementSecret(eligible.client, eligible.clientId, clientSecret)),
+    });
+    if (res.status === 404) return { status: 404, body: { error: "Client not found" } };
+    if (!res.ok) {
+      return {
+        status: res.status === 400 ? 400 : 502,
+        body: { error: `Hydra rejected the client secret replacement (${res.status})` },
+      };
+    }
+
+    await auditClientSecretOperation(
+      "auth.oauth-client.secret-replaced",
+      input,
+      eligible.tokenEndpointAuthMethod,
+    );
+    return {
+      status: 200,
+      body: { client_id: input.client_id, client_secret: clientSecret },
+    };
+  } catch (err) {
+    return { status: 500, body: errorBody(err) };
+  }
 }
 
 export async function getClient(input: ClientIdInput): Promise<HandlerResult> {

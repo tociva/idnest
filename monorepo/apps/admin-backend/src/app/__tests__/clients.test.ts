@@ -6,12 +6,19 @@ const store = vi.hoisted(() => ({
   getAuthPolicy: vi.fn(),
   getAuthzPool: vi.fn(() => null),
   listAuthBrands: vi.fn(),
+  recordAuthAuditEvent: vi.fn(),
   upsertOAuthClientAuthConfig: vi.fn(),
 }));
 
 vi.mock("@idnest/authz-store", () => store);
 
-import { createClient, deleteClient, getClient, updateClient } from "../handlers/clients";
+import {
+  createClient,
+  deleteClient,
+  getClient,
+  replaceClientSecret,
+  updateClient,
+} from "../handlers/clients";
 
 beforeEach(() => {
   process.env.HYDRA_ADMIN_URL = "http://hydra:4445";
@@ -20,6 +27,8 @@ beforeEach(() => {
   store.listAuthBrands.mockResolvedValue([]);
   store.getAuthPolicy.mockResolvedValue(null);
   store.createAuthPolicy.mockReset();
+  store.recordAuthAuditEvent.mockReset();
+  store.recordAuthAuditEvent.mockResolvedValue(undefined);
   store.upsertOAuthClientAuthConfig.mockReset();
 });
 afterEach(() => {
@@ -40,6 +49,28 @@ const brand = {
 };
 const existingPolicyId = "22222222-2222-4222-8222-222222222222";
 const newPolicyId = "33333333-3333-4333-8333-333333333333";
+
+function response(status: number, body?: unknown): Response {
+  return new Response(body === undefined ? null : JSON.stringify(body), {
+    status,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+  });
+}
+
+function mockClientSecretFetch(
+  client: Record<string, unknown>,
+  operation: { status?: number; body?: unknown } = { body: { client_id: "app1" } },
+) {
+  const fn = vi.fn(async (url: string | URL, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+    if (method === "PUT") {
+      return response(operation.status ?? 200, operation.body);
+    }
+    return response(200, client);
+  });
+  vi.stubGlobal("fetch", fn);
+  return fn;
+}
 
 function useAuthzStore() {
   const dbClient = {
@@ -780,6 +811,117 @@ describe("oauth client management", () => {
       body: { error: "The admin OAuth client cannot be edited" },
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["client_secret_basic", "client_secret_post"])(
+    "replaces a client secret for %s clients and returns only the one-time secret",
+    async (tokenEndpointAuthMethod) => {
+      const fetchMock = mockClientSecretFetch({
+        client_id: "app1",
+        client_name: "App One",
+        created_at: "yesterday",
+        registration_access_token: "never-forward-this",
+        redirect_uris: ["https://app1.example/callback"],
+        token_endpoint_auth_method: tokenEndpointAuthMethod,
+      });
+
+      const result = await replaceClientSecret({ client_id: "app1", actor: "admin-identity" });
+      const replacementSecret = (result.body as { client_secret: string }).client_secret;
+
+      expect(result).toMatchObject({
+        status: 200,
+        body: { client_id: "app1", client_secret: expect.any(String) },
+      });
+      expect(replacementSecret.length).toBeGreaterThanOrEqual(40);
+      expect(fetchMock).toHaveBeenNthCalledWith(1, "http://hydra:4445/admin/clients/app1");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const [updateUrl, updateInit] = fetchMock.mock.calls[1];
+      expect(updateUrl).toBe("http://hydra:4445/admin/clients/app1");
+      expect(updateInit).toMatchObject({
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(JSON.parse(String(updateInit?.body))).toEqual({
+        client_id: "app1",
+        client_name: "App One",
+        client_secret: replacementSecret,
+        redirect_uris: ["https://app1.example/callback"],
+        token_endpoint_auth_method: tokenEndpointAuthMethod,
+      });
+    },
+  );
+
+  it("rejects secret replacement for a public client before mutating Hydra", async () => {
+    const fetchMock = mockClientSecretFetch({
+      client_id: "spa",
+      token_endpoint_auth_method: "none",
+    });
+
+    expect(await replaceClientSecret({ client_id: "spa" })).toEqual({
+      status: 400,
+      body: { error: "Client secret replacement requires client_secret_basic or client_secret_post" },
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("rejects secret replacement for the protected admin client without calling Hydra", async () => {
+    const fetchMock = mockClientSecretFetch({});
+    expect(await replaceClientSecret({ client_id: "idnest-admin-client" })).toEqual({
+      status: 403,
+      body: { error: "The admin OAuth client secret cannot be replaced here" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a sanitized upstream error when Hydra rejects replacement", async () => {
+    mockClientSecretFetch(
+      { client_id: "app1", token_endpoint_auth_method: "client_secret_basic" },
+      { status: 500, body: { error: "database unavailable" } },
+    );
+
+    expect(await replaceClientSecret({ client_id: "app1" })).toEqual({
+      status: 502,
+      body: { error: "Hydra rejected the client secret replacement (500)" },
+    });
+  });
+
+  it("does not include the new secret in audit metadata", async () => {
+    const db = { query: vi.fn() };
+    store.getAuthzPool.mockReturnValue(db);
+    mockClientSecretFetch({
+      client_id: "app1",
+      token_endpoint_auth_method: "client_secret_basic",
+    });
+
+    const result = await replaceClientSecret({ client_id: "app1", actor: "admin-identity" });
+    const replacementSecret = (result.body as { client_secret: string }).client_secret;
+
+    expect(store.recordAuthAuditEvent).toHaveBeenCalledWith(db, {
+      eventType: "auth.oauth-client.secret-replaced",
+      hydraClientId: "app1",
+      result: "success",
+      metadata: {
+        actor: "admin-identity",
+        token_endpoint_auth_method: "client_secret_basic",
+      },
+    });
+    expect(JSON.stringify(store.recordAuthAuditEvent.mock.calls)).not.toContain(replacementSecret);
+  });
+
+  it("still returns the one-time secret when the audit write fails", async () => {
+    store.getAuthzPool.mockReturnValue({ query: vi.fn() });
+    store.recordAuthAuditEvent.mockRejectedValue(new Error("audit unavailable"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockClientSecretFetch({
+      client_id: "app1",
+      token_endpoint_auth_method: "client_secret_basic",
+    });
+
+    expect(await replaceClientSecret({ client_id: "app1" })).toMatchObject({
+      status: 200,
+      body: { client_secret: expect.any(String) },
+    });
+    expect(consoleError).toHaveBeenCalledOnce();
   });
 
   it("returns 404 when deleting a missing client", async () => {

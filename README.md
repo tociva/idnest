@@ -108,6 +108,7 @@ Run commands from the repository root.
 | `pnpm test:cors` | Run the CORS configuration check and the container-backed Hydra client integration test |
 | `pnpm test:cors:live -- https://hydra-dev.idnest.cloud` | Verify metadata-only wildcard CORS and denied protected-route origins |
 | `pnpm test:client-cors:integration` | Create a client in an isolated Hydra v26.2.0 container and verify its runtime CORS origins |
+| `pnpm test:client-secret:integration` | Replace a disposable confidential client's secret in local Hydra and verify the old value is revoked |
 | `pnpm test:deploy` | Verify deployment scripts, manifests, workflow helper usage, and Compose contracts |
 | `pnpm typecheck` | Type-check all projects |
 | `pnpm lint` | Lint all projects |

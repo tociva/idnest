@@ -24,6 +24,25 @@ For browser applications:
 - Request only the required scopes and audience.
 - Never place a client secret in browser code.
 
+### Confidential client secret replacement
+
+Clients using `client_secret_basic` or `client_secret_post` can replace their
+secret from the client detail page. Secret replacement is deliberately
+separate from ordinary client editing:
+
+1. Coordinate an application deployment window and confirm the client ID.
+2. Generate the new secret and store the one-time value immediately.
+3. Update and redeploy every server-side consumer, then verify client
+   authentication with the new secret.
+
+Hydra v26.2.0 does not provide its newer multi-secret rotation endpoints, so
+replacement immediately revokes the previous secret. The BFF exposes
+`POST /api/admin/clients/:clientId/secrets/replace` and updates the complete
+client record through the privileged Hydra admin API. Secret responses are
+marked `no-store`, and secret values must never be logged, audited, placed in
+URLs, or persisted in browser storage. The protected admin-console client
+remains deployment-owned and cannot be replaced from the console.
+
 The admin console client is the only bootstrap exception because the console
 cannot authenticate until its own confidential client exists. Administrator
 roles are represented by `system-admin` access to that client, and the API

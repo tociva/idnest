@@ -14,8 +14,10 @@ export {
   createClient,
   updateClient,
   deleteClient,
+  replaceClientSecret,
   type ClientPayload,
   type ClientIdInput,
+  type ClientSecretInput,
 } from "./clients";
 export {
   grantIdentityClientAccess,

@@ -60,6 +60,11 @@ export interface HydraClient {
   client_secret?: string;
 }
 
+export interface ClientSecretReplacementResult {
+  client_id: string;
+  client_secret: string;
+}
+
 /** Editable client form model used by the clients page. */
 export interface ClientFormValue {
   client_id: string;

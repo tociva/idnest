@@ -9,6 +9,7 @@ import {
   TngCardDescriptionComponent,
   TngCardHeaderComponent,
   TngCardTitleComponent,
+  TngDialogComponent,
   TngFormFieldComponent,
   TngInputComponent,
   TngLabelComponent,
@@ -24,6 +25,7 @@ import {
   OAUTH_CLIENT_PROFILES,
   clientCorsOriginsFromRedirectUris,
   isKnownOAuthClientType,
+  usesOAuthClientSecret,
   type KnownOAuthClientType,
   type OAuthClientType,
 } from "@idnest/shared-types";
@@ -168,6 +170,7 @@ const formatProtocolList = (values: readonly string[]): string => (values.length
     TngCardDescriptionComponent,
     TngCardHeaderComponent,
     TngCardTitleComponent,
+    TngDialogComponent,
     TngFormFieldComponent,
     TngIcon,
     TngInputComponent,
@@ -197,7 +200,11 @@ export class ClientDetailComponent implements OnInit {
   identityGrants: ClientAccessGrant[] = [];
   customScope = "";
   customScopeOptions: ScopeOption[] = [];
-  createdClientSecret = "";
+  oneTimeClientSecret = "";
+  deleteDialogOpen = false;
+  replaceSecretDialogOpen = false;
+  replaceSecretConfirmation = "";
+  replacingSecret = false;
   revealClientSecret = false;
   readonly clientProfileOptions = CLIENT_PROFILE_OPTIONS;
   readonly trustTierOptions = TRUST_TIER_OPTIONS;
@@ -215,6 +222,22 @@ export class ClientDetailComponent implements OnInit {
 
   get protectedAdminClient(): boolean {
     return !this.createMode && this.form.client_id.trim() === IDNEST_ADMIN_CLIENT_ID;
+  }
+
+  get canManageClientSecret(): boolean {
+    return (
+      !this.createMode &&
+      !this.protectedAdminClient &&
+      usesOAuthClientSecret(this.form.tokenEndpointAuthMethod)
+    );
+  }
+
+  get canConfirmSecretReplacement(): boolean {
+    return (
+      !this.busy &&
+      this.canManageClientSecret &&
+      this.replaceSecretConfirmation === this.form.client_id.trim()
+    );
   }
 
   get selectedProfile() {
@@ -336,7 +359,7 @@ export class ClientDetailComponent implements OnInit {
   }
 
   get maskedClientSecret(): string {
-    return "*".repeat(Math.max(this.createdClientSecret.length, 16));
+    return "*".repeat(Math.max(this.oneTimeClientSecret.length, 16));
   }
 
   ngOnInit(): void {
@@ -644,9 +667,9 @@ export class ClientDetailComponent implements OnInit {
   }
 
   async copyClientSecret(): Promise<void> {
-    if (!this.createdClientSecret) return;
+    if (!this.oneTimeClientSecret) return;
     try {
-      await navigator.clipboard.writeText(this.createdClientSecret);
+      await navigator.clipboard.writeText(this.oneTimeClientSecret);
       this.toast.success("Client secret copied.");
     } catch (e) {
       this.error = describeError(e);
@@ -654,14 +677,56 @@ export class ClientDetailComponent implements OnInit {
     }
   }
 
-  async remove(): Promise<void> {
+  openReplaceSecretDialog(): void {
+    if (!this.canManageClientSecret || this.busy) return;
+    this.replaceSecretConfirmation = "";
+    this.replaceSecretDialogOpen = true;
+  }
+
+  async replaceClientSecret(): Promise<void> {
+    const clientId = this.form.client_id.trim();
+    if (!this.canConfirmSecretReplacement || !clientId) return;
+    this.replaceSecretDialogOpen = false;
+    this.replacingSecret = true;
+    // Once replacement starts, a previously displayed value may no longer be
+    // current even if the request fails after Hydra commits the update.
+    this.oneTimeClientSecret = "";
+    this.revealClientSecret = false;
+    try {
+      await this.run(async () => {
+        const replaced = await this.api.replaceClientSecret(clientId);
+        this.oneTimeClientSecret = replaced.client_secret;
+        this.replaceSecretConfirmation = "";
+        this.revealClientSecret = false;
+        this.notice = "Client secret replaced. Store and deploy the new secret immediately.";
+        this.toast.success("Client secret replaced.");
+      });
+    } finally {
+      this.replacingSecret = false;
+    }
+  }
+
+  openDeleteDialog(): void {
     const clientId = this.form.client_id.trim();
     if (this.protectedAdminClient) {
       this.error = "The admin OAuth client cannot be deleted.";
       this.toast.danger(this.error);
       return;
     }
-    if (!clientId || !window.confirm(`Delete client "${clientId}"?`)) return;
+    if (!clientId || this.busy) return;
+    this.deleteDialogOpen = true;
+  }
+
+  async remove(): Promise<void> {
+    const clientId = this.form.client_id.trim();
+    if (this.protectedAdminClient) {
+      this.deleteDialogOpen = false;
+      this.error = "The admin OAuth client cannot be deleted.";
+      this.toast.danger(this.error);
+      return;
+    }
+    if (!clientId || this.busy) return;
+    this.deleteDialogOpen = false;
     await this.run(async () => {
       await this.api.deleteClient(clientId);
       this.toast.success(`Client "${clientId}" deleted.`);
@@ -686,7 +751,7 @@ export class ClientDetailComponent implements OnInit {
   private captureCreatedSecret(): void {
     const state = window.history.state as { createdClientSecret?: unknown };
     if (typeof state.createdClientSecret !== "string" || !state.createdClientSecret) return;
-    this.createdClientSecret = state.createdClientSecret;
+    this.oneTimeClientSecret = state.createdClientSecret;
     this.revealClientSecret = false;
     this.notice = "Client created. Copy the client secret now; it will not be shown again.";
 

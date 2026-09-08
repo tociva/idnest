@@ -35,25 +35,6 @@
         </div>
       </tng-card-header>
       <tng-card-content>
-        @if (createdClientSecret) {
-          <div class="secret-panel" role="status">
-            <div>
-              <strong>Client secret</strong>
-              <code>{{ revealClientSecret ? createdClientSecret : maskedClientSecret }}</code>
-            </div>
-            <div class="secret-actions">
-              <tng-button appearance="outline" tone="neutral" size="sm" (click)="revealClientSecret = !revealClientSecret">
-                <tng-icon [icon]="revealClientSecret ? 'eye-off' : 'eye'" size="0.95rem" aria-hidden="true" />
-                {{ revealClientSecret ? "Hide" : "Reveal" }}
-              </tng-button>
-              <tng-button appearance="outline" tone="neutral" size="sm" (click)="copyClientSecret()">
-                <tng-icon icon="copy" size="0.95rem" aria-hidden="true" />
-                Copy
-              </tng-button>
-            </div>
-          </div>
-        }
-
         <div class="editor-stack">
           @if (createMode) {
             <section class="form-section">
@@ -464,7 +445,7 @@
             {{ createMode ? "Create client" : "Save changes" }}
           </tng-button>
           @if (!createMode && !protectedAdminClient) {
-            <tng-button appearance="outline" tone="danger" [disabled]="busy" (click)="remove()">
+            <tng-button appearance="outline" tone="danger" [disabled]="busy" (click)="openDeleteDialog()">
               <tng-icon icon="trash2" size="0.95rem" aria-hidden="true" />
               Delete client
             </tng-button>
@@ -472,6 +453,60 @@
         </div>
       </tng-card-content>
     </tng-card>
+
+    @if (canManageClientSecret) {
+      <tng-card>
+        <tng-card-header>
+          <tng-card-title>Client secret</tng-card-title>
+          <tng-card-description>
+            Replace the confidential credential used by this server application.
+          </tng-card-description>
+        </tng-card-header>
+        <tng-card-content>
+          @if (oneTimeClientSecret) {
+            <div class="secret-panel" role="status" aria-live="polite">
+              <div>
+                <strong>New client secret</strong>
+                <code>{{ revealClientSecret ? oneTimeClientSecret : maskedClientSecret }}</code>
+                <span>This value is shown only on this page. Store it before leaving or refreshing.</span>
+              </div>
+              <div class="secret-actions">
+                <tng-button
+                  appearance="outline"
+                  tone="neutral"
+                  size="sm"
+                  [disabled]="busy"
+                  (click)="revealClientSecret = !revealClientSecret"
+                >
+                  <tng-icon [icon]="revealClientSecret ? 'eye-off' : 'eye'" size="0.95rem" aria-hidden="true" />
+                  {{ revealClientSecret ? "Hide" : "Reveal" }}
+                </tng-button>
+                <tng-button appearance="outline" tone="neutral" size="sm" [disabled]="busy" (click)="copyClientSecret()">
+                  <tng-icon icon="copy" size="0.95rem" aria-hidden="true" />
+                  Copy
+                </tng-button>
+              </div>
+            </div>
+
+            <ol class="replacement-steps">
+              <li>Store the new secret in the server application's secret manager.</li>
+              <li>Redeploy the application and verify a complete login callback.</li>
+            </ol>
+          } @else {
+            <p class="secret-card-copy">
+              The current secret cannot be viewed. Replacing it immediately revokes the old secret, so coordinate the
+              application deployment to minimize interruption.
+            </p>
+          }
+
+          <div class="row secret-management-actions">
+            <tng-button appearance="solid" tone="danger" [disabled]="busy" (click)="openReplaceSecretDialog()">
+              {{ replacingSecret ? "Replacing..." : "Replace secret" }}
+            </tng-button>
+          </div>
+        </tng-card-content>
+      </tng-card>
+    }
 
     @if (!createMode) {
       <tng-card>
@@ -497,3 +532,77 @@
     }
   </div>
 }
+
+<tng-dialog
+  class="delete-client-dialog"
+  title="Delete OAuth client?"
+  description="This action permanently deletes the client and cannot be undone."
+  [open]="deleteDialogOpen"
+  (openChange)="deleteDialogOpen = $event"
+>
+  <div class="delete-dialog-copy">
+    <p>You are about to delete this OAuth client:</p>
+    <code>{{ form.client_id }}</code>
+  </div>
+
+  <div class="delete-dialog-actions">
+    <tng-button
+      data-tng-dialog-initial-focus
+      appearance="outline"
+      tone="neutral"
+      [disabled]="busy"
+      (click)="deleteDialogOpen = false"
+    >
+      Cancel
+    </tng-button>
+    <tng-button appearance="solid" tone="danger" [disabled]="busy" (click)="remove()">
+      <tng-icon icon="trash2" size="0.95rem" aria-hidden="true" />
+      Delete client
+    </tng-button>
+  </div>
+</tng-dialog>
+
+<tng-dialog
+  class="replace-secret-dialog"
+  title="Replace client secret?"
+  description="The current secret will stop working immediately and cannot be restored."
+  [open]="replaceSecretDialogOpen"
+  (openChange)="replaceSecretDialogOpen = $event"
+>
+  <div class="delete-dialog-copy">
+    <p>
+      Applications using the current secret will fail client authentication until they receive the new value. The new
+      secret is shown only once. Type the client ID to confirm:
+    </p>
+    <code>{{ form.client_id }}</code>
+    <tng-form-field>
+      <tng-label>Client ID</tng-label>
+      <tng-input
+        tngAngularForms
+        name="replace_secret_confirmation"
+        [(ngModel)]="replaceSecretConfirmation"
+        [readonly]="busy"
+      />
+    </tng-form-field>
+  </div>
+
+  <div class="delete-dialog-actions">
+    <tng-button
+      data-tng-dialog-initial-focus
+      appearance="outline"
+      tone="neutral"
+      [disabled]="busy"
+      (click)="replaceSecretDialogOpen = false"
+    >
+      Cancel
+    </tng-button>
+    <tng-button
+      appearance="solid"
+      tone="danger"
+      [disabled]="!canConfirmSecretReplacement"
+      (click)="replaceClientSecret()"
+    >
+      Replace secret now
+    </tng-button>
+  </div>
+</tng-dialog>

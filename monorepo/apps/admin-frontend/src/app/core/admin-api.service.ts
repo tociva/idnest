@@ -11,6 +11,7 @@ import type {
   AuthConfigurationVersion,
   ClientAccessGrant,
   ClientFormValue,
+  ClientSecretReplacementResult,
   DelegationActorPolicyRecord,
   DelegationAuditActivity,
   DelegationGrantActivity,
@@ -183,6 +184,12 @@ export class AdminApiService {
 
   updateClient(value: ClientFormValue): Promise<HydraClient> {
     return this.put<HydraClient>(`/clients/${encodeURIComponent(value.client_id)}`, value);
+  }
+
+  replaceClientSecret(clientId: string): Promise<ClientSecretReplacementResult> {
+    return this.post<ClientSecretReplacementResult>(
+      `/clients/${encodeURIComponent(clientId)}/secrets/replace`,
+    );
   }
 
   deleteClient(clientId: string): Promise<{ deleted: boolean; client_id: string }> {

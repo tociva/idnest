@@ -46,6 +46,7 @@ import {
   revokeIdentitySessions,
   revokeSession,
   setAdminRole,
+  replaceClientSecret,
   updateClient,
   updateBrandConfiguration,
   updateDelegationResourceConfiguration,
@@ -97,6 +98,40 @@ function configurationRateLimit(req: Request, res: Response, next: NextFunction)
 }
 
 const configurationBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function clientSecretRateLimit(req: Request, res: Response, next: NextFunction): void {
+  const windowMs = 10 * 60_000;
+  const maximum = 5;
+  const now = Date.now();
+  const authed = req as AuthedRequest;
+  const key = authed.adminSessionId ?? req.ip ?? "unknown";
+  const existing = clientSecretBuckets.get(key);
+  const bucket =
+    !existing || existing.resetAt <= now
+      ? { count: 0, resetAt: now + windowMs }
+      : existing;
+  bucket.count += 1;
+  clientSecretBuckets.set(key, bucket);
+  if (clientSecretBuckets.size > 2_000) {
+    for (const [candidate, value] of clientSecretBuckets) {
+      if (value.resetAt <= now) clientSecretBuckets.delete(candidate);
+    }
+  }
+  if (bucket.count > maximum) {
+    res.set("Retry-After", String(Math.ceil((bucket.resetAt - now) / 1000)));
+    res.status(429).json({ error: "Too many OAuth client secret operations" });
+    return;
+  }
+  next();
+}
+
+const clientSecretBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function noStore(_req: Request, res: Response, next: NextFunction): void {
+  res.set("Cache-Control", "no-store, max-age=0");
+  res.set("Pragma", "no-cache");
+  next();
+}
 
 /**
  * Admin API routes sit behind requireAdmin: every request must carry a valid
@@ -184,6 +219,15 @@ export function createAdminRouter(): Router {
     adapt(listClientIdentityGrants, (req) => ({ client_id: req.params.clientId })),
   );
   router.post("/clients", adapt(createClient, (req) => ({ ...fromBody(req), actor: actorFrom(req) })));
+  router.post(
+    "/clients/:clientId/secrets/replace",
+    clientSecretRateLimit,
+    noStore,
+    adapt(replaceClientSecret, (req) => ({
+      client_id: req.params.clientId,
+      actor: actorFrom(req),
+    })),
+  );
   router.put(
     "/clients/:clientId",
     adapt(updateClient, (req) => ({ ...fromBody(req), client_id: req.params.clientId })),

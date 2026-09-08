@@ -27,7 +27,8 @@
     "test:apple": "bash scripts/ci/test-apple-login-contracts.sh",
     "test:cors": "pnpm test:cors:config && pnpm test:client-cors:integration",
     "test:cors:live": "bash scripts/deploy/test-hydra-cors-live.sh",
-    "test:client-cors:integration": "bash scripts/docker/test-client-cors-integration.sh"
+    "test:client-cors:integration": "bash scripts/docker/test-client-cors-integration.sh",
+    "test:client-secret:integration": "HYDRA_SECRET_INTEGRATION=1 HYDRA_SECRET_TEST_ADMIN_URL=http://127.0.0.1:4445 HYDRA_SECRET_TEST_PUBLIC_URL=http://127.0.0.1:4444 pnpm --dir=monorepo exec vitest run --root apps/admin-backend --config vitest.config.ts src/app/__tests__/clients-secret-replacement.integration.test.ts --testTimeout=10000 --hookTimeout=10000"
   },
   "packageManager": "pnpm@9.15.0"
 }

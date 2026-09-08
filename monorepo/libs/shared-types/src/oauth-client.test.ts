@@ -2,7 +2,21 @@ import { describe, expect, it } from "vitest";
 import {
   clientCorsOriginsFromRedirectUris,
   normalizeClientCorsOrigin,
+  usesOAuthClientSecret,
 } from "./oauth-client";
+
+describe("OAuth client secret authentication", () => {
+  it.each(["client_secret_basic", "client_secret_post"])("recognizes %s", (method) => {
+    expect(usesOAuthClientSecret(method)).toBe(true);
+  });
+
+  it.each(["none", "private_key_jwt", "client_secret_jwt", "", undefined])(
+    "rejects unsupported method %s",
+    (method) => {
+      expect(usesOAuthClientSecret(method)).toBe(false);
+    },
+  );
+});
 
 describe("OAuth client browser origins", () => {
   describe("normalizeClientCorsOrigin", () => {
