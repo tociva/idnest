@@ -130,7 +130,7 @@ html, body {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: var(--fg);
+  color: var(--fg-primary);
 }
 .settings-hint {
   margin: 0;
@@ -151,7 +151,7 @@ html, body {
 }
 .field input {
   padding: 0.625rem 0.75rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: 0.5rem;
   font-size: 1rem;
 }

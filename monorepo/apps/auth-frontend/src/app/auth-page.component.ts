@@ -182,6 +182,12 @@ import { BrandService } from "./brand.service";
             </form>
           }
 
+          @if (switchAccountUrl()) {
+            <a class="auth-button secondary-button switch-account-link" [href]="switchAccountUrl()">
+              Sign out and choose another provider
+            </a>
+          }
+
           <button type="button" class="cancel-link" [disabled]="cancelling()" (click)="cancel()">
             {{ isSettingsReauth() ? "Back to settings" : "Cancel and return" }}
           </button>
@@ -277,6 +283,10 @@ export class AuthPageComponent implements OnInit {
 
   isSettingsReauth(): boolean {
     return this.context()?.purpose === "settings_reauth";
+  }
+
+  switchAccountUrl(): string {
+    return this.context()?.switchAccountUrl || "";
   }
 
   hasInteractiveNodes(): boolean {

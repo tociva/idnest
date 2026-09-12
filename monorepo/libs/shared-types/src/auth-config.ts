@@ -119,6 +119,8 @@ export interface PublicAuthContext {
   secondaryFactorEnrollmentUrl?: string;
   /** Where to send the browser if settings re-auth is cancelled. */
   settingsResumeUrl?: string;
+  /** Optional logout handoff for choosing a different account or provider. */
+  switchAccountUrl?: string;
 }
 
 export const DEFAULT_IDNEST_BRAND: AuthBrandDefinition = {

@@ -384,6 +384,100 @@ afterEach(() => {
 });
 
 describe("orchestrator login flow context", () => {
+  it("starts a refresh login when the reusable Kratos session exceeds policy age", async () => {
+    const resolved = daybookResolved({
+      policy: {
+        ...DEFAULT_AUTH_POLICY,
+        allowedOidcProviders: ["google"],
+        forceReauthentication: false,
+        sessionMaximumAgeSeconds: 3600,
+      },
+    });
+    const staleSession = googleSession();
+    staleSession.authenticated_at = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    storeMocks.resolveAuthConfiguration.mockResolvedValue(resolved);
+    storeMocks.createAuthTransaction.mockResolvedValue(transaction({
+      client_config_snapshot: resolved.client,
+      brand_snapshot: resolved.brand,
+      policy_snapshot: resolved.policy,
+    }));
+    mockFetchByUrl([
+      {
+        match: "/oauth2/auth/requests/login?",
+        result: {
+          ok: true,
+          json: {
+            challenge: "login-challenge-1",
+            client: { client_id: "daybook-web-bff-local", client_name: "Daybook" },
+            skip: false,
+          },
+        },
+      },
+      { match: "/sessions/whoami", result: { ok: true, json: staleSession } },
+    ]);
+
+    const result = await getRoute("/oauth2/login?login_challenge=login-challenge-1");
+
+    expect(result.status).toBe(302);
+    const location = new URL(result.headers.location);
+    expect(location.pathname).toBe("/self-service/login/browser");
+    expect(location.searchParams.get("refresh")).toBe("true");
+    expect(location.searchParams.get("aal")).toBe("aal1");
+    const loginStarted = storeMocks.recordAuthAuditEvent.mock.calls.find(
+      ([, event]) => event.eventType === "auth.login.started",
+    );
+    expect(loginStarted?.[1].metadata).toEqual({
+      freshAuthentication: true,
+      kratosAal: "aal1",
+    });
+  });
+
+  it("does not force refresh for a fresh reusable Kratos session", async () => {
+    const resolved = daybookResolved({
+      policy: {
+        ...DEFAULT_AUTH_POLICY,
+        allowedOidcProviders: ["google"],
+        forceReauthentication: false,
+        sessionMaximumAgeSeconds: 3600,
+      },
+    });
+    storeMocks.resolveAuthConfiguration.mockResolvedValue(resolved);
+    storeMocks.createAuthTransaction.mockResolvedValue(transaction({
+      client_config_snapshot: resolved.client,
+      brand_snapshot: resolved.brand,
+      policy_snapshot: resolved.policy,
+    }));
+    mockFetchByUrl([
+      {
+        match: "/oauth2/auth/requests/login?",
+        result: {
+          ok: true,
+          json: {
+            challenge: "login-challenge-1",
+            client: { client_id: "daybook-web-bff-local", client_name: "Daybook" },
+            skip: false,
+          },
+        },
+      },
+      { match: "/sessions/whoami", result: { ok: true, json: googleSession() } },
+    ]);
+
+    const result = await getRoute("/oauth2/login?login_challenge=login-challenge-1");
+
+    expect(result.status).toBe(302);
+    const location = new URL(result.headers.location);
+    expect(location.pathname).toBe("/self-service/login/browser");
+    expect(location.searchParams.get("refresh")).toBeNull();
+    expect(location.searchParams.get("aal")).toBe("aal1");
+    const loginStarted = storeMocks.recordAuthAuditEvent.mock.calls.find(
+      ([, event]) => event.eventType === "auth.login.started",
+    );
+    expect(loginStarted?.[1].metadata).toEqual({
+      freshAuthentication: false,
+      kratosAal: "aal1",
+    });
+  });
+
   it("accepts structured duplicate-email account-link flows as successful login", async () => {
     const flow = appleFlow();
     const boundTransaction = transaction({
@@ -482,6 +576,28 @@ describe("orchestrator login flow context", () => {
       },
     );
     expect(storeMocks.recordAuthAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it("adds a switch-account logout handoff for refresh login flows", async () => {
+    const flow = appleFlow({
+      request_url: `${kratosPublic}/self-service/login/browser?refresh=true&return_to=${encodeURIComponent(
+        `${authBase}/oauth2/login/complete?transaction=opaque-token-1`,
+      )}`,
+    }, null);
+    const boundTransaction = transaction({
+      hydra_login_challenge_ciphertext: encryptSensitiveValue("login-challenge-1"),
+      kratos_flow_id: flow.id,
+      kratos_flow_issued_at: flow.issued_at,
+    });
+    storeMocks.bindAuthTransactionFlow.mockResolvedValue(boundTransaction);
+    mockFetchByUrl([{ match: "/self-service/login/flows", result: { ok: true, json: flow } }]);
+
+    const result = await loginFlowContext(flow.id);
+
+    expect(result.status).toBe(200);
+    expect((result.body as { context?: { switchAccountUrl?: string } }).context?.switchAccountUrl).toBe(
+      "/logout?return_to=https%3A%2F%2Fapp-local.daybook.cloud%2F&client_id=daybook-web-bff-local",
+    );
   });
 
   it("keeps the Kratos identity id as the admin OAuth login subject", async () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateAuthenticationPolicy,
   requestedKratosAal,
+  sessionRequiresFreshLogin,
   shouldRequireFreshLogin,
 } from "../authentication-policy";
 
@@ -148,6 +149,36 @@ describe("shouldRequireFreshLogin", () => {
     expect(shouldRequireFreshLogin({ ...policy, forceReauthentication: true }, {})).toBe(true);
     expect(shouldRequireFreshLogin(policy, { prompt: ["login"] })).toBe(true);
     expect(shouldRequireFreshLogin(policy, { maxAge: 0 })).toBe(true);
+  });
+});
+
+describe("sessionRequiresFreshLogin", () => {
+  it("requires refresh only when an existing session is too old", () => {
+    const now = Date.parse("2026-01-01T00:30:00.000Z");
+
+    expect(sessionRequiresFreshLogin(null, policy, { now })).toBe(false);
+    expect(sessionRequiresFreshLogin(session(), policy, { now })).toBe(false);
+    expect(
+      sessionRequiresFreshLogin(session(), policy, {
+        now: Date.parse("2026-01-01T02:00:00.000Z"),
+      }),
+    ).toBe(true);
+    expect(
+      sessionRequiresFreshLogin(session(), policy, {
+        maximumAgeSeconds: 600,
+        now,
+      }),
+    ).toBe(true);
+  });
+
+  it("treats active sessions without a valid authentication time as stale", () => {
+    expect(
+      sessionRequiresFreshLogin(
+        session({ authenticated_at: undefined }),
+        policy,
+        { now: Date.parse("2026-01-01T00:30:00.000Z") },
+      ),
+    ).toBe(true);
   });
 });
 

@@ -42,6 +42,32 @@ function methodAllowed(
   return false;
 }
 
+function effectiveMaximumAgeSeconds(
+  policy: AuthPolicyDefinition,
+  options: { maximumAgeSeconds?: number },
+): number {
+  return Math.min(
+    policy.sessionMaximumAgeSeconds,
+    options.maximumAgeSeconds ?? policy.sessionMaximumAgeSeconds,
+  );
+}
+
+export function sessionRequiresFreshLogin(
+  session: KratosSession | null | undefined,
+  policy: AuthPolicyDefinition,
+  options: {
+    maximumAgeSeconds?: number;
+    now?: number;
+  } = {},
+): boolean {
+  if (!session?.active) return false;
+
+  const authenticatedAt = session.authenticated_at ? Date.parse(session.authenticated_at) : Number.NaN;
+  const maximumAgeSeconds = effectiveMaximumAgeSeconds(policy, options);
+  const now = options.now ?? Date.now();
+  return !Number.isFinite(authenticatedAt) || now - authenticatedAt > maximumAgeSeconds * 1000;
+}
+
 export function evaluateAuthenticationPolicy(
   session: KratosSession,
   policy: AuthPolicyDefinition,
@@ -90,13 +116,7 @@ export function evaluateAuthenticationPolicy(
     };
   }
 
-  const maximumAgeSeconds = Math.min(
-    policy.sessionMaximumAgeSeconds,
-    options.maximumAgeSeconds ?? policy.sessionMaximumAgeSeconds,
-  );
-  const authenticatedAt = session.authenticated_at ? Date.parse(session.authenticated_at) : Number.NaN;
-  const now = options.now ?? Date.now();
-  if (!Number.isFinite(authenticatedAt) || now - authenticatedAt > maximumAgeSeconds * 1000) {
+  if (sessionRequiresFreshLogin(session, policy, options)) {
     return {
       allowed: false,
       code: "reauthentication_required",

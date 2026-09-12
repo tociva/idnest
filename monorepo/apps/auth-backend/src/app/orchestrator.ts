@@ -65,6 +65,7 @@ import { identityAal2Capability } from "./kratos-admin";
 import {
   evaluateAuthenticationPolicy,
   requestedKratosAal,
+  sessionRequiresFreshLogin,
   shouldRequireFreshLogin,
 } from "./authentication-policy";
 import {
@@ -334,6 +335,14 @@ function settingsReauthContext(flow: KratosFlow) {
   };
 }
 
+function isRefreshLoginFlow(flow: KratosFlow): boolean {
+  try {
+    return new URL(flow.request_url ?? "").searchParams.get("refresh") === "true";
+  } catch {
+    return false;
+  }
+}
+
 function allowedGroup(group: string, policy: AuthPolicyDefinition): boolean {
   if (group === "default" || group === "profile") return true;
   if (group === "password") return policy.passwordEnabled;
@@ -498,7 +507,7 @@ async function redirectToAal2StepUp(
 function publicContext(
   transaction: AuthTransactionRecord,
   transactionId: string,
-  extras: { secondaryFactorEnrollmentUrl?: string } = {},
+  extras: { secondaryFactorEnrollmentUrl?: string; switchAccountUrl?: string } = {},
 ) {
   return {
     transactionId,
@@ -515,6 +524,17 @@ function publicContext(
     purpose: "oauth" as const,
     ...extras,
   };
+}
+
+function switchAccountUrl(transaction: AuthTransactionRecord): string | undefined {
+  const recovery = recoveryFromAuthTransaction(transaction);
+  if (recovery.kind !== "application_home") return undefined;
+
+  const params = new URLSearchParams({
+    return_to: recovery.homeUrl,
+    client_id: transaction.hydra_client_id,
+  });
+  return `/logout?${params.toString()}`;
 }
 
 function verifiedEmailSession(input: {
@@ -773,9 +793,10 @@ export function createOrchestratorRouter(): Router {
       }
 
       const prompt = hydraRequest.oidc_context?.prompt ?? [];
-      const requireFresh = shouldRequireFreshLogin(resolved.policy, {
+      const requestedMaxAge = requestedMaximumAge(hydraRequest);
+      const requestRequiresFresh = shouldRequireFreshLogin(resolved.policy, {
         prompt,
-        maxAge: requestedMaximumAge(hydraRequest),
+        maxAge: requestedMaxAge,
       });
 
       let existingSession: KratosSession | null = null;
@@ -785,11 +806,17 @@ export function createOrchestratorRouter(): Router {
         existingSession = null;
       }
 
+      const requireFresh =
+        requestRequiresFresh ||
+        sessionRequiresFreshLogin(existingSession, resolved.policy, {
+          maximumAgeSeconds: requestedMaxAge,
+        });
+
       if (hydraRequest.skip && !requireFresh && existingSession) {
         try {
           const decision = evaluateAuthenticationPolicy(existingSession, resolved.policy, {
             expectedSubject: hydraRequest.subject,
-            maximumAgeSeconds: requestedMaximumAge(hydraRequest),
+            maximumAgeSeconds: requestedMaxAge,
           });
           if (
             decision.allowed &&
@@ -944,9 +971,14 @@ export function createOrchestratorRouter(): Router {
           context: publicContext(
             transaction,
             token,
-            needsEnrollment
-              ? { secondaryFactorEnrollmentUrl: secondaryFactorEnrollmentUrl(token) }
-              : {},
+            {
+              ...(needsEnrollment
+                ? { secondaryFactorEnrollmentUrl: secondaryFactorEnrollmentUrl(token) }
+                : {}),
+              ...(isRefreshLoginFlow(flow)
+                ? { switchAccountUrl: switchAccountUrl(transaction) }
+                : {}),
+            },
           ),
         });
       } catch (error) {

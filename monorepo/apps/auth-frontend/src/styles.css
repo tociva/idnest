@@ -224,6 +224,10 @@ button, input {
   box-shadow: 0 2px 6px rgb(0 0 0 / 24%);
 }
 
+.switch-account-link {
+  margin-top: 0.85rem;
+}
+
 .provider-icon,
 .provider-dot {
   width: 1.2rem;
