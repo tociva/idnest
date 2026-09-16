@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Idnest identity bootstrap for macOS (Homebrew Postgres: current user is the superuser).
+# Idnest identity bootstrap for macOS (Homebrew PostgreSQL 18: current user is the superuser).
 # Creates Hydra/Kratos/Authz roles, databases and schemas, then runs identity
 # migrations. Database credentials are derived from the project DSNs.
 #
@@ -20,9 +20,31 @@ HYDRA_IMAGE="${HYDRA_IMAGE:-oryd/hydra:v26.2.0}"
 KRATOS_IMAGE="${KRATOS_IMAGE:-oryd/kratos:v26.2.0}"
 KRATOS_CONFIG_DIR="${KRATOS_CONFIG_DIR:-$REPO_ROOT/config}"
 PG_SUPERDB="${PG_SUPERDB:-postgres}"
+POSTGRES_HOMEBREW_FORMULA="${POSTGRES_HOMEBREW_FORMULA:-postgresql@18}"
+POSTGRES_REQUIRED_MAJOR="${POSTGRES_REQUIRED_MAJOR:-18}"
 
 require_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "Error: '$1' not found." >&2; exit 1; }; }
-require_cmd psql
+
+require_postgres_client() {
+  if ! command -v psql >/dev/null 2>&1; then
+    echo "Error: 'psql' not found. Install and link Homebrew PostgreSQL 18:" >&2
+    echo "  brew install $POSTGRES_HOMEBREW_FORMULA" >&2
+    echo "  brew link $POSTGRES_HOMEBREW_FORMULA --force" >&2
+    echo "  brew services start $POSTGRES_HOMEBREW_FORMULA" >&2
+    exit 1
+  fi
+
+  local version major
+  version="$(psql --version 2>/dev/null || true)"
+  major="$(printf '%s\n' "$version" | sed -nE 's/.*PostgreSQL\) ([0-9]+).*/\1/p')"
+  if [ "$major" != "$POSTGRES_REQUIRED_MAJOR" ]; then
+    echo "Error: expected linked psql from PostgreSQL $POSTGRES_REQUIRED_MAJOR, found: ${version:-unknown}." >&2
+    echo "Run: brew link $POSTGRES_HOMEBREW_FORMULA --force" >&2
+    exit 1
+  fi
+}
+
+require_postgres_client
 require_cmd docker
 require_cmd node
 

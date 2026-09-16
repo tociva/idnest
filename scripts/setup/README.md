@@ -9,16 +9,19 @@ and the local service bootstrap.
 
 - Node.js `22.22.0` (see `.nvmrc`)
 - pnpm `9.15.0` through Corepack
-- PostgreSQL
+- PostgreSQL 18 on macOS, or PostgreSQL from distribution packages on Linux
 - Docker with Docker Compose
 - A locally trusted HTTPS gateway for end-to-end browser flows
 
 On macOS, the non-Node dependencies can be installed with Homebrew:
 
 ```bash
-brew install postgresql@16
-brew services start postgresql@16
+brew install postgresql@18
+brew link postgresql@18 --force
+brew services start postgresql@18
 ```
+
+The local bootstrap expects the linked `psql` client to be PostgreSQL 18.
 
 On Ubuntu or Debian, install PostgreSQL using the distribution packages and
 Docker using its official packages. Certificate and gateway tooling is left to
