@@ -117,6 +117,7 @@ Run commands from the repository root.
 | `pnpm admin-backend:build` | Build only the admin backend |
 | `pnpm admin-frontend:build` | Build only the admin frontend |
 | `pnpm authz:migrate` | Run authorization-store migrations |
+| `pnpm db:reset` | Destructively reset local Hydra, Kratos, and Authz data, then recreate migrations and the admin client |
 | `pnpm nx -- graph` | Open the Nx project graph |
 
 ## Security notes

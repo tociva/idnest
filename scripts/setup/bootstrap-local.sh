@@ -12,6 +12,7 @@ COMPOSE_FILE="$REPO_ROOT/scripts/docker/docker-compose.yml"
 IDNEST_RUNTIME_NETWORK="${IDNEST_RUNTIME_NETWORK:-idnest-network}"
 ENV_HELPER="$SCRIPT_DIR/load-project-env.sh"
 ADMIN_CLIENT_PROVISIONER="$SCRIPT_DIR/provision-admin-client.js"
+ADMIN_ALLOWLIST_SEEDER="$SCRIPT_DIR/seed-admin-email-allowlist.js"
 
 usage() {
   echo "Usage: pnpm bootstrap:local"
@@ -115,6 +116,9 @@ esac
 
 echo "==> Running authz migrations..."
 pnpm --dir="$REPO_ROOT" authz:migrate
+
+echo "==> Seeding Idnest Admin email allowlist..."
+node "$ADMIN_ALLOWLIST_SEEDER"
 
 echo "==> Starting Hydra and Kratos containers..."
 docker compose -f "$COMPOSE_FILE" up -d --build

@@ -54,7 +54,11 @@ openssl rand -hex 16 # Exactly 32 characters for KRATOS_CIPHER_SECRET
 ```
 
 Set `ADMIN_BOOTSTRAP_EMAILS` to the verified email allowed to become the first
-system administrator. Configure Google OIDC with this local redirect URI:
+system administrator. Local bootstrap also copies this value into the initial
+Idnest Admin email-allowlist authentication policy. After setup, manage
+additional administrator emails through the authentication policy allowlist and
+grant `system-admin` access in Idnest Admin; `.env` is only the first setup
+seed. Configure Google OIDC with this local redirect URI:
 
 ```text
 https://kratos-local.idnest.cloud/self-service/methods/oidc/callback/google
@@ -147,8 +151,10 @@ The bootstrap command:
 1. Loads both environment files.
 2. Creates the Hydra, Kratos, and authorization databases and schemas.
 3. Runs all database migrations.
-4. Starts Hydra and Kratos with Docker Compose.
-5. Provisions the confidential admin-console OAuth client.
+4. Seeds the Idnest Admin email-allowlist policy from `ADMIN_BOOTSTRAP_EMAILS`
+   when the admin client still uses the stock setup mapping.
+5. Starts Hydra and Kratos with Docker Compose.
+6. Provisions the confidential admin-console OAuth client.
 
 The database roles, names, passwords, and schemas are derived from `HYDRA_DSN`,
 `KRATOS_DSN`, and `AUTHZ_DATABASE_URL`. Use URL-safe passwords or percent-encode
@@ -168,6 +174,18 @@ pnpm admin-frontend:serve
 Open `https://admin-local.idnest.cloud` and sign in with a verified email from
 `ADMIN_BOOTSTRAP_EMAILS`. The allowlist can grant the first `system-admin` role
 only while no active system administrator exists.
+
+To return local auth state to a fresh install, including a fresh authenticator
+setup for the first admin login, run:
+
+```bash
+pnpm db:reset
+```
+
+This command is destructive and local-only. It stops Hydra and Kratos, clears
+the configured local Hydra, Kratos, and authorization schemas, reruns migrations,
+restarts Hydra and Kratos, and provisions the confidential admin-console OAuth
+client.
 
 ## Configuration
 
