@@ -67,6 +67,20 @@ export const routes: Routes = [
             (m) => m.DelegationComponent,
           ),
       },
+      {
+        path: "delegation/new",
+        loadComponent: () =>
+          import("./pages/delegation/delegation-detail.component").then(
+            (m) => m.DelegationDetailComponent,
+          ),
+      },
+      {
+        path: "delegation/:id",
+        loadComponent: () =>
+          import("./pages/delegation/delegation-detail.component").then(
+            (m) => m.DelegationDetailComponent,
+          ),
+      },
       { path: "authentication", pathMatch: "full", redirectTo: "authentication/brands" },
       {
         path: "authentication/brands",

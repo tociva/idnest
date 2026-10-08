@@ -1,5 +1,7 @@
-import { Component, DestroyRef, inject, type OnInit } from "@angular/core";
+import { Component, DestroyRef, inject, type OnInit, viewChild } from "@angular/core";
+import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import { FormsModule } from "@angular/forms";
+import { ActivatedRoute, Router, RouterLink } from "@angular/router";
 import type { DelegationStatus } from "@idnest/shared-types";
 import {
   TngBadgeComponent,
@@ -9,61 +11,63 @@ import {
   TngCardDescriptionComponent,
   TngCardHeaderComponent,
   TngCardTitleComponent,
+  TngDialogComponent,
+  TngFormFieldComponent,
+  TngInputAngularFormsAdapter,
+  TngInputComponent,
+  TngLabelComponent,
+  TngPaginatorComponent,
   TngProgressSpinnerComponent,
+  TngSelectComponent,
+  TngTableCellTemplate,
+  TngTableComponent,
+  TngTooltipComponent,
+  type TngTableColumn,
 } from "@tailng-ui/components";
 import { TngIcon } from "@tailng-ui/icons";
+import { TngPopover, TngPopoverPanel, TngPopoverTrigger } from "@tailng-ui/primitives";
 import { AdminApiService, describeError } from "../../core/admin-api.service";
 import type {
-  DelegationActorPolicyRecord,
   DelegationAuditActivity,
   DelegationGrantActivity,
   DelegationResourceRecord,
 } from "../../core/admin-types";
+import {
+  LIST_PAGE_SIZE_OPTIONS,
+  clampListPage,
+  matchesListSearch,
+  paginateItems,
+  parseListPageQuery,
+  toListPageQueryParams,
+  type ListPageQuery,
+} from "../../core/list-page-query";
 import { ToastService } from "../../core/toast/toast.service";
 
-interface ResourceDraft {
-  id: string;
-  version: number;
-  status: Exclude<DelegationStatus, "archived">;
-  key: string;
-  displayName: string;
-  audience: string;
-  authorizerClientId: string;
-  scopes: string;
-  tokenTtlSeconds: number;
-  authorizationContextRequired: boolean;
+interface ResourceRow {
+  resource: DelegationResourceRecord;
+  searchText: string;
 }
 
-interface ActorDraft {
-  actorClientId: string;
-  scopes: string;
-  status: Exclude<DelegationStatus, "archived">;
+interface SelectOption {
+  value: string;
+  label: string;
 }
 
-function emptyResource(): ResourceDraft {
-  return {
-    id: "",
-    version: 0,
-    status: "active",
-    key: "",
-    displayName: "",
-    audience: "",
-    authorizerClientId: "",
-    scopes: "",
-    tokenTtlSeconds: 180,
-    authorizationContextRequired: true,
-  };
-}
+const STATUS_OPTIONS: SelectOption[] = [
+  { value: "", label: "All statuses" },
+  { value: "active", label: "Active" },
+  { value: "disabled", label: "Disabled" },
+];
 
-function emptyActor(): ActorDraft {
-  return { actorClientId: "", scopes: "", status: "active" };
-}
+const getOptionValue = (option: SelectOption): string => option.value;
+const getOptionLabel = (option: SelectOption): string => option.label;
 
 @Component({
   selector: "app-delegation",
   standalone: true,
   imports: [
     FormsModule,
+    RouterLink,
     TngBadgeComponent,
     TngButtonComponent,
     TngCardComponent,
@@ -71,8 +75,21 @@ function emptyActor(): ActorDraft {
     TngCardDescriptionComponent,
     TngCardHeaderComponent,
     TngCardTitleComponent,
+    TngDialogComponent,
+    TngFormFieldComponent,
     TngIcon,
+    TngInputAngularFormsAdapter,
+    TngInputComponent,
+    TngLabelComponent,
+    TngPaginatorComponent,
+    TngPopover,
+    TngPopoverPanel,
+    TngPopoverTrigger,
     TngProgressSpinnerComponent,
+    TngSelectComponent,
+    TngTableCellTemplate,
+    TngTableComponent,
+    TngTooltipComponent,
   ],
   templateUrl: "./delegation.component.html",
   styleUrls: ["./delegation.component.css"],
@@ -80,21 +97,41 @@ function emptyActor(): ActorDraft {
 export class DelegationComponent implements OnInit {
   private readonly api = inject(AdminApiService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly toast = inject(ToastService);
+  private readonly sorter = new Intl.Collator(undefined, { sensitivity: "base" });
+  private readonly filterPopover = viewChild<TngPopover>("filterPopover");
   private destroyed = false;
+  private loadRequestId = 0;
 
-  resources: DelegationResourceRecord[] = [];
-  actorPolicies: DelegationActorPolicyRecord[] = [];
+  rows: ResourceRow[] = [];
   grants: DelegationGrantActivity[] = [];
   auditEvents: DelegationAuditActivity[] = [];
-  resourceForm = emptyResource();
-  actorForm = emptyActor();
-  resourceReason = "";
-  actorReason = "";
-  activeTab: "configuration" | "activity" = "configuration";
+  activeTab: "resources" | "activity" = "resources";
   loading = true;
-  busy = false;
   error = "";
+  filterQ = "";
+  filterStatus = "";
+  activityResourceId = "";
+  revokeDialogOpen = false;
+  pendingGrant?: DelegationGrantActivity;
+  busyGrantId = "";
+
+  query: ListPageQuery = { q: "", status: "", page: 1, pageSize: 25 };
+
+  readonly pageSizeOptions = [...LIST_PAGE_SIZE_OPTIONS];
+  readonly statusOptions = STATUS_OPTIONS;
+  readonly getOptionValue = getOptionValue;
+  readonly getOptionLabel = getOptionLabel;
+  readonly columns: TngTableColumn<ResourceRow>[] = [
+    { id: "resource", label: "Resource", accessor: (row) => row.resource.definition.displayName, width: "17rem" },
+    { id: "audience", label: "Audience", accessor: (row) => row.resource.definition.audience, width: "19rem" },
+    { id: "scopes", label: "Scopes", accessor: (row) => this.scopeLabel(row.resource.definition.allowedScopes), width: "16rem" },
+    { id: "ttl", label: "Token lifetime", accessor: (row) => this.ttlLabel(row.resource.definition.tokenTtlSeconds), width: "9rem" },
+    { id: "status", label: "Status", accessor: (row) => this.statusLabel(row.resource.status), width: "7rem" },
+    { id: "actions", label: "", align: "end", width: "3.5rem" },
+  ];
 
   private readonly dateFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -105,151 +142,169 @@ export class DelegationComponent implements OnInit {
     this.destroyRef.onDestroy(() => {
       this.destroyed = true;
     });
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
+      this.query = parseListPageQuery(params);
+      this.filterQ = this.query.q;
+      this.filterStatus = this.query.status;
+      this.activeTab = params.get("view") === "activity" ? "activity" : "resources";
+      this.activityResourceId = params.get("resource") ?? "";
+    });
   }
 
   ngOnInit(): void {
-    void this.load();
+    void this.reload();
   }
 
-  get selectedResource(): DelegationResourceRecord | undefined {
-    return this.resources.find((resource) => resource.id === this.resourceForm.id);
-  }
-
-  get createMode(): boolean {
-    return !this.resourceForm.id;
-  }
-
-  selectResource(resource: DelegationResourceRecord): void {
-    this.resourceForm = {
-      id: resource.id,
-      version: resource.version,
-      status: resource.status === "archived" ? "disabled" : resource.status,
-      key: resource.definition.key,
-      displayName: resource.definition.displayName,
-      audience: resource.definition.audience,
-      authorizerClientId: resource.definition.authorizerClientId,
-      scopes: resource.definition.allowedScopes.join(" "),
-      tokenTtlSeconds: resource.definition.tokenTtlSeconds,
-      authorizationContextRequired: resource.definition.authorizationContextRequired,
-    };
-    this.resourceReason = "";
-    this.actorForm = emptyActor();
-    this.actorReason = "";
-    void this.loadResourceDetails(resource.id);
-  }
-
-  newResource(): void {
-    this.resourceForm = emptyResource();
-    this.actorPolicies = [];
-    this.actorForm = emptyActor();
-    this.resourceReason = "";
-    void this.loadActivity();
-  }
-
-  editActor(policy: DelegationActorPolicyRecord): void {
-    this.actorForm = {
-      actorClientId: policy.definition.actorClientId,
-      scopes: policy.definition.allowedScopes.join(" "),
-      status: policy.status === "archived" ? "disabled" : policy.status,
-    };
-    this.actorReason = "";
-  }
-
-  newActor(): void {
-    this.actorForm = emptyActor();
-    this.actorReason = "";
-  }
-
-  async saveResource(): Promise<void> {
-    const draft = this.resourceForm;
-    const definition = {
-      key: draft.key.trim(),
-      displayName: draft.displayName.trim(),
-      audience: draft.audience.trim(),
-      authorizerClientId: draft.authorizerClientId.trim(),
-      allowedScopes: this.scopeList(draft.scopes),
-      tokenTtlSeconds: Number(draft.tokenTtlSeconds),
-      authorizationContextRequired: draft.authorizationContextRequired,
-    };
-    await this.run(async () => {
-      const saved = this.createMode
-        ? await this.api.createDelegationResource(
-            { status: draft.status, definition },
-            this.resourceReason.trim() || "Created from delegated access administration",
-          )
-        : await this.api.updateDelegationResource(
-            {
-              id: draft.id,
-              version: draft.version,
-              status: draft.status,
-              definition,
-              created_at: this.selectedResource?.created_at ?? "",
-              updated_at: this.selectedResource?.updated_at ?? "",
-            },
-            this.resourceReason.trim() || "Updated from delegated access administration",
-          );
-      this.toast.success(this.createMode ? "Delegation resource created" : "Delegation resource saved");
-      await this.reloadAndSelect(saved.id);
+  get filteredRows(): ResourceRow[] {
+    return this.rows.filter((row) => {
+      if (this.query.status && row.resource.status !== this.query.status) return false;
+      return matchesListSearch(row.searchText, this.query.q);
     });
   }
 
-  async archiveResource(): Promise<void> {
-    const selected = this.selectedResource;
-    if (!selected || !window.confirm(`Archive ${selected.definition.displayName}?`)) return;
-    await this.run(async () => {
-      await this.api.archiveDelegationResource(selected.id);
-      this.toast.success("Delegation resource archived");
-      this.newResource();
-      await this.load();
-    });
+  get filteredTotal(): number {
+    return this.filteredRows.length;
   }
 
-  async saveActor(): Promise<void> {
-    const selected = this.selectedResource;
-    const actorClientId = this.actorForm.actorClientId.trim();
-    if (!selected || !actorClientId) {
-      this.toast.danger("Choose a resource and enter an actor OAuth client ID");
-      return;
+  get pagedRows(): ResourceRow[] {
+    return paginateItems(this.filteredRows, this.clampedPage, this.query.pageSize);
+  }
+
+  get pageIndex(): number {
+    return this.clampedPage - 1;
+  }
+
+  get resourceOptions(): SelectOption[] {
+    return [
+      { value: "", label: "All resources" },
+      ...this.rows.map(({ resource }) => ({
+        value: resource.id,
+        label: resource.definition.displayName,
+      })),
+    ];
+  }
+
+  get visibleGrants(): DelegationGrantActivity[] {
+    return this.activityResourceId
+      ? this.grants.filter((grant) => grant.resource_id === this.activityResourceId)
+      : this.grants;
+  }
+
+  get visibleAuditEvents(): DelegationAuditActivity[] {
+    return this.activityResourceId
+      ? this.auditEvents.filter((event) => event.resource_id === this.activityResourceId)
+      : this.auditEvents;
+  }
+
+  private get clampedPage(): number {
+    return clampListPage(this.query.page, this.filteredTotal, this.query.pageSize);
+  }
+
+  async reload(): Promise<void> {
+    const requestId = ++this.loadRequestId;
+    this.loading = true;
+    this.error = "";
+    try {
+      const [resources, grants, auditEvents] = await Promise.all([
+        this.api.listDelegationResources(),
+        this.api.listDelegationGrants(),
+        this.api.listDelegationAudit(),
+      ]);
+      if (!this.isActiveLoad(requestId)) return;
+      this.rows = [...resources]
+        .sort((a, b) => this.sorter.compare(a.definition.displayName, b.definition.displayName))
+        .map((resource) => ({
+          resource,
+          searchText: [
+            resource.definition.displayName,
+            resource.definition.key,
+            resource.definition.audience,
+            resource.definition.authorizerClientId,
+            ...resource.definition.allowedScopes,
+          ].join(" "),
+        }));
+      this.grants = grants;
+      this.auditEvents = auditEvents;
+    } catch (error) {
+      if (!this.isActiveLoad(requestId)) return;
+      this.error = describeError(error);
+      this.toast.danger(this.error);
+    } finally {
+      if (this.isActiveLoad(requestId)) this.loading = false;
     }
-    await this.run(async () => {
-      await this.api.saveDelegationActorPolicy(
-        selected.id,
-        actorClientId,
-        {
-          status: this.actorForm.status,
-          definition: {
-            actorClientId,
-            allowedScopes: this.scopeList(this.actorForm.scopes),
-          },
-        },
-        this.actorReason.trim() || "Updated from delegated access administration",
-      );
-      this.toast.success("Actor policy saved");
-      this.newActor();
-      await this.loadResourceDetails(selected.id);
+  }
+
+  setActiveTab(tab: "resources" | "activity"): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view: tab === "activity" ? "activity" : null },
+      queryParamsHandling: "merge",
+      replaceUrl: true,
     });
   }
 
-  async archiveActor(policy: DelegationActorPolicyRecord): Promise<void> {
-    const selected = this.selectedResource;
-    if (!selected || !window.confirm(`Remove ${policy.definition.actorClientId}?`)) return;
-    await this.run(async () => {
-      await this.api.archiveDelegationActorPolicy(
-        selected.id,
-        policy.definition.actorClientId,
-      );
-      this.toast.success("Actor policy removed");
-      await this.loadResourceDetails(selected.id);
+  applyFilters(): void {
+    void this.navigateListQuery({
+      q: this.filterQ,
+      status: this.filterStatus,
+      page: 1,
+      pageSize: this.query.pageSize,
+    });
+    this.filterPopover()?.closePopover("programmatic");
+  }
+
+  clearFilters(): void {
+    this.filterQ = "";
+    this.filterStatus = "";
+    void this.navigateListQuery({ q: "", status: "", page: 1, pageSize: this.query.pageSize });
+    this.filterPopover()?.closePopover("programmatic");
+  }
+
+  onPageChange(event: { pageIndex: number; pageSize: number }): void {
+    void this.navigateListQuery({
+      q: this.query.q,
+      status: this.query.status,
+      page: event.pageIndex + 1,
+      pageSize: event.pageSize,
     });
   }
 
-  async revokeGrant(grant: DelegationGrantActivity): Promise<void> {
-    if (!this.isGrantPending(grant) || !window.confirm("Revoke this pending one-time grant?")) return;
-    await this.run(async () => {
+  onActivityResourceChange(value: string | null): void {
+    this.activityResourceId = value ?? "";
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { resource: this.activityResourceId || null },
+      queryParamsHandling: "merge",
+      replaceUrl: true,
+    });
+  }
+
+  asResourceRow(row: unknown): ResourceRow {
+    return row as ResourceRow;
+  }
+
+  openRevokeDialog(grant: DelegationGrantActivity): void {
+    if (!this.isGrantPending(grant)) return;
+    this.pendingGrant = grant;
+    this.revokeDialogOpen = true;
+  }
+
+  async revokeGrant(): Promise<void> {
+    const grant = this.pendingGrant;
+    if (!grant || !this.isGrantPending(grant) || this.busyGrantId) return;
+    this.revokeDialogOpen = false;
+    this.busyGrantId = grant.id;
+    try {
       await this.api.revokeDelegationGrant(grant.id);
       this.toast.success("Pending grant revoked");
-      await this.loadActivity(this.selectedResource?.id);
-    });
+      this.grants = await this.api.listDelegationGrants();
+    } catch (error) {
+      this.error = describeError(error);
+      this.toast.danger(this.error);
+    } finally {
+      this.busyGrantId = "";
+      this.pendingGrant = undefined;
+    }
   }
 
   isGrantPending(grant: DelegationGrantActivity): boolean {
@@ -263,82 +318,40 @@ export class DelegationComponent implements OnInit {
     return "Pending";
   }
 
+  grantStateClass(grant: DelegationGrantActivity): string {
+    return `state-${this.grantState(grant).toLowerCase()}`;
+  }
+
+  statusLabel(status: DelegationStatus): string {
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  }
+
+  ttlLabel(seconds: number): string {
+    if (seconds < 60) return `${seconds} seconds`;
+    const minutes = seconds / 60;
+    return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  }
+
+  scopeLabel(scopes: string[]): string {
+    return scopes.join(" · ") || "No scopes";
+  }
+
   dateLabel(value: string | null): string {
     if (!value) return "—";
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : this.dateFormatter.format(date);
   }
 
-  scopeLabel(scopes: string[]): string {
-    return scopes.join(" ") || "No scopes";
+  private navigateListQuery(query: ListPageQuery): Promise<boolean> {
+    return this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: toListPageQueryParams(query),
+      queryParamsHandling: "merge",
+      replaceUrl: true,
+    });
   }
 
-  private scopeList(value: string): string[] {
-    return [...new Set(value.split(/[\s,]+/).map((scope) => scope.trim()).filter(Boolean))].sort();
-  }
-
-  private async load(): Promise<void> {
-    this.loading = true;
-    this.error = "";
-    try {
-      const [resources, grants, auditEvents] = await Promise.all([
-        this.api.listDelegationResources(),
-        this.api.listDelegationGrants(),
-        this.api.listDelegationAudit(),
-      ]);
-      if (this.destroyed) return;
-      this.resources = resources;
-      this.grants = grants;
-      this.auditEvents = auditEvents;
-    } catch (error) {
-      if (this.destroyed) return;
-      this.error = describeError(error);
-      this.toast.danger(this.error);
-    } finally {
-      if (!this.destroyed) this.loading = false;
-    }
-  }
-
-  private async reloadAndSelect(id: string): Promise<void> {
-    const resources = await this.api.listDelegationResources();
-    if (this.destroyed) return;
-    this.resources = resources;
-    const saved = resources.find((resource) => resource.id === id);
-    if (saved) this.selectResource(saved);
-  }
-
-  private async loadResourceDetails(resourceId: string): Promise<void> {
-    try {
-      const policies = await this.api.listDelegationActorPolicies(resourceId);
-      if (!this.destroyed && this.resourceForm.id === resourceId) this.actorPolicies = policies;
-      await this.loadActivity(resourceId);
-    } catch (error) {
-      if (!this.destroyed) this.toast.danger(describeError(error));
-    }
-  }
-
-  private async loadActivity(resourceId?: string): Promise<void> {
-    const [grants, auditEvents] = await Promise.all([
-      this.api.listDelegationGrants(resourceId),
-      this.api.listDelegationAudit(resourceId),
-    ]);
-    if (this.destroyed || (resourceId && this.resourceForm.id !== resourceId)) return;
-    this.grants = grants;
-    this.auditEvents = auditEvents;
-  }
-
-  private async run(operation: () => Promise<void>): Promise<void> {
-    if (this.busy) return;
-    this.busy = true;
-    this.error = "";
-    try {
-      await operation();
-    } catch (error) {
-      if (this.destroyed) return;
-      this.error = describeError(error);
-      this.toast.danger(this.error);
-    } finally {
-      if (!this.destroyed) this.busy = false;
-    }
+  private isActiveLoad(requestId: number): boolean {
+    return !this.destroyed && requestId === this.loadRequestId;
   }
 }

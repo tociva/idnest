@@ -1,0 +1,207 @@
+<div class="page-heading">
+  <div>
+    <a class="cell-link back-link" routerLink="/delegation">← Back to delegated access</a>
+    <div class="title-row">
+      <h1 class="page-title">{{ createMode ? "New resource" : form.displayName }}</h1>
+      @if (!createMode) {
+        <span tngBadge class="status-badge" [class.disabled]="form.status !== 'active'">{{ form.status }}</span>
+      }
+    </div>
+    <p>{{ createMode ? "Define an API boundary for delegated access." : form.key + " · Version " + form.version }}</p>
+  </div>
+  @if (activeTab === "settings") {
+    <tng-button appearance="solid" tone="primary" [disabled]="!canSaveResource" (click)="saveResource()">
+      <tng-icon icon="save" size="0.95rem" aria-hidden="true" />
+      {{ busy ? "Saving…" : createMode ? "Create resource" : "Save changes" }}
+    </tng-button>
+  }
+</div>
+
+@if (error) {
+  <div class="alert alert-error" role="alert">{{ error }}</div>
+}
+
+@if (loading) {
+  <div class="loading-row" role="status"><tng-progress-spinner /><span class="muted">Loading resource…</span></div>
+} @else {
+  @if (!createMode) {
+    <div class="delegation-tabs" role="tablist" aria-label="Delegation resource sections">
+      <button type="button" role="tab" [attr.aria-selected]="activeTab === 'settings'" [class.active]="activeTab === 'settings'" (click)="setActiveTab('settings')">Settings</button>
+      <button type="button" role="tab" [attr.aria-selected]="activeTab === 'actors'" [class.active]="activeTab === 'actors'" (click)="setActiveTab('actors')">Approved actors <span class="tab-count">{{ actorPolicies.length }}</span></button>
+      <button type="button" role="tab" [attr.aria-selected]="activeTab === 'activity'" [class.active]="activeTab === 'activity'" (click)="setActiveTab('activity')">Activity</button>
+    </div>
+  }
+
+  @if (activeTab === "settings") {
+    <div class="detail-grid">
+      <tng-card>
+        <tng-card-header>
+          <tng-card-title>Resource settings</tng-card-title>
+          <tng-card-description>Define where delegated tokens may be used and what access they may carry.</tng-card-description>
+        </tng-card-header>
+        <tng-card-content>
+          <div class="form-grid">
+            <tng-form-field>
+              <tng-label>Display name</tng-label>
+              <tng-input tngAngularForms name="resource_display_name" [(ngModel)]="form.displayName" placeholder="Accounting API" />
+            </tng-form-field>
+            <tng-form-field>
+              <tng-label>Resource key</tng-label>
+              <tng-input tngAngularForms name="resource_key" [(ngModel)]="form.key" [readonly]="!createMode" placeholder="accounting-api" />
+              @if (!createMode) { <span class="field-hint">The stable resource key cannot be changed.</span> }
+            </tng-form-field>
+            <tng-form-field class="full">
+              <tng-label>Audience</tng-label>
+              <tng-input tngAngularForms name="resource_audience" [(ngModel)]="form.audience" placeholder="https://api.example.com" />
+              <span class="field-hint">Absolute URI used as the delegated token audience.</span>
+            </tng-form-field>
+            <tng-form-field class="full">
+              <tng-label>Authorizer OAuth client</tng-label>
+              <tng-select [options]="authorizerOptions" [value]="form.authorizerClientId" (valueChange)="form.authorizerClientId = $event ?? ''" [getOptionValue]="getStringOptionValue" [getOptionLabel]="getOptionLabel" placeholder="Select an authorizer client" />
+              <span class="field-hint">Shows client-credentials clients with <code>delegation.grant</code>. The broker audience is validated when saved.</span>
+            </tng-form-field>
+            <tng-form-field class="full">
+              <tng-label>Allowed scopes</tng-label>
+              <tng-multiselect [options]="resourceScopeOptions" [value]="form.scopes" (valueChange)="onResourceScopesChange($event)" [getOptionValue]="getStringOptionValue" [getOptionLabel]="getOptionLabel" [trackBy]="trackOption" placeholder="Add at least one scope">
+                <ng-template #tngMultiSelectValueTpl let-selection>{{ scopeValueLabel(selection.value) }}</ng-template>
+              </tng-multiselect>
+            </tng-form-field>
+            <div class="scope-add-row full">
+              <tng-input tngAngularForms name="custom_resource_scope" [(ngModel)]="customScope" placeholder="records:read" (keydown)="onCustomScopeKeydown($event)" />
+              <tng-button appearance="outline" tone="neutral" [disabled]="!customScope.trim()" (click)="addResourceScope()">
+                <tng-icon icon="plus" size="0.95rem" aria-hidden="true" />Add scope
+              </tng-button>
+            </div>
+          </div>
+        </tng-card-content>
+      </tng-card>
+
+      <tng-card class="policy-card">
+        <tng-card-header>
+          <tng-card-title>Token policy</tng-card-title>
+          <tng-card-description>Keep delegated access short-lived and narrowly scoped.</tng-card-description>
+        </tng-card-header>
+        <tng-card-content>
+          <div class="policy-stack">
+            <tng-form-field>
+              <tng-label>Token lifetime</tng-label>
+              <tng-select [options]="ttlOptions" [value]="form.tokenTtlSeconds" (valueChange)="form.tokenTtlSeconds = $event ?? form.tokenTtlSeconds" [getOptionValue]="getNumberOptionValue" [getOptionLabel]="getOptionLabel" />
+              <span class="field-hint">Allowed range: 30 seconds to 5 minutes.</span>
+            </tng-form-field>
+            <tng-form-field>
+              <tng-label>Status</tng-label>
+              <tng-select [options]="statusOptions" [value]="form.status" (valueChange)="form.status = $event ?? form.status" [getOptionValue]="getStringOptionValue" [getOptionLabel]="getOptionLabel" />
+            </tng-form-field>
+            <div class="context-row">
+              <tng-switch [(checked)]="form.authorizationContextRequired" ariaLabel="Require authorization context"></tng-switch>
+              <span><strong>Require authorization context</strong><small>Keep tenant, role, workflow, and business data in the resource application.</small></span>
+            </div>
+            <tng-form-field>
+              <tng-label>Change reason <span class="optional">Optional</span></tng-label>
+              <tng-input tngAngularForms name="resource_reason" [(ngModel)]="resourceReason" placeholder="Why are you changing this?" />
+            </tng-form-field>
+            @if (!createMode) {
+              <tng-button class="archive-action" appearance="outline" tone="danger" [disabled]="busy" (click)="openArchiveDialog()">
+                <tng-icon icon="archive" size="0.95rem" aria-hidden="true" />Archive resource
+              </tng-button>
+            }
+          </div>
+        </tng-card-content>
+      </tng-card>
+    </div>
+  } @else if (activeTab === "actors") {
+    <div class="stack">
+      <tng-card>
+        <tng-card-header>
+          <tng-card-title>{{ editingActorId ? "Edit approved actor" : "Approve an actor" }}</tng-card-title>
+          <tng-card-description>Allow a service client to exchange grants for this resource.</tng-card-description>
+        </tng-card-header>
+        <tng-card-content>
+          <div class="form-grid actor-form">
+            <tng-form-field>
+              <tng-label>Actor OAuth client</tng-label>
+              <tng-select [options]="actorClientOptions" [value]="actorForm.actorClientId" (valueChange)="actorForm.actorClientId = $event ?? ''" [disabled]="!!editingActorId" [getOptionValue]="getStringOptionValue" [getOptionLabel]="getOptionLabel" placeholder="Select an actor client" />
+              <span class="field-hint">Shows client-credentials clients with <code>delegation.exchange</code>.</span>
+            </tng-form-field>
+            <tng-form-field>
+              <tng-label>Status</tng-label>
+              <tng-select [options]="statusOptions" [value]="actorForm.status" (valueChange)="actorForm.status = $event ?? actorForm.status" [getOptionValue]="getStringOptionValue" [getOptionLabel]="getOptionLabel" />
+            </tng-form-field>
+            <tng-form-field class="full">
+              <tng-label>Allowed scopes</tng-label>
+              <tng-multiselect [options]="resourceScopeOptions" [value]="actorForm.scopes" (valueChange)="onActorScopesChange($event)" [getOptionValue]="getStringOptionValue" [getOptionLabel]="getOptionLabel" [trackBy]="trackOption" placeholder="Select resource scopes">
+                <ng-template #tngMultiSelectValueTpl let-selection>{{ scopeValueLabel(selection.value) }}</ng-template>
+              </tng-multiselect>
+              <span class="field-hint">Actor scopes are limited to the resource’s allowed scopes.</span>
+            </tng-form-field>
+            <tng-form-field class="full">
+              <tng-label>Change reason <span class="optional">Optional</span></tng-label>
+              <tng-input tngAngularForms name="actor_reason" [(ngModel)]="actorReason" placeholder="Why are you changing this?" />
+            </tng-form-field>
+          </div>
+          <div class="editor-actions">
+            <tng-button appearance="solid" tone="primary" [disabled]="!canSaveActor" (click)="saveActor()">{{ busy ? "Saving…" : editingActorId ? "Save actor" : "Approve actor" }}</tng-button>
+            @if (editingActorId) { <tng-button appearance="outline" tone="neutral" [disabled]="busy" (click)="newActor()">Cancel edit</tng-button> }
+          </div>
+        </tng-card-content>
+      </tng-card>
+
+      <tng-card>
+        <tng-card-header><tng-card-title>Approved actors</tng-card-title><tng-card-description>Service clients currently configured for this resource.</tng-card-description></tng-card-header>
+        <tng-card-content>
+          <div class="table-wrap">
+            <table><thead><tr><th>Actor client</th><th>Scopes</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+              <tbody>
+                @for (policy of actorPolicies; track policy.id) {
+                  <tr><td><strong>{{ policy.definition.actorClientId }}</strong><small>v{{ policy.version }}</small></td><td>{{ scopeLabel(policy.definition.allowedScopes) }}</td><td><span tngBadge [class.disabled]="policy.status !== 'active'">{{ policy.status }}</span></td><td>{{ dateLabel(policy.updated_at) }}</td><td class="actions"><button type="button" (click)="editActor(policy)">Edit</button><button type="button" class="danger-link" (click)="openRemoveActorDialog(policy)">Remove</button></td></tr>
+                } @empty { <tr><td colspan="5" class="muted">No actors are approved for this resource.</td></tr> }
+              </tbody>
+            </table>
+          </div>
+        </tng-card-content>
+      </tng-card>
+    </div>
+  } @else {
+    <div class="stack">
+      <tng-card>
+        <tng-card-header><tng-card-title>Grant activity</tng-card-title><tng-card-description>Recent grants for {{ form.displayName }}.</tng-card-description></tng-card-header>
+        <tng-card-content>
+          <div class="table-wrap"><table><thead><tr><th>Created</th><th>Actor</th><th>Subject</th><th>Scopes</th><th>State</th><th></th></tr></thead>
+            <tbody>
+              @for (grant of grants; track grant.id) {
+                <tr><td>{{ dateLabel(grant.created_at) }}</td><td>{{ grant.actor_client_id }}</td><td><code>{{ grant.subject_id }}</code></td><td>{{ scopeLabel(grant.scopes) }}</td><td><span tngBadge [class]="grantStateClass(grant)">{{ grantState(grant) }}</span></td><td class="actions">@if (isGrantPending(grant)) { <button type="button" class="danger-link" (click)="openRevokeGrantDialog(grant)">Revoke</button> }</td></tr>
+              } @empty { <tr><td colspan="6" class="muted">No grant activity for this resource.</td></tr> }
+            </tbody>
+          </table></div>
+        </tng-card-content>
+      </tng-card>
+      <tng-card>
+        <tng-card-header><tng-card-title>Audit events</tng-card-title><tng-card-description>Append-only broker and administrator decisions.</tng-card-description></tng-card-header>
+        <tng-card-content>
+          <div class="table-wrap"><table><thead><tr><th>Time</th><th>Event</th><th>Result</th><th>Actor</th><th>Correlation</th></tr></thead>
+            <tbody>
+              @for (event of auditEvents; track event.id) {
+                <tr><td>{{ dateLabel(event.created_at) }}</td><td>{{ event.event_type }}</td><td><span tngBadge [class]="'result-' + event.result">{{ event.result }}</span></td><td>{{ event.actor_client_id || "—" }}</td><td><code>{{ event.correlation_id || "—" }}</code></td></tr>
+              } @empty { <tr><td colspan="5" class="muted">No audit events for this resource.</td></tr> }
+            </tbody>
+          </table></div>
+        </tng-card-content>
+      </tng-card>
+    </div>
+  }
+}
+
+<tng-dialog title="Archive resource?" description="Archived resources can no longer issue new delegated grants." [open]="archiveDialogOpen" (openChange)="archiveDialogOpen = $event">
+  <p>You are about to archive <strong>{{ form.displayName }}</strong>.</p>
+  <div class="dialog-actions"><tng-button data-tng-dialog-initial-focus appearance="outline" tone="neutral" [disabled]="busy" (click)="archiveDialogOpen = false">Cancel</tng-button><tng-button appearance="solid" tone="danger" [disabled]="busy" (click)="archiveResource()">Archive resource</tng-button></div>
+</tng-dialog>
+
+<tng-dialog title="Remove approved actor?" description="The service client will no longer be able to exchange new grants for this resource." [open]="removeActorDialogOpen" (openChange)="removeActorDialogOpen = $event">
+  <p>Remove <strong>{{ actorPendingRemoval?.definition?.actorClientId }}</strong>?</p>
+  <div class="dialog-actions"><tng-button data-tng-dialog-initial-focus appearance="outline" tone="neutral" [disabled]="busy" (click)="removeActorDialogOpen = false">Cancel</tng-button><tng-button appearance="solid" tone="danger" [disabled]="busy" (click)="removeActor()">Remove actor</tng-button></div>
+</tng-dialog>
+
+<tng-dialog title="Revoke pending grant?" description="The one-time grant will no longer be exchangeable." [open]="revokeDialogOpen" (openChange)="revokeDialogOpen = $event">
+  <p>This affects actor <strong>{{ grantPendingRevocation?.actor_client_id }}</strong> and subject <code>{{ grantPendingRevocation?.subject_id }}</code>.</p>
+  <div class="dialog-actions"><tng-button data-tng-dialog-initial-focus appearance="outline" tone="neutral" [disabled]="busy" (click)="revokeDialogOpen = false">Cancel</tng-button><tng-button appearance="solid" tone="danger" [disabled]="busy" (click)="revokeGrant()">Revoke grant</tng-button></div>
+</tng-dialog>

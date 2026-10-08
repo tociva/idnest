@@ -323,6 +323,12 @@ export class AdminApiService {
     return this.get<DelegationResourceRecord[]>("/delegation/resources");
   }
 
+  getDelegationResource(id: string): Promise<DelegationResourceRecord> {
+    return this.get<DelegationResourceRecord>(
+      `/delegation/resources/${encodeURIComponent(id)}`,
+    );
+  }
+
   createDelegationResource(
     value: Omit<DelegationResourceRecord, "id" | "version" | "created_at" | "updated_at">,
     reason?: string,
