@@ -35,6 +35,12 @@ import type {
   HydraClient,
 } from "../../core/admin-types";
 import { ToastService } from "../../core/toast/toast.service";
+import {
+  addDelegationScope,
+  createDelegationScopeState,
+  normalizeDelegationScopes,
+  selectDelegationScopes,
+} from "./delegation-detail-scopes";
 
 type EditableDelegationStatus = Exclude<DelegationStatus, "archived">;
 
@@ -98,10 +104,6 @@ function emptyActor(): ActorDraft {
   return { actorClientId: "", scopes: [], status: "active" };
 }
 
-function normalizeScopes(values: readonly unknown[]): string[] {
-  return [...new Set(values.filter((value): value is string => typeof value === "string").map((value) => value.trim()).filter(Boolean))].sort();
-}
-
 @Component({
   selector: "app-delegation-detail",
   standalone: true,
@@ -146,6 +148,7 @@ export class DelegationDetailComponent implements OnInit {
   form = emptyResource();
   resourceReason = "";
   customScope = "";
+  resourceScopeCatalog: string[] = [];
   clients: HydraClient[] = [];
   actorPolicies: DelegationActorPolicyRecord[] = [];
   actorForm = emptyActor();
@@ -184,6 +187,10 @@ export class DelegationDetailComponent implements OnInit {
   }
 
   get resourceScopeOptions(): SelectOption[] {
+    return this.resourceScopeCatalog.map((scope) => ({ value: scope, label: scope }));
+  }
+
+  get actorScopeOptions(): SelectOption[] {
     return this.form.scopes.map((scope) => ({ value: scope, label: scope }));
   }
 
@@ -216,6 +223,7 @@ export class DelegationDetailComponent implements OnInit {
     this.error = "";
     try {
       if (!id) {
+        this.resourceScopeCatalog = [];
         this.clients = await this.api.listClients();
         return;
       }
@@ -229,6 +237,7 @@ export class DelegationDetailComponent implements OnInit {
       if (this.destroyed) return;
       this.resource = resource;
       this.form = this.toResourceDraft(resource);
+      this.resourceScopeCatalog = createDelegationScopeState(this.form.scopes).options;
       this.clients = clients;
       this.actorPolicies = actorPolicies;
       this.grants = grants;
@@ -248,7 +257,12 @@ export class DelegationDetailComponent implements OnInit {
   }
 
   onResourceScopesChange(values: readonly unknown[]): void {
-    this.form.scopes = normalizeScopes(values);
+    const state = selectDelegationScopes(
+      { options: this.resourceScopeCatalog, selected: this.form.scopes },
+      values,
+    );
+    this.resourceScopeCatalog = state.options;
+    this.form.scopes = state.selected;
     const allowed = new Set(this.form.scopes);
     this.actorForm.scopes = this.actorForm.scopes.filter((scope) => allowed.has(scope));
   }
@@ -260,7 +274,12 @@ export class DelegationDetailComponent implements OnInit {
       this.toast.danger("Use letters, numbers, dots, underscores, colons, or hyphens for scopes");
       return;
     }
-    this.form.scopes = normalizeScopes([...this.form.scopes, scope]);
+    const state = addDelegationScope(
+      { options: this.resourceScopeCatalog, selected: this.form.scopes },
+      scope,
+    );
+    this.resourceScopeCatalog = state.options;
+    this.form.scopes = state.selected;
     this.customScope = "";
   }
 
@@ -271,11 +290,11 @@ export class DelegationDetailComponent implements OnInit {
   }
 
   onActorScopesChange(values: readonly unknown[]): void {
-    this.actorForm.scopes = normalizeScopes(values);
+    this.actorForm.scopes = normalizeDelegationScopes(values);
   }
 
   scopeValueLabel(values: readonly unknown[]): string {
-    const scopes = normalizeScopes(values);
+    const scopes = normalizeDelegationScopes(values);
     return scopes.length ? scopes.join(" · ") : "Select scopes";
   }
 

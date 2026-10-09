@@ -129,7 +129,7 @@
             </tng-form-field>
             <tng-form-field class="full">
               <tng-label>Allowed scopes</tng-label>
-              <tng-multiselect [options]="resourceScopeOptions" [value]="actorForm.scopes" (valueChange)="onActorScopesChange($event)" [getOptionValue]="getStringOptionValue" [getOptionLabel]="getOptionLabel" [trackBy]="trackOption" placeholder="Select resource scopes">
+              <tng-multiselect [options]="actorScopeOptions" [value]="actorForm.scopes" (valueChange)="onActorScopesChange($event)" [getOptionValue]="getStringOptionValue" [getOptionLabel]="getOptionLabel" [trackBy]="trackOption" placeholder="Select resource scopes">
                 <ng-template #tngMultiSelectValueTpl let-selection>{{ scopeValueLabel(selection.value) }}</ng-template>
               </tng-multiselect>
               <span class="field-hint">Actor scopes are limited to the resource’s allowed scopes.</span>
