@@ -352,7 +352,6 @@ routes, VPC routes, and VPN routes before assigning a new subnet.
 | `CONSENT_ACTION_SECRET` | Run `openssl rand -hex 32`; used to sign consent actions. |
 | `AUTH_TRANSACTION_SECRET` | Run `openssl rand -hex 32`; used to protect auth transaction state. |
 | `AUTH_AUDIT_HASH_SECRET` | Run `openssl rand -hex 32`; use an independent value for audit hashing. |
-| `DELEGATION_ENABLED` | Keep `false` while configuring resources and clients. Change to `true` only after the broker key and policies are ready. |
 | `DELEGATION_SIGNING_PRIVATE_KEY_B64` | Generate a dedicated P-256 PKCS#8 key with `openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out delegation-private.pem`, then run `openssl base64 -A -in delegation-private.pem`. Store the one-line result here; never reuse the Hydra or release-signing key. |
 | `ADMIN_CSRF_SECRET` | Run `openssl rand -hex 32`; used by the admin backend for CSRF protection. |
 | `ADMIN_OIDC_CLIENT_SECRET` | Run `openssl rand -hex 32`, then use this exact value when provisioning the confidential `idnest-admin` Hydra client after the first admin deployment. |
@@ -410,7 +409,7 @@ required by the development workflows.
 | GitHub Environment | GitHub secrets | GitHub variables |
 | --- | --- | --- |
 | `ecr-build` | None | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_BUILD_ROLE_ARN`, `AUTH_ECR_REPOSITORY`, `ADMIN_ECR_REPOSITORY`, `BUILDER_ECR_REPOSITORY` |
-| `development-auth` | `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, `HOST_RELEASE_SIGNING_PRIVATE_KEY_B64`, `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET`, `DELEGATION_SIGNING_PRIVATE_KEY_B64` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS`, `DELEGATION_ENABLED` |
+| `development-auth` | `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, `HOST_RELEASE_SIGNING_PRIVATE_KEY_B64`, `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, `AUTH_AUDIT_HASH_SECRET`, `DELEGATION_SIGNING_PRIVATE_KEY_B64` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS` |
 | `development-admin` | `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, `HOST_RELEASE_SIGNING_PRIVATE_KEY_B64`, `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, `ADMIN_OIDC_CLIENT_SECRET` | `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `ADMIN_BOOTSTRAP_EMAILS` |
 | `development-identity` | `VPS_SSH_PRIVATE_KEY_B64`, `VPS_SSH_KNOWN_HOSTS_B64`, `HOST_RELEASE_SIGNING_PRIVATE_KEY_B64`, `HYDRA_DSN`, `HYDRA_SECRETS_SYSTEM`, `KRATOS_DSN`, `KRATOS_CSRF_COOKIE_SECRET`, `KRATOS_CIPHER_SECRET`, `GOOGLE_CLIENT_SECRET`, optional `APPLE_PRIVATE_KEY_B64` | `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `GOOGLE_CLIENT_ID`, optional `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, and `APPLE_PRIVATE_KEY_ID` |
 
@@ -583,8 +582,7 @@ All three development deployment environments receive the transport secrets
 - `development-auth` receives five named application secrets:
   `AUTHZ_DATABASE_URL`, `CONSENT_ACTION_SECRET`, `AUTH_TRANSACTION_SECRET`, and
   `AUTH_AUDIT_HASH_SECRET`, plus the independent
-  `DELEGATION_SIGNING_PRIVATE_KEY_B64`. It also receives the configurable
-  `DELEGATION_ENABLED` variable.
+  `DELEGATION_SIGNING_PRIVATE_KEY_B64`.
 - `development-admin` receives three named application secrets:
   `AUTHZ_DATABASE_URL`, `ADMIN_CSRF_SECRET`, and
   `ADMIN_OIDC_CLIENT_SECRET`.

@@ -69,8 +69,8 @@ Paste only the final one-line value into
 `DELEGATION_SIGNING_PRIVATE_KEY_B64` in the protected environment source.
 Protect the PEM outside the repository and never copy the private key to a
 resource or actor application. This release publishes one key: for rotation,
-disable issuance, wait at least the maximum configured access-token TTL,
-replace both the key and key ID, deploy, and then re-enable issuance.
+take the broker out of service, wait at least the maximum configured
+access-token TTL, replace both the key and key ID, and deploy.
 
 In the admin console:
 
@@ -83,10 +83,9 @@ In the admin console:
 3. Open **Delegated Access**, create a resource key and URI audience, choose
    the authorizer client, configure the maximum token TTL and scopes, then add
    actor policies whose scopes are subsets of the resource scopes.
-4. Review configuration while `DELEGATION_ENABLED=false`. Set it to `true`,
-   update the protected GitHub environments, and deploy auth after the policies
-   are ready. Disabling it again returns `404` from every broker endpoint while
-   leaving administration data intact.
+4. Review the configuration and deploy auth after the clients and policies are
+   ready. Delegation is always active, so production startup requires its
+   database and signing configuration to be valid.
 
 The additive authorization migration creates `delegation_resources`, version
 history, actor policies, one-time grants, and audit events. Auth and admin
@@ -157,7 +156,7 @@ own current installation and permission data. Do not treat decoding a JWT as
 validation, accept the Hydra issuer in its place, or trust context as embedded
 business authorization.
 
-Discovery and public keys are exposed only while the feature is enabled:
+Discovery and public keys are always exposed:
 
 ```text
 https://auth-dev.idnest.cloud/.well-known/idnest-delegation-configuration

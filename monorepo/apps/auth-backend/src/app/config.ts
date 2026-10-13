@@ -57,9 +57,6 @@ export const getReturnToOrigins = (): string[] =>
 
 export const getAuthzDatabaseUrl = (): string => process.env.AUTHZ_DATABASE_URL ?? "";
 
-export const isDelegationEnabled = (): boolean =>
-  process.env.DELEGATION_ENABLED === "true";
-
 export const getDelegationIssuer = (): string =>
   (process.env.DELEGATION_TOKEN_ISSUER ?? `${getAuthBaseUrl()}/delegation`).replace(/\/$/, "");
 
@@ -139,36 +136,34 @@ export function validateAuthRuntimeConfiguration(): void {
   }
   if (!getHydraAdminUrl()) throw new Error("HYDRA_ADMIN_URL is required");
   if (!getKratosAdminUrl()) throw new Error("KRATOS_ADMIN_URL is required");
-  if (isDelegationEnabled()) {
-    if (!getAuthzDatabaseUrl()) {
-      throw new Error("AUTHZ_DATABASE_URL is required when delegated authorization is enabled");
+  if (!getAuthzDatabaseUrl()) {
+    throw new Error("AUTHZ_DATABASE_URL is required for delegated authorization");
+  }
+  if (!getDelegationIssuer().startsWith("https://")) {
+    throw new Error("DELEGATION_TOKEN_ISSUER must use HTTPS in production");
+  }
+  if (!getDelegationSigningPrivateKey().includes("BEGIN PRIVATE KEY")) {
+    throw new Error("DELEGATION_SIGNING_PRIVATE_KEY_B64 must contain a PKCS#8 private key");
+  }
+  try {
+    const key = createPrivateKey(getDelegationSigningPrivateKey());
+    if (
+      key.asymmetricKeyType !== "ec" ||
+      key.asymmetricKeyDetails?.namedCurve !== "prime256v1"
+    ) {
+      throw new Error("wrong key type");
     }
-    if (!getDelegationIssuer().startsWith("https://")) {
-      throw new Error("DELEGATION_TOKEN_ISSUER must use HTTPS in production");
-    }
-    if (!getDelegationSigningPrivateKey().includes("BEGIN PRIVATE KEY")) {
-      throw new Error("DELEGATION_SIGNING_PRIVATE_KEY_B64 must contain a PKCS#8 private key");
-    }
-    try {
-      const key = createPrivateKey(getDelegationSigningPrivateKey());
-      if (
-        key.asymmetricKeyType !== "ec" ||
-        key.asymmetricKeyDetails?.namedCurve !== "prime256v1"
-      ) {
-        throw new Error("wrong key type");
-      }
-    } catch {
-      throw new Error("DELEGATION_SIGNING_PRIVATE_KEY_B64 must contain a P-256 private key");
-    }
-    if (!getDelegationBrokerAudience().trim()) {
-      throw new Error("DELEGATION_BROKER_AUDIENCE must not be empty");
-    }
-    if (!getDelegationSigningKeyId().trim() || getDelegationSigningKeyId().length > 128) {
-      throw new Error("DELEGATION_SIGNING_KEY_ID must contain 1 to 128 characters");
-    }
-    if (getDelegationGrantTtlSeconds() > 300) {
-      throw new Error("DELEGATION_GRANT_TTL_SECONDS must not exceed 300");
-    }
+  } catch {
+    throw new Error("DELEGATION_SIGNING_PRIVATE_KEY_B64 must contain a P-256 private key");
+  }
+  if (!getDelegationBrokerAudience().trim()) {
+    throw new Error("DELEGATION_BROKER_AUDIENCE must not be empty");
+  }
+  if (!getDelegationSigningKeyId().trim() || getDelegationSigningKeyId().length > 128) {
+    throw new Error("DELEGATION_SIGNING_KEY_ID must contain 1 to 128 characters");
+  }
+  if (getDelegationGrantTtlSeconds() > 300) {
+    throw new Error("DELEGATION_GRANT_TTL_SECONDS must not exceed 300");
   }
 }
 

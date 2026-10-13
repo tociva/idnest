@@ -49,10 +49,7 @@ valid_app_runtime_secrets() {
       require_env CONSENT_ACTION_SECRET
       require_env AUTH_TRANSACTION_SECRET
       require_env AUTH_AUDIT_HASH_SECRET
-      require_env DELEGATION_ENABLED
       require_env DELEGATION_SIGNING_PRIVATE_KEY_B64
-      [[ "$DELEGATION_ENABLED" == true || "$DELEGATION_ENABLED" == false ]] \
-        || fail "DELEGATION_ENABLED must be true or false"
       ;;
     admin)
       require_env ADMIN_CSRF_SECRET

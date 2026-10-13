@@ -121,7 +121,6 @@ AUTHZ_DATABASE_URL='postgres://authz:test@db.invalid:5432/authz?sslmode=disable'
 CONSENT_ACTION_SECRET='0123456789abcdef0123456789abcdef' \
 AUTH_TRANSACTION_SECRET='0123456789abcdef0123456789abcdef' \
 AUTH_AUDIT_HASH_SECRET='0123456789abcdef0123456789abcdef' \
-DELEGATION_ENABLED=false \
 DELEGATION_SIGNING_PRIVATE_KEY_B64='dGVzdA==' \
 ADMIN_BOOTSTRAP_EMAILS='cors-contract@idnest.cloud' \
   "$SCRIPT_DIR/render-development-app-env.sh" auth \

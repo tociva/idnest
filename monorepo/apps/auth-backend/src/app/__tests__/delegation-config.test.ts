@@ -10,7 +10,6 @@ const managedKeys = [
   "AUTHZ_DATABASE_URL",
   "CONSENT_ACTION_SECRET",
   "AUTH_TRANSACTION_SECRET",
-  "DELEGATION_ENABLED",
   "DELEGATION_TOKEN_ISSUER",
   "DELEGATION_BROKER_AUDIENCE",
   "DELEGATION_GRANT_TTL_SECONDS",
@@ -53,20 +52,17 @@ function privateKey(curve: "prime256v1" | "secp384r1"): string {
 }
 
 describe("delegation runtime configuration", () => {
-  it("does not require a delegation key while the broker is disabled", () => {
-    process.env.DELEGATION_ENABLED = "false";
+  it("requires a delegation signing key", () => {
     delete process.env.DELEGATION_SIGNING_PRIVATE_KEY_B64;
-    expect(() => validateAuthRuntimeConfiguration()).not.toThrow();
+    expect(() => validateAuthRuntimeConfiguration()).toThrow(/PKCS#8/);
   });
 
-  it("accepts a dedicated P-256 signing key while enabled", () => {
-    process.env.DELEGATION_ENABLED = "true";
+  it("accepts a dedicated P-256 signing key", () => {
     process.env.DELEGATION_SIGNING_PRIVATE_KEY_B64 = privateKey("prime256v1");
     expect(() => validateAuthRuntimeConfiguration()).not.toThrow();
   });
 
   it("rejects a signing key on the wrong elliptic curve", () => {
-    process.env.DELEGATION_ENABLED = "true";
     process.env.DELEGATION_SIGNING_PRIVATE_KEY_B64 = privateKey("secp384r1");
     expect(() => validateAuthRuntimeConfiguration()).toThrow(/P-256/);
   });

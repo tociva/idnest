@@ -79,7 +79,6 @@ validate_env_contract() {
       if (key == "VPS_HOST" && value !~ /^[A-Za-z0-9.-]+$/) malformed = 1
       if (key == "VPS_PORT" && (value !~ /^[0-9]+$/ || value < 1 || value > 65535)) malformed = 1
       if (key == "VPS_USER" && value !~ /^[A-Za-z_][A-Za-z0-9._-]*$/) malformed = 1
-      if (key == "DELEGATION_ENABLED" && value != "true" && value != "false") malformed = 1
       if (malformed) {
         printf "Malformed value for %s in %s\n", key, source > "/dev/stderr"
         failed = 1
@@ -114,7 +113,7 @@ for environment in ecr-build development-auth development-admin development-iden
       expected="AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY"
       ;;
     development-auth)
-      expected="AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS DELEGATION_ENABLED"
+      expected="AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS"
       ;;
     development-admin)
       expected="AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS"
@@ -197,7 +196,7 @@ expected_variables_for_environment() {
       printf '%s\n' "AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY"
       ;;
     development-auth)
-      printf '%s\n' "AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS DELEGATION_ENABLED"
+      printf '%s\n' "AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS"
       ;;
     development-admin)
       printf '%s\n' "AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS"

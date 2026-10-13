@@ -13,7 +13,6 @@ import {
   getDelegationBrokerAudience,
   getDelegationGrantTtlSeconds,
   getDelegationIssuer,
-  isDelegationEnabled,
 } from "./config";
 import { introspectDelegationServiceToken } from "./delegation-hydra";
 import {
@@ -107,21 +106,12 @@ function sendError(res: Response, error: unknown): void {
   });
 }
 
-function enabled(_req: Request, res: Response, next: NextFunction): void {
-  if (!isDelegationEnabled()) {
-    noStore(res);
-    res.status(404).json({ error: "not_found" });
-    return;
-  }
-  next();
-}
-
 export function createDelegationRouter(): Router {
   const router = Router();
   const signer = new Es256DelegationTokenSigner();
   const limited = rateLimit(120, 60_000);
 
-  router.get("/.well-known/idnest-delegation-configuration", enabled, (_req, res) => {
+  router.get("/.well-known/idnest-delegation-configuration", (_req, res) => {
     const api = `${getAuthBaseUrl()}/auth/v1/delegation`;
     res.json({
       issuer: getDelegationIssuer(),
@@ -135,7 +125,7 @@ export function createDelegationRouter(): Router {
     });
   });
 
-  router.get("/auth/v1/delegation/jwks", enabled, async (_req, res) => {
+  router.get("/auth/v1/delegation/jwks", async (_req, res) => {
     try {
       res.set("Cache-Control", "public, max-age=300");
       res.json(await signer.jwks());
@@ -144,7 +134,7 @@ export function createDelegationRouter(): Router {
     }
   });
 
-  router.post("/auth/v1/delegation/grants", enabled, limited, async (req, res) => {
+  router.post("/auth/v1/delegation/grants", limited, async (req, res) => {
     noStore(res);
     try {
       const token = bearerToken(req);
@@ -160,7 +150,7 @@ export function createDelegationRouter(): Router {
     }
   });
 
-  router.delete("/auth/v1/delegation/grants/:grantId", enabled, limited, async (req, res) => {
+  router.delete("/auth/v1/delegation/grants/:grantId", limited, async (req, res) => {
     noStore(res);
     try {
       const token = bearerToken(req);
@@ -176,7 +166,7 @@ export function createDelegationRouter(): Router {
     }
   });
 
-  router.post("/auth/v1/delegation/token", enabled, limited, async (req, res) => {
+  router.post("/auth/v1/delegation/token", limited, async (req, res) => {
     noStore(res);
     try {
       if (

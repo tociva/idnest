@@ -8,9 +8,14 @@ fi
 
 image_ref="$1"
 container_name="idnest-auth-smoke-${GITHUB_RUN_ID:-$$}"
+delegation_private_key=$(mktemp "${TMPDIR:-/tmp}/idnest-delegation-key.XXXXXX")
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+  -out "$delegation_private_key" >/dev/null 2>&1
+delegation_signing_private_key_b64=$(openssl base64 -A -in "$delegation_private_key")
 
 cleanup() {
   docker rm --force "$container_name" >/dev/null 2>&1 || true
+  rm -f -- "$delegation_private_key"
 }
 trap cleanup EXIT
 cleanup
@@ -24,13 +29,13 @@ docker run --detach --name "$container_name" --publish-all \
   --env KRATOS_ADMIN_URL=http://kratos.invalid \
   --env KRATOS_PUBLIC_URL=https://kratos.invalid \
   --env KRATOS_INTERNAL_URL=http://kratos.invalid \
-  --env AUTHZ_DATABASE_URL= \
+  --env AUTHZ_DATABASE_URL=postgres://authz:smoke@db.invalid:5432/authz \
   --env CONSENT_GATE_MODE=observe \
   --env CONSENT_ACTION_SECRET=smoke-consent-secret-with-at-least-32-characters \
   --env AUTH_BRANDING_MODE=off \
   --env AUTH_TRANSACTION_SECRET=smoke-transaction-secret-with-at-least-32-characters \
   --env AUTH_AUDIT_HASH_SECRET=smoke-audit-secret-with-at-least-32-characters \
-  --env DELEGATION_ENABLED=false \
+  --env "DELEGATION_SIGNING_PRIVATE_KEY_B64=$delegation_signing_private_key_b64" \
   --env AUTH_BASE_URL=https://auth.invalid \
   "$image_ref" >/dev/null
 
@@ -51,7 +56,9 @@ curl --fail --silent "http://127.0.0.1:${port}/auth/" | grep -qi '<!doctype html
 status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
   "http://127.0.0.1:${port}/auth/v1/not-a-route")"
 [[ "$status" == 404 || "$status" == 405 ]]
-delegation_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
-  "http://127.0.0.1:${port}/.well-known/idnest-delegation-configuration")"
-[[ "$delegation_status" == 404 ]]
+curl --fail --silent \
+  "http://127.0.0.1:${port}/.well-known/idnest-delegation-configuration" \
+  | grep -Fq '"issuer":"https://auth.invalid/delegation"'
+curl --fail --silent "http://127.0.0.1:${port}/auth/v1/delegation/jwks" \
+  | grep -Fq '"keys"'
 echo "Auth image smoke test passed over private-origin HTTP: $image_ref"

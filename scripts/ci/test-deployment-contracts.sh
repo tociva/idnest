@@ -202,7 +202,6 @@ AUTH_URL=https://old-auth-dev.invalid
 HYDRA_DSN=postgres://hydrau:keep-hydra@db.invalid:5432/hydra?sslmode=disable
 HYDRA_SECRETS_SYSTEM=keep-hydra-system-secret-0123456789
 GOOGLE_CLIENT_ID=keep-google-client-id
-DELEGATION_ENABLED=true
 ADMIN_BOOTSTRAP_EMAILS=admin@idnest.cloud
 STALE_DEVELOPMENT_KEY=remove-me
 EOF
@@ -223,8 +222,6 @@ reconciled_keys=$(awk -F= 'NF >= 2 { print $1 }' "$generated_development_env" | 
   || fail "development environment generator did not preserve existing application values"
 [ "$(awk -F= '$1 == "GOOGLE_CLIENT_ID" { print $2 }' "$generated_development_env")" = "keep-google-client-id" ] \
   || fail "development environment generator did not preserve existing provider values"
-[ "$(awk -F= '$1 == "DELEGATION_ENABLED" { print $2 }' "$generated_development_env")" = "true" ] \
-  || fail "development environment generator did not preserve existing feature toggles"
 reconciled_admin_csrf_secret=$(awk -F= '$1 == "ADMIN_CSRF_SECRET" { print $2 }' "$generated_development_env")
 [ -n "$reconciled_admin_csrf_secret" ] \
   || fail "development environment generator did not add missing keys"
@@ -246,7 +243,6 @@ AUTHZ_DATABASE_URL='postgres://authz:test@db.invalid:5432/authz?sslmode=disable'
 CONSENT_ACTION_SECRET='0123456789abcdef0123456789abcdef' \
 AUTH_TRANSACTION_SECRET='0123456789abcdef0123456789abcdef' \
 AUTH_AUDIT_HASH_SECRET='0123456789abcdef0123456789abcdef' \
-DELEGATION_ENABLED=false \
 DELEGATION_SIGNING_PRIVATE_KEY_B64='dGVzdA==' \
 ADMIN_BOOTSTRAP_EMAILS='deployment-contract@idnest.cloud' \
   scripts/deploy/render-development-app-env.sh auth \
