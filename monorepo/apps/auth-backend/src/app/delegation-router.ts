@@ -120,6 +120,7 @@ export function delegationDiscoveryDocument() {
     subject_token_types_supported: [DELEGATION_GRANT_TOKEN_TYPE],
     actor_token_types_supported: [OAUTH_ACCESS_TOKEN_TYPE],
     token_endpoint_auth_methods_supported: ["actor_access_token"],
+    delegated_access_signing_alg_values_supported: ["ES256"],
     idnest_delegation_contract_version: IDNEST_DELEGATION_CONTRACT_VERSION,
     authorization_details_types_supported: [DELEGATION_AUTHORIZATION_DETAILS_TYPE],
     authorization_context_formats_supported: [DELEGATION_AUTHORIZATION_CONTEXT_FORMAT],

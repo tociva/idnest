@@ -24,6 +24,7 @@ describe("delegation discovery", () => {
     expect(delegationDiscoveryDocument()).toMatchObject({
       issuer: "https://identity.example.test/delegation",
       jwks_uri: "https://identity.example.test/auth/v1/delegation/jwks",
+      delegated_access_signing_alg_values_supported: ["ES256"],
       idnest_delegation_contract_version: 2,
       authorization_details_types_supported: ["urn:idnest:delegation"],
       authorization_context_formats_supported: ["json-object"],
