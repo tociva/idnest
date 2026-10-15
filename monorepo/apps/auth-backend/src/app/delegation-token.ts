@@ -1,4 +1,9 @@
-import type { DelegatedAccessTokenClaims } from "@idnest/shared-types";
+import {
+  DELEGATION_AUTHORIZATION_DETAILS_TYPE,
+  type DelegatedAccessTokenClaims,
+  type DelegationAuthorizationContext,
+  type DelegationAuthorizationDetails,
+} from "@idnest/shared-types";
 import { importPKCS8, SignJWT, type JWK } from "jose";
 import { createPublicKey, randomUUID } from "node:crypto";
 import {
@@ -11,9 +16,11 @@ export interface DelegatedTokenInput {
   subject: string;
   audience: string;
   actorClientId: string;
+  authorizerClientId: string;
   scopes: string[];
   grantId: string;
-  authorizationContext?: string | null;
+  authorizationContext?: DelegationAuthorizationContext | null;
+  contextProfileVersion?: number | null;
   ttlSeconds: number;
 }
 
@@ -35,10 +42,32 @@ export class Es256DelegationTokenSigner implements DelegationTokenSigner {
   async sign(input: DelegatedTokenInput): Promise<string> {
     const issuer = getDelegationIssuer();
     const now = Math.floor(Date.now() / 1000);
-    const details = {
-      type: "urn:idnest:delegation" as const,
+    const context = input.authorizationContext;
+    const contextProfileVersion = input.contextProfileVersion;
+    const hasContext = context !== undefined && context !== null;
+    const hasContextProfileVersion = contextProfileVersion !== undefined &&
+      contextProfileVersion !== null;
+    if (
+      hasContext !== hasContextProfileVersion ||
+      (hasContextProfileVersion &&
+        (
+          !Number.isSafeInteger(contextProfileVersion) ||
+          (contextProfileVersion as number) < 1
+        ))
+    ) {
+      throw new Error("Delegation context and profile version must be valid and supplied together");
+    }
+    const contextDetails = hasContext && hasContextProfileVersion
+      ? {
+          context_profile_version: contextProfileVersion as number,
+          context: context as DelegationAuthorizationContext,
+        }
+      : {};
+    const details: DelegationAuthorizationDetails = {
+      type: DELEGATION_AUTHORIZATION_DETAILS_TYPE,
       grant_id: input.grantId,
-      ...(input.authorizationContext ? { context: input.authorizationContext } : {}),
+      authorizer_client_id: input.authorizerClientId,
+      ...contextDetails,
     };
     const claims: Omit<DelegatedAccessTokenClaims, "iss" | "sub" | "aud" | "iat" | "nbf" | "exp" | "jti"> = {
       client_id: input.actorClientId,

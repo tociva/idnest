@@ -5,6 +5,7 @@ import type {
   AuthPolicyDefinition,
   ConsentMode,
   DelegationActorPolicyDefinition,
+  DelegationAuthorizationContext,
   DelegationResourceDefinition,
   DelegationStatus,
   KratosUser,
@@ -195,7 +196,8 @@ export interface DelegationGrantActivity {
   actor_client_id: string;
   subject_id: string;
   scopes: string[];
-  authorization_context: string | null;
+  authorization_context: DelegationAuthorizationContext | null;
+  context_profile_version: number | null;
   correlation_id: string | null;
   expires_at: string;
   consumed_at: string | null;

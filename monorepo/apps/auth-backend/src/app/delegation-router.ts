@@ -1,7 +1,10 @@
 import { getAuthzPool, type Db } from "@idnest/authz-store";
 import {
+  DELEGATION_AUTHORIZATION_CONTEXT_FORMAT,
+  DELEGATION_AUTHORIZATION_DETAILS_TYPE,
   DELEGATION_GRANT_TOKEN_TYPE,
   DELEGATION_GRANT_TYPE,
+  IDNEST_DELEGATION_CONTRACT_VERSION,
   OAUTH_ACCESS_TOKEN_TYPE,
   type DelegationGrantRequest,
 } from "@idnest/shared-types";
@@ -106,23 +109,30 @@ function sendError(res: Response, error: unknown): void {
   });
 }
 
+export function delegationDiscoveryDocument() {
+  const api = `${getAuthBaseUrl()}/auth/v1/delegation`;
+  return {
+    issuer: getDelegationIssuer(),
+    jwks_uri: `${api}/jwks`,
+    grant_endpoint: `${api}/grants`,
+    token_endpoint: `${api}/token`,
+    grant_types_supported: [DELEGATION_GRANT_TYPE],
+    subject_token_types_supported: [DELEGATION_GRANT_TOKEN_TYPE],
+    actor_token_types_supported: [OAUTH_ACCESS_TOKEN_TYPE],
+    token_endpoint_auth_methods_supported: ["actor_access_token"],
+    idnest_delegation_contract_version: IDNEST_DELEGATION_CONTRACT_VERSION,
+    authorization_details_types_supported: [DELEGATION_AUTHORIZATION_DETAILS_TYPE],
+    authorization_context_formats_supported: [DELEGATION_AUTHORIZATION_CONTEXT_FORMAT],
+  };
+}
+
 export function createDelegationRouter(): Router {
   const router = Router();
   const signer = new Es256DelegationTokenSigner();
   const limited = rateLimit(120, 60_000);
 
   router.get("/.well-known/idnest-delegation-configuration", (_req, res) => {
-    const api = `${getAuthBaseUrl()}/auth/v1/delegation`;
-    res.json({
-      issuer: getDelegationIssuer(),
-      jwks_uri: `${api}/jwks`,
-      grant_endpoint: `${api}/grants`,
-      token_endpoint: `${api}/token`,
-      grant_types_supported: [DELEGATION_GRANT_TYPE],
-      subject_token_types_supported: [DELEGATION_GRANT_TOKEN_TYPE],
-      actor_token_types_supported: [OAUTH_ACCESS_TOKEN_TYPE],
-      token_endpoint_auth_methods_supported: ["actor_access_token"],
-    });
+    res.json(delegationDiscoveryDocument());
   });
 
   router.get("/auth/v1/delegation/jwks", async (_req, res) => {

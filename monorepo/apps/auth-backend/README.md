@@ -8,9 +8,10 @@ brokering.
 
 Idnest can issue short-lived access tokens to a trusted service acting for a
 user. The implementation is generic: Idnest knows OAuth client IDs, resource
-audiences, scopes, opaque subjects, and opaque authorization-context
-references. It does not store product names, organizations, installations,
-roles, workflows, or agent state.
+audiences, scopes, opaque subjects, and bounded versioned JSON authorization
+contexts. It signs contexts without interpreting their product-specific fields
+and does not store product names, organizations, installations, roles,
+workflows, or agent state.
 
 The responsibility boundary is:
 
@@ -19,8 +20,8 @@ The responsibility boundary is:
 - Hydra authenticates the resource authorizer and actor as confidential
   `client_credentials` clients.
 - Idnest binds one authorization decision to a resource, actor, subject,
-  scopes, and optional opaque context; it then signs a short-lived token from a
-  dedicated issuer.
+  scopes, and optional versioned JSON context; it then signs a short-lived token
+  from a dedicated issuer.
 - The resource API validates that token and still enforces current business
   authorization. A removed or suspended user should be checked live when
   immediate revocation is required.
@@ -37,7 +38,7 @@ before the product creates a one-time Idnest grant.
 2. The product backend obtains its Hydra service token with audience
    `urn:idnest:delegation` and scope `delegation.grant`.
 3. It submits the opaque user subject, target actor client, resource, scopes,
-   and an opaque installation or authorization reference to
+   and a product-owned versioned JSON authorization context to
    `POST /auth/v1/delegation/grants`.
 4. Idnest verifies the service token through Hydra's private introspection API,
    checks the resource and actor policies, and returns a random one-time
@@ -107,7 +108,11 @@ curl --request POST https://auth-dev.idnest.cloud/auth/v1/delegation/grants \
     "subject": "OPAQUE_USER_SUBJECT",
     "actorClientId": "automation-client",
     "scope": ["records:read"],
-    "authorizationContext": "OPAQUE_INSTALLATION_REFERENCE",
+    "contextProfileVersion": 1,
+    "authorizationContext": {
+      "type": "urn:resource:context:v1",
+      "installation_id": "OPAQUE_INSTALLATION_REFERENCE"
+    },
     "correlationId": "REQUEST_CORRELATION_ID"
   }'
 ```
@@ -121,6 +126,13 @@ The response is valid for at most five minutes and normally 60 seconds:
   "expiresIn": 60
 }
 ```
+
+`authorizationContext` and `contextProfileVersion` must be supplied together.
+The context must be a JSON object whose non-empty `type` is a URI or URN. Idnest
+limits the serialized context to 2 KiB and rejects unbounded or unsafe JSON
+shapes. It preserves and signs the object but does not interpret any other
+context field. Products must not put secrets or sensitive personal data in the
+context because JWT payloads are readable by their holders.
 
 The actor exchanges it with its own Hydra service access token:
 
@@ -145,16 +157,19 @@ token uses `typ=at+jwt`, `alg=ES256`, and contains:
 - `aud`: exactly one configured resource audience.
 - `client_id` and `act.sub`: the actor OAuth client ID.
 - `scope`: the canonical, space-separated delegated scopes.
-- `authorization_details`: type `urn:idnest:delegation`, the grant ID, and the
-  optional opaque context reference.
+- `authorization_details`: type `urn:idnest:delegation`, the grant ID, the
+  authenticated authorizer client ID, and the optional context-profile version
+  plus JSON context object.
 - `iat`, `nbf`, `exp`, and unique `jti` claims.
 
 Resource APIs must pin the delegation issuer and accepted algorithms, fetch
 keys from the broker JWKS endpoint, validate exact audience and expiry, require
-both actor claims, check scopes, and resolve the opaque context against their
-own current installation and permission data. Do not treat decoding a JWT as
-validation, accept the Hydra issuer in its place, or trust context as embedded
-business authorization.
+both actor claims, check scopes, require the expected authorizer and context
+profile, validate the context schema, and resolve its identifiers against their
+own current installation and permission data. Context is signed but not
+encrypted, so it must not contain secrets or sensitive personal data. Do not
+treat decoding a JWT as validation, accept the Hydra issuer in its place, or
+trust context as embedded business authorization.
 
 Discovery and public keys are always exposed:
 
@@ -162,6 +177,10 @@ Discovery and public keys are always exposed:
 https://auth-dev.idnest.cloud/.well-known/idnest-delegation-configuration
 https://auth-dev.idnest.cloud/auth/v1/delegation/jwks
 ```
+
+Discovery advertises `idnest_delegation_contract_version: 2`, authorization
+detail type `urn:idnest:delegation`, and context format `json-object`. Product
+clients should require the supported contract version before issuing grants.
 
 The admin console shows resources, actor policies, pending/exchanged/expired
 grants, and append-only audit activity. Administrators and resource

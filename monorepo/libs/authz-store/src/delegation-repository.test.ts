@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Db } from "./db";
+import { AUTHZ_SCHEMA_SQL } from "./schema";
 import {
   consumeDelegationGrant,
   createDelegationGrant,
@@ -8,6 +9,14 @@ import {
 } from "./delegation-repository";
 
 describe("delegation repository", () => {
+  it("defines structured authorization context and its profile version together", () => {
+    expect(AUTHZ_SCHEMA_SQL).toContain("authorization_context jsonb");
+    expect(AUTHZ_SCHEMA_SQL).toContain("context_profile_version integer");
+    expect(AUTHZ_SCHEMA_SQL).toContain(
+      "authorization_context IS NULL AND context_profile_version IS NULL",
+    );
+  });
+
   it("creates product-neutral resources with an immutable history snapshot", async () => {
     const calls: Array<{ sql: string; values: unknown[] }> = [];
     const db = {
@@ -99,6 +108,7 @@ describe("delegation repository", () => {
             subject_id: "subject-1",
             scopes: ["records:read"],
             authorization_context: null,
+            context_profile_version: null,
             correlation_id: null,
             token_ttl_seconds: 0,
             expires_at: "later",
@@ -119,12 +129,22 @@ describe("delegation repository", () => {
       actorClientId: "automation-client",
       subjectId: "subject-1",
       scopes: ["records:read"],
+      authorizationContext: {
+        type: "urn:ledger:context:v1",
+        installation_id: "installation-1",
+      },
+      contextProfileVersion: 1,
       ttlSeconds: 60,
       tokenTtlSeconds: 180,
     });
 
     expect(valuesSeen[0][0]).toBe("sha256-value");
     expect(valuesSeen[0]).not.toContain("raw-exchange-token");
+    expect(valuesSeen[0][8]).toBe(JSON.stringify({
+      type: "urn:ledger:context:v1",
+      installation_id: "installation-1",
+    }));
+    expect(valuesSeen[0][9]).toBe(1);
   });
 
   it("atomically consumes one active grant for its bound actor", async () => {
@@ -144,6 +164,7 @@ describe("delegation repository", () => {
     expect(calls[0].sql).toContain("g.consumed_at IS NULL");
     expect(calls[0].sql).toContain("g.expires_at > now()");
     expect(calls[0].sql).toContain("r.audience = g.resource_audience");
+    expect(calls[0].sql).toContain("g.context_profile_version IS NOT NULL");
     expect(calls[0].sql).toContain("g.scopes <@ p.allowed_scopes");
     expect(calls[0].values).toEqual(["sha256-value", "automation-client"]);
   });

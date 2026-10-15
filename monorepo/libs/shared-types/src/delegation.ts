@@ -9,9 +9,24 @@ export const OAUTH_ACCESS_TOKEN_TYPE =
   "urn:ietf:params:oauth:token-type:access_token" as const;
 export const DELEGATION_AUTHORIZATION_DETAILS_TYPE =
   "urn:idnest:delegation" as const;
+export const IDNEST_DELEGATION_CONTRACT_VERSION = 2 as const;
+export const DELEGATION_AUTHORIZATION_CONTEXT_FORMAT = "json-object" as const;
 
 export const DELEGATION_GRANT_SCOPE = "delegation.grant" as const;
 export const DELEGATION_EXCHANGE_SCOPE = "delegation.exchange" as const;
+
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type DelegationAuthorizationContext = {
+  type: string;
+  [key: string]: JsonValue;
+};
 
 export interface DelegationResourceDefinition {
   key: string;
@@ -52,7 +67,8 @@ export interface DelegationGrantRequest {
   subject: string;
   actorClientId: string;
   scope: string | string[];
-  authorizationContext?: string;
+  authorizationContext?: DelegationAuthorizationContext;
+  contextProfileVersion?: number;
   correlationId?: string;
 }
 
@@ -73,7 +89,9 @@ export interface DelegationTokenExchangeResponse {
 export interface DelegationAuthorizationDetails {
   type: typeof DELEGATION_AUTHORIZATION_DETAILS_TYPE;
   grant_id: string;
-  context?: string;
+  authorizer_client_id: string;
+  context_profile_version?: number;
+  context?: DelegationAuthorizationContext;
 }
 
 export interface DelegatedAccessTokenClaims {

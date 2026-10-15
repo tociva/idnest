@@ -9,6 +9,19 @@ afterEach(() => {
 });
 
 describe("delegated access token signing", () => {
+  it("rejects a context without its profile version", async () => {
+    await expect(new Es256DelegationTokenSigner().sign({
+      subject: "opaque-subject",
+      audience: "https://api.example.test/ledger",
+      actorClientId: "automation-client",
+      authorizerClientId: "resource-authorizer",
+      scopes: ["records:read"],
+      grantId: "grant-1",
+      authorizationContext: { type: "urn:ledger:context:v1" },
+      ttlSeconds: 120,
+    })).rejects.toThrow(/profile version/);
+  });
+
   it("issues a short-lived ES256 at+jwt with subject, actor, audience, and grant claims", async () => {
     const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
     process.env.DELEGATION_SIGNING_PRIVATE_KEY_B64 = Buffer.from(
@@ -23,9 +36,14 @@ describe("delegated access token signing", () => {
       subject: "opaque-subject",
       audience: "https://api.example.test/ledger",
       actorClientId: "automation-client",
+      authorizerClientId: "resource-authorizer",
       scopes: ["records:read"],
       grantId: "grant-1",
-      authorizationContext: "opaque-installation-reference",
+      authorizationContext: {
+        type: "urn:ledger:context:v1",
+        installation_id: "installation-1",
+      },
+      contextProfileVersion: 1,
       ttlSeconds: 120,
     });
 
@@ -46,7 +64,12 @@ describe("delegated access token signing", () => {
       authorization_details: [{
         type: "urn:idnest:delegation",
         grant_id: "grant-1",
-        context: "opaque-installation-reference",
+        authorizer_client_id: "resource-authorizer",
+        context_profile_version: 1,
+        context: {
+          type: "urn:ledger:context:v1",
+          installation_id: "installation-1",
+        },
       }],
     });
     expect((verified.payload.exp ?? 0) - (verified.payload.iat ?? 0)).toBe(120);

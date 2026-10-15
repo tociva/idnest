@@ -281,13 +281,21 @@ CREATE TABLE IF NOT EXISTS delegation_grants (
   subject_id text NOT NULL,
   scopes text[] NOT NULL,
   token_ttl_seconds integer NOT NULL,
-  authorization_context text,
+  authorization_context jsonb,
+  context_profile_version integer,
   correlation_id text,
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz,
   revoked_at timestamptz,
   revoked_by text,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (
+    (authorization_context IS NULL AND context_profile_version IS NULL)
+    OR (
+      jsonb_typeof(authorization_context) = 'object'
+      AND context_profile_version >= 1
+    )
+  )
 );
 
 CREATE INDEX IF NOT EXISTS delegation_grants_pending_token_idx

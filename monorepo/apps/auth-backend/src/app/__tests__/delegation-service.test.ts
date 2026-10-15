@@ -43,6 +43,11 @@ const policy: DelegationActorPolicyRecord = {
   updated_at: "now",
 };
 
+const context = {
+  type: "urn:ledger:context:v1",
+  installation_id: "installation-1",
+};
+
 const grant: DelegationGrantRecord = {
   id: "grant-1",
   resource_id: resource.id,
@@ -52,7 +57,8 @@ const grant: DelegationGrantRecord = {
   actor_client_id: policy.definition.actorClientId,
   subject_id: "subject-1",
   scopes: ["records:read"],
-  authorization_context: "opaque-installation-reference",
+  authorization_context: context,
+  context_profile_version: 1,
   correlation_id: "request-1",
   token_ttl_seconds: 180,
   expires_at: "later",
@@ -112,7 +118,8 @@ describe("delegation broker service", () => {
       subject: "subject-1",
       actorClientId: "automation-client",
       scope: "records:read",
-      authorizationContext: "opaque-installation-reference",
+      authorizationContext: context,
+      contextProfileVersion: 1,
       correlationId: "request-1",
     });
 
@@ -124,9 +131,12 @@ describe("delegation broker service", () => {
     expect(store.createGrant).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       tokenHash: "hash:raw-exchange-token",
       resourceAudience: "https://api.example.test/ledger",
+      authorizerClientId: "resource-authorizer",
       actorClientId: "automation-client",
       subjectId: "subject-1",
       scopes: ["records:read"],
+      authorizationContext: context,
+      contextProfileVersion: 1,
       tokenTtlSeconds: 180,
     }));
     expect(store.appendAudit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
@@ -145,12 +155,13 @@ describe("delegation broker service", () => {
       subject: "subject-1",
       actorClientId: "automation-client",
       scope: "records:read",
-      authorizationContext: "opaque-reference",
+      authorizationContext: context,
+      contextProfileVersion: 1,
     })).rejects.toMatchObject({ error: "access_denied", status: 403 });
     expect(store.createGrant).not.toHaveBeenCalled();
   });
 
-  it("requires opaque authorization context when configured", async () => {
+  it("requires authorization context and its profile version when configured", async () => {
     const { dependencies } = setup();
     await expect(issueDelegationGrant(dependencies, authorizer, {
       resource: "ledger-api",
@@ -160,6 +171,62 @@ describe("delegation broker service", () => {
     })).rejects.toMatchObject({ error: "invalid_request", status: 400 });
   });
 
+  it("requires authorization context and profile version to be supplied together", async () => {
+    const { dependencies, store } = setup();
+    await expect(issueDelegationGrant(dependencies, authorizer, {
+      resource: "ledger-api",
+      subject: "subject-1",
+      actorClientId: "automation-client",
+      scope: "records:read",
+      authorizationContext: context,
+    })).rejects.toMatchObject({ error: "invalid_request", status: 400 });
+    await expect(issueDelegationGrant(dependencies, authorizer, {
+      resource: "ledger-api",
+      subject: "subject-1",
+      actorClientId: "automation-client",
+      scope: "records:read",
+      contextProfileVersion: 1,
+    })).rejects.toMatchObject({ error: "invalid_request", status: 400 });
+    expect(store.createGrant).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid structured authorization contexts and profile versions", async () => {
+    const { dependencies, store } = setup();
+    await expect(issueDelegationGrant(dependencies, authorizer, {
+      resource: "ledger-api",
+      subject: "subject-1",
+      actorClientId: "automation-client",
+      scope: "records:read",
+      authorizationContext: "serialized-context" as never,
+      contextProfileVersion: 1,
+    })).rejects.toMatchObject({ error: "invalid_request", status: 400 });
+    await expect(issueDelegationGrant(dependencies, authorizer, {
+      resource: "ledger-api",
+      subject: "subject-1",
+      actorClientId: "automation-client",
+      scope: "records:read",
+      authorizationContext: context,
+      contextProfileVersion: 0,
+    })).rejects.toMatchObject({ error: "invalid_request", status: 400 });
+    expect(store.createGrant).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized authorization contexts", async () => {
+    const { dependencies, store } = setup();
+    await expect(issueDelegationGrant(dependencies, authorizer, {
+      resource: "ledger-api",
+      subject: "subject-1",
+      actorClientId: "automation-client",
+      scope: "records:read",
+      authorizationContext: {
+        type: "urn:ledger:context:v1",
+        value: "x".repeat(2_048),
+      },
+      contextProfileVersion: 1,
+    })).rejects.toMatchObject({ error: "invalid_request", status: 400 });
+    expect(store.createGrant).not.toHaveBeenCalled();
+  });
+
   it("prevents actor policies from expanding resource scopes", async () => {
     const { dependencies } = setup();
     await expect(issueDelegationGrant(dependencies, authorizer, {
@@ -167,7 +234,8 @@ describe("delegation broker service", () => {
       subject: "subject-1",
       actorClientId: "automation-client",
       scope: "records:write",
-      authorizationContext: "opaque-reference",
+      authorizationContext: context,
+      contextProfileVersion: 1,
     })).rejects.toMatchObject({ error: "access_denied", status: 403 });
   });
 
@@ -187,9 +255,11 @@ describe("delegation broker service", () => {
       subject: "subject-1",
       audience: resource.definition.audience,
       actorClientId: "automation-client",
+      authorizerClientId: "resource-authorizer",
       scopes: ["records:read"],
       grantId: "grant-1",
-      authorizationContext: "opaque-installation-reference",
+      authorizationContext: context,
+      contextProfileVersion: 1,
       ttlSeconds: 180,
     });
     expect(result.access_token).toBe("signed-access-token");

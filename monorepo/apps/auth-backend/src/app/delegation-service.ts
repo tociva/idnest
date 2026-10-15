@@ -16,6 +16,7 @@ import {
   DELEGATION_EXCHANGE_SCOPE,
   DELEGATION_GRANT_SCOPE,
   delegationScopeSubset,
+  type DelegationAuthorizationContext,
   type DelegationGrantRequest,
   type DelegationGrantResponse,
   type DelegationTokenExchangeResponse,
@@ -23,6 +24,15 @@ import {
 import { randomBytes } from "node:crypto";
 import type { DelegationServicePrincipal } from "./delegation-hydra";
 import type { DelegationTokenSigner } from "./delegation-token";
+
+const MAXIMUM_AUTHORIZATION_CONTEXT_BYTES = 2_048;
+const MAXIMUM_AUTHORIZATION_CONTEXT_DEPTH = 8;
+const MAXIMUM_AUTHORIZATION_CONTEXT_KEYS = 64;
+const MAXIMUM_AUTHORIZATION_CONTEXT_KEY_LENGTH = 128;
+const MAXIMUM_AUTHORIZATION_CONTEXT_TYPE_LENGTH = 255;
+const MAXIMUM_CONTEXT_PROFILE_VERSION = 2_147_483_647;
+const UNSAFE_AUTHORIZATION_CONTEXT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const AUTHORIZATION_CONTEXT_TYPE_PATTERN = /^[A-Za-z][A-Za-z0-9+.-]*:[^\s]+$/;
 
 export class DelegationProtocolError extends Error {
   constructor(
@@ -109,6 +119,75 @@ function optionalBoundedText(value: unknown, name: string, maximum: number): str
   return boundedText(value, name, maximum);
 }
 
+function invalidAuthorizationContext(): never {
+  protocol(
+    "invalid_request",
+    400,
+    "authorizationContext must be a bounded JSON object with a canonical type",
+  );
+}
+
+function validateJsonValue(value: unknown, depth: number, keyCount: { value: number }): void {
+  if (depth > MAXIMUM_AUTHORIZATION_CONTEXT_DEPTH) invalidAuthorizationContext();
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) return;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) invalidAuthorizationContext();
+    return;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > MAXIMUM_AUTHORIZATION_CONTEXT_KEYS) invalidAuthorizationContext();
+    for (const item of value) validateJsonValue(item, depth + 1, keyCount);
+    return;
+  }
+  if (typeof value !== "object") invalidAuthorizationContext();
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) invalidAuthorizationContext();
+  const keys = Object.keys(value);
+  if (Reflect.ownKeys(value).length !== keys.length) invalidAuthorizationContext();
+  keyCount.value += keys.length;
+  if (keyCount.value > MAXIMUM_AUTHORIZATION_CONTEXT_KEYS) invalidAuthorizationContext();
+  for (const key of keys) {
+    if (
+      !key ||
+      key.length > MAXIMUM_AUTHORIZATION_CONTEXT_KEY_LENGTH ||
+      UNSAFE_AUTHORIZATION_CONTEXT_KEYS.has(key)
+    ) invalidAuthorizationContext();
+    validateJsonValue((value as Record<string, unknown>)[key], depth + 1, keyCount);
+  }
+}
+
+function authorizationContext(value: unknown): DelegationAuthorizationContext {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    invalidAuthorizationContext();
+  }
+  validateJsonValue(value, 0, { value: 0 });
+  const type = (value as Record<string, unknown>)["type"];
+  if (
+    typeof type !== "string" ||
+    !type.trim() ||
+    type !== type.trim() ||
+    type.length > MAXIMUM_AUTHORIZATION_CONTEXT_TYPE_LENGTH ||
+    !AUTHORIZATION_CONTEXT_TYPE_PATTERN.test(type)
+  ) invalidAuthorizationContext();
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    invalidAuthorizationContext();
+  }
+  if (
+    serialized === undefined ||
+    Buffer.byteLength(serialized, "utf8") > MAXIMUM_AUTHORIZATION_CONTEXT_BYTES
+  ) {
+    invalidAuthorizationContext();
+  }
+  return JSON.parse(serialized) as DelegationAuthorizationContext;
+}
+
 export async function issueDelegationGrant(
   dependencies: DelegationServiceDependencies,
   principalInput: DelegationServicePrincipal | null,
@@ -122,11 +201,29 @@ export async function issueDelegationGrant(
   const resourceLocator = boundedText(request.resource, "resource", 512);
   const subject = boundedText(request.subject, "subject", 255);
   const actorClientId = boundedText(request.actorClientId, "actorClientId", 255);
-  const authorizationContext = optionalBoundedText(
-    request.authorizationContext,
-    "authorizationContext",
-    2048,
-  );
+  const hasAuthorizationContext = request.authorizationContext !== undefined;
+  const hasContextProfileVersion = request.contextProfileVersion !== undefined;
+  if (hasAuthorizationContext !== hasContextProfileVersion) {
+    protocol(
+      "invalid_request",
+      400,
+      "authorizationContext and contextProfileVersion must be supplied together",
+    );
+  }
+  const context = hasAuthorizationContext
+    ? authorizationContext(request.authorizationContext)
+    : undefined;
+  const contextProfileVersion = request.contextProfileVersion;
+  if (
+    hasContextProfileVersion &&
+    (
+      !Number.isSafeInteger(contextProfileVersion) ||
+      (contextProfileVersion as number) < 1 ||
+      (contextProfileVersion as number) > MAXIMUM_CONTEXT_PROFILE_VERSION
+    )
+  ) {
+    protocol("invalid_request", 400, "contextProfileVersion must be a positive integer");
+  }
   const correlationId = optionalBoundedText(request.correlationId, "correlationId", 255);
   let scopes: string[];
   try {
@@ -150,8 +247,12 @@ export async function issueDelegationGrant(
     if (!delegationScopeSubset(scopes, resource.definition.allowedScopes)) {
       protocol("invalid_scope", 400, "Requested scopes are not enabled for this resource");
     }
-    if (resource.definition.authorizationContextRequired && !authorizationContext) {
-      protocol("invalid_request", 400, "authorizationContext is required for this resource");
+    if (resource.definition.authorizationContextRequired && !context) {
+      protocol(
+        "invalid_request",
+        400,
+        "authorizationContext and contextProfileVersion are required for this resource",
+      );
     }
     const policy = await store.findActorPolicy(db, resource.id, actorClientId);
     if (!policy || !delegationScopeSubset(scopes, policy.definition.allowedScopes)) {
@@ -166,7 +267,8 @@ export async function issueDelegationGrant(
       actorClientId,
       subjectId: subject,
       scopes,
-      authorizationContext,
+      authorizationContext: context,
+      contextProfileVersion,
       correlationId,
       ttlSeconds: grantTtlSeconds,
       tokenTtlSeconds: resource.definition.tokenTtlSeconds,
@@ -231,9 +333,11 @@ export async function exchangeDelegationGrant(
       subject: grant.subject_id,
       audience: grant.audience,
       actorClientId: principal.clientId,
+      authorizerClientId: grant.authorizer_client_id,
       scopes,
       grantId: grant.id,
       authorizationContext: grant.authorization_context,
+      contextProfileVersion: grant.context_profile_version,
       ttlSeconds: grant.token_ttl_seconds,
     });
     await store.appendAudit(db, {

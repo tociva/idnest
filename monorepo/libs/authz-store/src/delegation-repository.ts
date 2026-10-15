@@ -1,5 +1,6 @@
 import type {
   DelegationActorPolicyDefinition,
+  DelegationAuthorizationContext,
   DelegationResourceDefinition,
   DelegationStatus,
 } from "@idnest/shared-types";
@@ -67,7 +68,8 @@ export interface DelegationGrantRecord {
   actor_client_id: string;
   subject_id: string;
   scopes: string[];
-  authorization_context: string | null;
+  authorization_context: DelegationAuthorizationContext | null;
+  context_profile_version: number | null;
   correlation_id: string | null;
   token_ttl_seconds: number;
   expires_at: string;
@@ -394,7 +396,8 @@ export async function createDelegationGrant(
     actorClientId: string;
     subjectId: string;
     scopes: string[];
-    authorizationContext?: string | null;
+    authorizationContext?: DelegationAuthorizationContext | null;
+    contextProfileVersion?: number | null;
     correlationId?: string | null;
     ttlSeconds: number;
     tokenTtlSeconds: number;
@@ -403,12 +406,14 @@ export async function createDelegationGrant(
   const result = await db.query<DelegationGrantRecord>(
     `INSERT INTO delegation_grants(
        token_hash, resource_id, resource_audience, authorizer_client_id, actor_client_id,
-       subject_id, scopes, token_ttl_seconds, authorization_context, correlation_id, expires_at
+       subject_id, scopes, token_ttl_seconds, authorization_context,
+       context_profile_version, correlation_id, expires_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now() + make_interval(secs => $11))
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11,
+       now() + make_interval(secs => $12))
      RETURNING id::text, resource_id::text, ''::text AS resource_key,
        resource_audience AS audience, authorizer_client_id, actor_client_id, subject_id,
-       scopes, authorization_context, correlation_id, token_ttl_seconds,
+       scopes, authorization_context, context_profile_version, correlation_id, token_ttl_seconds,
        expires_at::text, consumed_at::text, revoked_at::text, revoked_by,
        created_at::text`,
     [
@@ -420,7 +425,8 @@ export async function createDelegationGrant(
       input.subjectId,
       input.scopes,
       input.tokenTtlSeconds,
-      input.authorizationContext ?? null,
+      input.authorizationContext ? JSON.stringify(input.authorizationContext) : null,
+      input.contextProfileVersion ?? null,
       input.correlationId ?? null,
       input.ttlSeconds,
     ],
@@ -447,7 +453,13 @@ export async function consumeDelegationGrant(
          AND r.status = 'active'
          AND r.audience = g.resource_audience
          AND r.authorizer_client_id = g.authorizer_client_id
-         AND (NOT r.authorization_context_required OR g.authorization_context IS NOT NULL)
+         AND (
+           NOT r.authorization_context_required
+           OR (
+             g.authorization_context IS NOT NULL
+             AND g.context_profile_version IS NOT NULL
+           )
+         )
          AND p.resource_id = r.id
          AND p.actor_client_id = g.actor_client_id
          AND p.status = 'active'
@@ -458,7 +470,8 @@ export async function consumeDelegationGrant(
      )
      SELECT id::text, resource_id::text, resource_key, resource_audience AS audience,
        authorizer_client_id, actor_client_id, subject_id, scopes,
-       authorization_context, correlation_id, effective_token_ttl_seconds AS token_ttl_seconds,
+       authorization_context, context_profile_version, correlation_id,
+       effective_token_ttl_seconds AS token_ttl_seconds,
        expires_at::text, consumed_at::text, revoked_at::text, revoked_by,
        created_at::text
      FROM consumed`,
@@ -504,7 +517,7 @@ export async function listDelegationGrants(
   const result = await db.query<DelegationGrantRecord>(
     `SELECT g.id::text, g.resource_id::text, r.resource_key, g.resource_audience AS audience,
        g.authorizer_client_id, g.actor_client_id, g.subject_id, g.scopes,
-       g.authorization_context, g.correlation_id, g.token_ttl_seconds,
+       g.authorization_context, g.context_profile_version, g.correlation_id, g.token_ttl_seconds,
        g.expires_at::text, g.consumed_at::text, g.revoked_at::text,
        g.revoked_by, g.created_at::text
      FROM delegation_grants g
