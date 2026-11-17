@@ -20,6 +20,7 @@ reject_pattern() {
 }
 
 bash deploy/ci/test-image-release-contracts.sh
+bash deploy/images/test-builder-contract.sh
 bash deploy/ci/test-apple-login-contracts.sh
 
 while IFS= read -r script; do

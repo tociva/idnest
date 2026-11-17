@@ -44,6 +44,10 @@ for workflow in \
 done
 grep -Fq 'platforms: linux/arm64' "$REPO_ROOT/.github/workflows/build-application-image.yml" \
   || fail "application workflow does not publish only linux/arm64"
+grep -Fq 'TRIVY_PLATFORM: linux/arm64' "$REPO_ROOT/.github/workflows/build-application-image.yml" \
+  || fail "application workflow does not scan the ARM64 image explicitly"
+grep -Fq 'docker pull --platform linux/arm64' "$REPO_ROOT/.github/workflows/build-application-image.yml" \
+  || fail "application workflow does not smoke-test the ARM64 image explicitly"
 grep -Fq 'registry-type: public' "$REPO_ROOT/.github/workflows/build-application-image.yml" \
   || fail "application workflow does not authenticate to ECR Public"
 grep -Fq 'registry-type: public' "$REPO_ROOT/.github/workflows/build-builder-base.yml" \

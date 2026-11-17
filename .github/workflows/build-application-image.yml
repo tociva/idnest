@@ -219,6 +219,8 @@ jobs:
 
       - name: Enforce vulnerability threshold
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/arm64
         with:
           image-ref: ${{ vars.ECR_PUBLIC_REGISTRY }}/${{ steps.metadata.outputs.repository }}@${{ steps.image.outputs.digest }}
           format: table
