@@ -18,4 +18,4 @@ coverage
 tmp
 temp
 *.tsbuildinfo
-infrastructure
+deploy/terraform

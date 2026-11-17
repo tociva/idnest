@@ -55,7 +55,7 @@ jobs:
           VPS_SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
           VPS_SSH_KNOWN_HOSTS_B64: ${{ secrets.VPS_SSH_KNOWN_HOSTS_B64 }}
         run: |
-          scripts/deploy/ci/validate-release-inputs.sh promotion
+          deploy/ci/validate-release-inputs.sh promotion
 
       - name: Confirm checked-out revision
         env:
@@ -81,7 +81,7 @@ jobs:
           VPS_SSH_PRIVATE_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
           VPS_SSH_KNOWN_HOSTS_B64: ${{ secrets.VPS_SSH_KNOWN_HOSTS_B64 }}
         run: |
-          scripts/deploy/ci/prepare-release-request.sh promotion "${COMPONENT}"
+          deploy/ci/prepare-release-request.sh promotion "${COMPONENT}"
 
       - name: Upload release request inputs
         env:
@@ -90,7 +90,7 @@ jobs:
           VPS_PORT: ${{ vars.VPS_PORT }}
           VPS_USER: ${{ vars.VPS_USER }}
         run: |
-          scripts/deploy/ci/upload-release-request.sh
+          deploy/ci/upload-release-request.sh
 
       - name: Submit release and wait for root processor
         env:
@@ -104,9 +104,9 @@ jobs:
           VPS_PORT: ${{ vars.VPS_PORT }}
           VPS_USER: ${{ vars.VPS_USER }}
         run: |
-          scripts/deploy/ci/submit-release-request.sh promotion "${COMPONENT}"
+          deploy/ci/submit-release-request.sh promotion "${COMPONENT}"
 
       - name: Remove runner-side sensitive files
         if: ${{ always() }}
         run: |
-          scripts/deploy/ci/cleanup-release-request.sh
+          deploy/ci/cleanup-release-request.sh

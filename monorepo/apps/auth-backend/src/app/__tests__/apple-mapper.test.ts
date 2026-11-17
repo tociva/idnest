@@ -11,7 +11,7 @@ const googleMapper = readFileSync(
 );
 const kratosTemplate = readFileSync(new URL("../../../../../../config/kratos.tpl.yml", import.meta.url), "utf8");
 const kratosRenderer = readFileSync(
-  new URL("../../../../../../scripts/docker/render-kratos-config.sh", import.meta.url),
+  new URL("../../../../../../deploy/images/render-kratos-config.sh", import.meta.url),
   "utf8",
 );
 

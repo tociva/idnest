@@ -8,7 +8,7 @@ set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COMPOSE_FILE="$REPO_ROOT/scripts/docker/docker-compose.yml"
+COMPOSE_FILE="$REPO_ROOT/deploy/images/docker-compose.yml"
 ENV_HELPER="$SCRIPT_DIR/load-project-env.sh"
 BOOTSTRAP_LOCAL="$SCRIPT_DIR/bootstrap-local.sh"
 

@@ -131,13 +131,13 @@ jobs:
           case "${COMPONENT}" in
             auth)
               repository=${AUTH_ECR_REPOSITORY}
-              dockerfile=scripts/docker/Dockerfile.auth-app
-              smoke_test=scripts/docker/smoke-test-auth-image.sh
+              dockerfile=deploy/images/Dockerfile.auth-app
+              smoke_test=deploy/images/smoke-test-auth-image.sh
               ;;
             admin)
               repository=${ADMIN_ECR_REPOSITORY}
-              dockerfile=scripts/docker/Dockerfile.admin-app
-              smoke_test=scripts/docker/smoke-test-admin-image.sh
+              dockerfile=deploy/images/Dockerfile.admin-app
+              smoke_test=deploy/images/smoke-test-admin-image.sh
               ;;
           esac
           [[ "${repository}" =~ ^[a-z0-9][a-z0-9._/-]*$ ]]
@@ -190,7 +190,7 @@ jobs:
         run: |
           set -euo pipefail
           output_file="${RUNNER_TEMP}/builder-image.env"
-          scripts/docker/ensure-builder-image.sh \
+          deploy/images/ensure-builder-image.sh \
             "${ECR_PUBLIC_REGISTRY}" "${ECR_PUBLIC_REGION}" \
             "${BUILDER_ECR_REPOSITORY}" "${output_file}"
           source "${output_file}"
@@ -344,7 +344,7 @@ jobs:
               --repository-name "${repository}" --image-ids "imageTag=${candidate_tag}" \
               --query 'imageDetails[0].imageDigest' --output text)
             [[ "${candidate_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
-            scripts/ci/promote-ecr-public-image.sh \
+            deploy/ci/promote-ecr-public-image.sh \
               "${ECR_PUBLIC_REGISTRY}" "${repository}" \
               "${candidate_digest}" "${release_tag}"
             {

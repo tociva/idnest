@@ -120,7 +120,7 @@ jobs:
           ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
           COMPONENT: ${{ inputs.component }}
           VERSION: ${{ inputs.version }}
-        run: scripts/ci/resolve-ecr-release.sh "${ECR_REGISTRY}" "${ECR_REPOSITORY}" "${COMPONENT}" "${VERSION}" >>"${GITHUB_OUTPUT}"
+        run: deploy/ci/resolve-ecr-release.sh "${ECR_REGISTRY}" "${ECR_REPOSITORY}" "${COMPONENT}" "${VERSION}" >>"${GITHUB_OUTPUT}"
 
       - name: Verify release revision
         env:
@@ -134,7 +134,7 @@ jobs:
         env:
           ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-        run: ECR_SCAN_PLATFORM=linux/arm64 scripts/ci/gate-ecr-image-scan.sh "${ECR_REPOSITORY}" "${IMAGE_DIGEST}"
+        run: ECR_SCAN_PLATFORM=linux/arm64 deploy/ci/gate-ecr-image-scan.sh "${ECR_REPOSITORY}" "${IMAGE_DIGEST}"
 
       - name: Install pinned cloudflared client
         if: ${{ vars.KUBERNETES_ACCESS_HOSTNAME != '' }}

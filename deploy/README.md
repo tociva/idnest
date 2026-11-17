@@ -1,28 +1,31 @@
 # Idnest application image delivery
 
-Idnest has two Kubernetes application workflows. The existing VPS workflows are
-kept separately and remain available while the cluster path is commissioned.
+Idnest publishes public ARM64 application images for auth and admin. Legacy
+Kubernetes and VPS deployment assets remain grouped here but are not part of
+the current image-publication pipeline.
 
 ## Build and publish
 
-`build-application-image.yml` accepts `auth` or `admin` and an unused semantic
-version such as `1.4.0`. It validates the selected component, builds the current
-`development` revision natively for `linux/arm64`, pushes a Git/run candidate to
-the component's existing ECR repository, enforces the ECR vulnerability gate,
-and smoke-tests the digest. Only after those checks pass does it add the
-immutable `auth-vX.Y.Z` or `admin-vX.Y.Z` release tag.
+`build-application-image.yml` accepts `auth`, `admin`, or `all` and an immutable
+semantic version such as `1.4.0`. It validates the selected components, builds
+the current `development` revision natively for `linux/arm64`, pushes Git/run
+candidates to ECR Public, scans them with Trivy, and smoke-tests their digests.
+Only after every selected image passes does it add the `auth-vX.Y.Z` and/or
+`admin-vX.Y.Z` release tags.
 
 The build uses the existing `ecr-build` GitHub Environment and its variables:
 
 - `AWS_ACCOUNT_ID`
 - `AWS_REGION`
+- `ECR_PUBLIC_REGION`
+- `ECR_PUBLIC_REGISTRY`
 - `AWS_BUILD_ROLE_ARN`
 - `AUTH_ECR_REPOSITORY`
 - `ADMIN_ECR_REPOSITORY`
 - `BUILDER_ECR_REPOSITORY`
 
-Apply the development Terraform after the IAM update so the build and deploy
-roles can start/read ECR scans and the build role can remove failed candidates.
+Apply the development Terraform after an IAM or repository update so the build
+role can publish and clean up candidates in the public repositories.
 
 ## Deploy or roll back
 
@@ -125,6 +128,6 @@ gh workflow run deploy-application-version.yml \
 Validate the chart locally:
 
 ```sh
-scripts/ci/test-kubernetes-deployment-contracts.sh
+deploy/ci/test-kubernetes-deployment-contracts.sh
 ```
 

@@ -8,7 +8,7 @@ set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COMPOSE_FILE="$REPO_ROOT/scripts/docker/docker-compose.yml"
+COMPOSE_FILE="$REPO_ROOT/deploy/images/docker-compose.yml"
 IDNEST_RUNTIME_NETWORK="${IDNEST_RUNTIME_NETWORK:-idnest-network}"
 ENV_HELPER="$SCRIPT_DIR/load-project-env.sh"
 ADMIN_CLIENT_PROVISIONER="$SCRIPT_DIR/provision-admin-client.js"
@@ -91,7 +91,7 @@ case "$apple_value_count" in
     trap cleanup_apple_key EXIT HUP INT TERM
     chmod 600 "$apple_key_file"
     printf '%b' "$APPLE_PRIVATE_KEY" >"$apple_key_file"
-    "$REPO_ROOT/scripts/deploy/validate-apple-private-key.sh" "$apple_key_file" >/dev/null
+    "$REPO_ROOT/deploy/tools/validate-apple-private-key.sh" "$apple_key_file" >/dev/null
     rm -f -- "$apple_key_file"
     trap - EXIT HUP INT TERM
     ;;

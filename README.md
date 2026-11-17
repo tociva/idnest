@@ -13,10 +13,10 @@ next to the files and scripts it describes.
 | Area | Guide |
 | --- | --- |
 | Local setup and environment files | [scripts/setup/README.md](scripts/setup/README.md) |
-| Local Hydra/Kratos Docker stack and application images | [scripts/docker/README.md](scripts/docker/README.md) |
-| Development deployments and GitHub environments | [scripts/deploy/README.md](scripts/deploy/README.md) |
-| Development VPS bootstrap and host operations | [scripts/deploy/vps/README.md](scripts/deploy/vps/README.md) |
-| AWS development infrastructure | [infrastructure/terraform/aws-development/README.md](infrastructure/terraform/aws-development/README.md) |
+| Local Hydra/Kratos Docker stack and application images | [deploy/images/README.md](deploy/images/README.md) |
+| Development deployments and GitHub environments | [deploy/OPERATIONS.md](deploy/OPERATIONS.md) |
+| Development VPS bootstrap and host operations | [deploy/vps/README.md](deploy/vps/README.md) |
+| AWS development infrastructure | [deploy/terraform/aws-development/README.md](deploy/terraform/aws-development/README.md) |
 | Kubernetes application image delivery | [deploy/README.md](deploy/README.md) |
 | Auth backend, OAuth flow, and delegated authorization | [monorepo/apps/auth-backend/README.md](monorepo/apps/auth-backend/README.md) |
 | Admin backend and OAuth client administration | [monorepo/apps/admin-backend/README.md](monorepo/apps/admin-backend/README.md) |
@@ -46,7 +46,12 @@ browser-accessible.
 ```text
 .
 ├── config/                         # Kratos templates, identity schema, and OIDC mappers
-├── infrastructure/                 # Infrastructure source files
+├── deploy/
+│   ├── ci/                         # Image and release validation helpers
+│   ├── images/                     # Dockerfiles, local identity stack, and smoke tests
+│   ├── terraform/                  # AWS infrastructure
+│   ├── tools/                      # Deployment and environment utilities
+│   └── vps/                        # Single-server runtime assets
 ├── monorepo/
 │   ├── apps/auth-backend/          # Express OAuth orchestration service
 │   ├── apps/auth-frontend/         # Angular authentication UI
@@ -55,9 +60,8 @@ browser-accessible.
 │   └── libs/                       # Shared authorization, runtime, and types
 ├── scripts/
 │   ├── authz/                      # Authorization database migrations
-│   ├── deploy/                     # Deployment, CI release, and VPS bootstrap tooling
-│   ├── docker/                     # Local Hydra and Kratos stack
-│   └── setup/                      # Local bootstrap and database setup
+│   ├── setup/                      # Local bootstrap and database setup
+│   └── util/                       # General repository utilities
 ├── .env.example                    # Hydra and Kratos configuration template
 ├── monorepo/.env.example           # Application configuration template
 └── package.json                    # Root commands
@@ -70,11 +74,11 @@ The short version is:
 
 Start hydra and kratos
 ```bash
-docker compose -f scripts/docker/docker-compose.yml up -d
-docker compose -f scripts/docker/docker-compose.yml down
+docker compose -f deploy/images/docker-compose.yml up -d
+docker compose -f deploy/images/docker-compose.yml down
 ```
 
-See [scripts/docker/README.md](scripts/docker/README.md) for local Hydra,
+See [deploy/images/README.md](deploy/images/README.md) for local Hydra,
 Kratos, image, and builder-image operations.
 
 

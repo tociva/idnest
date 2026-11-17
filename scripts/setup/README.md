@@ -83,7 +83,7 @@ Add these entries to `/etc/hosts`:
 ```
 
 The tracked nginx reference at
-`scripts/deploy/nginx/hydra-local.idnest.cloud.conf.example` contains Hydra's
+`deploy/nginx/hydra-local.idnest.cloud.conf.example` contains Hydra's
 local TLS proxy and discovery-only CORS rule. Adapt the other HTTPS virtual
 hosts to the gateway of your choice with a locally trusted certificate and
 these routes:
@@ -238,8 +238,8 @@ curl http://localhost:4445/health/ready
 curl http://localhost:4433/health/ready
 curl http://localhost:4000/health
 curl http://localhost:4100/health
-docker compose -f scripts/docker/docker-compose.yml ps
-docker compose -f scripts/docker/docker-compose.yml logs hydra kratos
+docker compose -f deploy/images/docker-compose.yml ps
+docker compose -f deploy/images/docker-compose.yml logs hydra kratos
 ```
 
 If a Kratos configuration change is not visible, force-recreate the

@@ -1,0 +1,13 @@
+deploy/vps/compose.auth.yaml
+deploy/vps/compose.admin.yaml
+deploy/vps/compose.idnest.yaml
+deploy/vps/Dockerfile.kratos
+deploy/vps/deploy-idnest-app.sh
+deploy/vps/deploy-idnest-infra.sh
+deploy/vps/deploy-idnest-auth.sh
+deploy/vps/deploy-idnest-admin.sh
+deploy/vps/rollback-idnest-app.sh
+deploy/vps/rollback-idnest-auth.sh
+deploy/vps/rollback-idnest-admin.sh
+deploy/vps/validate-app-env.sh
+deploy/images/render-kratos-config.sh

@@ -6,10 +6,10 @@ on:
     branches:
       - development
     paths:
-      - scripts/docker/Dockerfile.builder-base
-      - scripts/docker/builder-image-key.sh
-      - scripts/docker/ensure-builder-image.sh
-      - scripts/docker/test-builder-contract.sh
+      - deploy/images/Dockerfile.builder-base
+      - deploy/images/builder-image-key.sh
+      - deploy/images/ensure-builder-image.sh
+      - deploy/images/test-builder-contract.sh
       - monorepo/package.json
       - monorepo/pnpm-lock.yaml
       - monorepo/pnpm-workspace.yaml
@@ -62,9 +62,9 @@ jobs:
           [[ "${ECR_PUBLIC_REGISTRY}" =~ ^public\.ecr\.aws/[a-z0-9][a-z0-9._-]*$ ]]
           [[ "${AWS_BUILD_ROLE_ARN}" == arn:aws:iam::${AWS_ACCOUNT_ID}:role/* ]]
           [[ "${BUILDER_ECR_REPOSITORY}" =~ ^[a-z0-9][a-z0-9._/-]*$ ]]
-          bash -n scripts/docker/ensure-builder-image.sh
-          sh -n scripts/docker/builder-image-key.sh
-          scripts/docker/test-builder-contract.sh
+          bash -n deploy/images/ensure-builder-image.sh
+          sh -n deploy/images/builder-image-key.sh
+          deploy/images/test-builder-contract.sh
 
       - name: Configure short-lived AWS build credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           output_file="${RUNNER_TEMP}/builder-image.env"
-          scripts/docker/ensure-builder-image.sh \
+          deploy/images/ensure-builder-image.sh \
             "${ECR_PUBLIC_REGISTRY}" \
             "${ECR_PUBLIC_REGION}" \
             "${BUILDER_ECR_REPOSITORY}" \
