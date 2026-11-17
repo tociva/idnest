@@ -1,0 +1,294 @@
+name: Deploy application version
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [development, production]
+      component:
+        description: Idnest application to deploy
+        required: true
+        type: choice
+        options: [auth, admin]
+      version:
+        description: Published semantic version, for example 1.4.0
+        required: true
+        type: string
+      confirm:
+        description: Type DEPLOY
+        required: true
+        type: string
+      reason:
+        description: Change, incident, or rollback reference
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: idnest-kubernetes-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.component }} ${{ inputs.version }} to ${{ inputs.environment }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment:
+      name: ${{ inputs.environment }}-${{ inputs.component }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate deployment request
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          COMPONENT: ${{ inputs.component }}
+          VERSION: ${{ inputs.version }}
+          CONFIRM: ${{ inputs.confirm }}
+          REASON: ${{ inputs.reason }}
+          DEPLOYMENT_REF: ${{ github.ref }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          KUBE_NAMESPACE: ${{ vars.KUBE_NAMESPACE }}
+          APP_SECRET_NAME: ${{ vars.APP_SECRET_NAME }}
+          KUBECONFIG_BASE64: ${{ secrets.KUBECONFIG_BASE64 }}
+          KUBERNETES_ACCESS_HOSTNAME: ${{ vars.KUBERNETES_ACCESS_HOSTNAME }}
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          [[ "${COMPONENT}" == auth || "${COMPONENT}" == admin ]]
+          [[ "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "${CONFIRM}" == DEPLOY ]]
+          [[ -n "${REASON//[[:space:]]/}" && "${REASON}" != *$'\n'* && "${#REASON}" -le 200 ]]
+          if [[ "${TARGET_ENVIRONMENT}" == development ]]; then
+            [[ "${DEPLOYMENT_REF}" == refs/heads/development ]]
+          else
+            [[ "${DEPLOYMENT_REF}" == refs/heads/master ]]
+          fi
+          [[ "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]
+          [[ "${AWS_REGION}" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]
+          [[ "${AWS_DEPLOY_ROLE_ARN}" == arn:aws:iam::${AWS_ACCOUNT_ID}:role/* ]]
+          [[ "${ECR_REPOSITORY}" =~ ^[a-z0-9][a-z0-9._/-]*$ ]]
+          [[ "${KUBE_NAMESPACE}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]
+          [[ "${APP_SECRET_NAME}" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]]
+          [[ -n "${KUBECONFIG_BASE64}" ]]
+          if [[ -n "${KUBERNETES_ACCESS_HOSTNAME}" ]]; then
+            [[ -n "${CLOUDFLARE_ACCESS_CLIENT_ID}" && -n "${CLOUDFLARE_ACCESS_CLIENT_SECRET}" ]]
+          fi
+
+      - name: Check out deployment tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
+        with:
+          version: v1.36.5
+
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.18.4
+
+      - name: Configure short-lived AWS deployment credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          role-session-name: idnest-kubernetes-${{ inputs.component }}-${{ github.run_id }}
+          mask-aws-account-id: true
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@19d944daaa35f0fa1d3f7f8af1d3f2e5de25c5b7 # v2.1.4
+
+      - name: Resolve immutable release
+        id: image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          COMPONENT: ${{ inputs.component }}
+          VERSION: ${{ inputs.version }}
+        run: scripts/ci/resolve-ecr-release.sh "${ECR_REGISTRY}" "${ECR_REPOSITORY}" "${COMPONENT}" "${VERSION}" >>"${GITHUB_OUTPUT}"
+
+      - name: Verify release revision
+        env:
+          REVISION: ${{ steps.image.outputs.revision }}
+        run: |
+          set -euo pipefail
+          git cat-file -e "${REVISION}^{commit}"
+          git merge-base --is-ancestor "${REVISION}" "${GITHUB_SHA}"
+
+      - name: Recheck vulnerability threshold
+        env:
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: ECR_SCAN_PLATFORM=linux/arm64 scripts/ci/gate-ecr-image-scan.sh "${ECR_REPOSITORY}" "${IMAGE_DIGEST}"
+
+      - name: Install pinned cloudflared client
+        if: ${{ vars.KUBERNETES_ACCESS_HOSTNAME != '' }}
+        env:
+          CLOUDFLARED_VERSION: ${{ vars.CLOUDFLARED_VERSION }}
+          CLOUDFLARED_LINUX_AMD64_SHA256: ${{ vars.CLOUDFLARED_LINUX_AMD64_SHA256 }}
+        run: |
+          set -euo pipefail
+          [[ "${CLOUDFLARED_VERSION}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]]
+          [[ "${CLOUDFLARED_LINUX_AMD64_SHA256}" =~ ^[a-f0-9]{64}$ ]]
+          cloudflared="${RUNNER_TEMP}/cloudflared"
+          curl --fail --silent --show-error --location \
+            "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64" \
+            --output "${cloudflared}"
+          printf '%s  %s\n' "${CLOUDFLARED_LINUX_AMD64_SHA256}" "${cloudflared}" | sha256sum --check --status
+          chmod 700 "${cloudflared}"
+          echo "CLOUDFLARED=${cloudflared}" >>"${GITHUB_ENV}"
+
+      - name: Open authenticated Kubernetes tunnel
+        if: ${{ vars.KUBERNETES_ACCESS_HOSTNAME != '' }}
+        env:
+          KUBERNETES_ACCESS_HOSTNAME: ${{ vars.KUBERNETES_ACCESS_HOSTNAME }}
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          log_file="${RUNNER_TEMP}/cloudflared-access.log"
+          "${CLOUDFLARED}" access tcp --hostname "${KUBERNETES_ACCESS_HOSTNAME}" \
+            --url 127.0.0.1:6443 --logfile "${log_file}" --loglevel info &
+          tunnel_pid=$!
+          echo "${tunnel_pid}" >"${RUNNER_TEMP}/cloudflared-access.pid"
+          for attempt in $(seq 1 20); do
+            kill -0 "${tunnel_pid}" 2>/dev/null || exit 1
+            if (exec 3<>/dev/tcp/127.0.0.1/6443) 2>/dev/null; then
+              exec 3>&-
+              break
+            fi
+            [[ "${attempt}" -lt 20 ]] || exit 1
+            sleep 1
+          done
+
+      - name: Configure and verify Kubernetes access
+        env:
+          KUBECONFIG_BASE64: ${{ secrets.KUBECONFIG_BASE64 }}
+          KUBE_NAMESPACE: ${{ vars.KUBE_NAMESPACE }}
+          APP_SECRET_NAME: ${{ vars.APP_SECRET_NAME }}
+        run: |
+          set -euo pipefail
+          umask 077
+          kubeconfig="${RUNNER_TEMP}/idnest-kubeconfig"
+          printf '%s' "${KUBECONFIG_BASE64}" | base64 --decode >"${kubeconfig}"
+          chmod 600 "${kubeconfig}"
+          echo "KUBECONFIG=${kubeconfig}" >>"${GITHUB_ENV}"
+          export KUBECONFIG="${kubeconfig}"
+          kubectl version --request-timeout=20s >/dev/null
+          kubectl get namespace "${KUBE_NAMESPACE}" >/dev/null
+          kubectl get secret "${APP_SECRET_NAME}" --namespace "${KUBE_NAMESPACE}" >/dev/null
+          for permission in \
+            'get deployments.apps' 'list deployments.apps' 'watch deployments.apps' 'create deployments.apps' 'patch deployments.apps' 'update deployments.apps' \
+            'get services' 'list services' 'create services' 'patch services' 'update services' \
+            'get jobs.batch' 'list jobs.batch' 'watch jobs.batch' 'create jobs.batch' 'delete jobs.batch' \
+            'get serviceaccounts' 'create serviceaccounts' 'patch serviceaccounts' 'update serviceaccounts' \
+            'get secrets' 'list secrets' 'create secrets' 'patch secrets' 'update secrets' 'delete secrets' \
+            'get pods' 'list pods' 'watch pods'; do
+            verb=${permission%% *}
+            resource=${permission#* }
+            kubectl auth can-i "${verb}" "${resource}" --namespace "${KUBE_NAMESPACE}" --quiet
+          done
+
+      - name: Refresh optional ECR pull Secret
+        if: ${{ vars.ECR_IMAGE_PULL_SECRET != '' }}
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          KUBE_NAMESPACE: ${{ vars.KUBE_NAMESPACE }}
+          ECR_IMAGE_PULL_SECRET: ${{ vars.ECR_IMAGE_PULL_SECRET }}
+        run: |
+          set -euo pipefail
+          registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          password=$(aws ecr get-login-password --region "${AWS_REGION}")
+          kubectl -n "${KUBE_NAMESPACE}" create secret docker-registry "${ECR_IMAGE_PULL_SECRET}" \
+            --docker-server="${registry}" --docker-username=AWS --docker-password="${password}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          unset password
+
+      - name: Deploy immutable image
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          COMPONENT: ${{ inputs.component }}
+          VERSION: ${{ inputs.version }}
+          REVISION: ${{ steps.image.outputs.revision }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          KUBE_NAMESPACE: ${{ vars.KUBE_NAMESPACE }}
+          APP_SECRET_NAME: ${{ vars.APP_SECRET_NAME }}
+          ECR_IMAGE_PULL_SECRET: ${{ vars.ECR_IMAGE_PULL_SECRET }}
+        run: |
+          set -euo pipefail
+          values="deploy/environments/${TARGET_ENVIRONMENT}/${COMPONENT}.values.yaml"
+          [[ -f "${values}" ]]
+          runtime_revision=$(kubectl get secret "${APP_SECRET_NAME}" --namespace "${KUBE_NAMESPACE}" \
+            --output jsonpath='{.metadata.resourceVersion}')
+          helm_args=(
+            upgrade --install "idnest-${COMPONENT}" deploy/charts/idnest-app
+            --namespace "${KUBE_NAMESPACE}"
+            --values "${values}"
+            --set-string "component=${COMPONENT}"
+            --set-string "image.repository=${ECR_REGISTRY}/${ECR_REPOSITORY}"
+            --set-string "image.digest=${IMAGE_DIGEST}"
+            --set-string "revision=${REVISION}"
+            --set-string "version=${VERSION}"
+            --set-string "runtimeSecretName=${APP_SECRET_NAME}"
+            --set-string "runtimeConfigRevision=${runtime_revision}"
+            --atomic --wait --timeout 15m --history-max 20
+          )
+          if [[ -n "${ECR_IMAGE_PULL_SECRET}" ]]; then
+            helm_args+=(--set-string "imagePullSecrets[0].name=${ECR_IMAGE_PULL_SECRET}")
+          fi
+          helm "${helm_args[@]}"
+          kubectl rollout status "deployment/idnest-${COMPONENT}" \
+            --namespace "${KUBE_NAMESPACE}" --timeout=5m
+
+      - name: Verify public readiness
+        if: ${{ vars.PUBLIC_HEALTH_URL != '' }}
+        env:
+          PUBLIC_HEALTH_URL: ${{ vars.PUBLIC_HEALTH_URL }}
+        run: curl --fail --silent --show-error --retry 12 --retry-delay 5 "${PUBLIC_HEALTH_URL}" >/dev/null
+
+      - name: Publish deployment summary
+        env:
+          REASON: ${{ inputs.reason }}
+        run: |
+          {
+            echo '### Idnest Kubernetes deployment'
+            echo '- Environment: `${{ inputs.environment }}`'
+            echo '- Component: `${{ inputs.component }}`'
+            echo '- Version: `${{ inputs.version }}`'
+            echo '- Revision: `${{ steps.image.outputs.revision }}`'
+            echo '- Digest: `${{ steps.image.outputs.digest }}`'
+            echo "- Reason: ${REASON}"
+            echo '- Database migrations are forward-only and were not reversed.'
+          } >>"${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove temporary cluster credentials
+        if: ${{ always() }}
+        run: |
+          if [[ -f "${RUNNER_TEMP}/cloudflared-access.pid" ]]; then
+            tunnel_pid=$(cat "${RUNNER_TEMP}/cloudflared-access.pid")
+            kill "${tunnel_pid}" 2>/dev/null || true
+            wait "${tunnel_pid}" 2>/dev/null || true
+          fi
+          rm -f "${RUNNER_TEMP}/idnest-kubeconfig" \
+            "${RUNNER_TEMP}/cloudflared-access.pid" \
+            "${RUNNER_TEMP}/cloudflared-access.log" \
+            "${RUNNER_TEMP}/cloudflared"
+

@@ -1,0 +1,5 @@
+component: auth
+fullnameOverride: idnest-auth
+replicaCount: 1
+runtimeSecretName: idnest-auth-secrets
+

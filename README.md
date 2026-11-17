@@ -17,6 +17,7 @@ next to the files and scripts it describes.
 | Development deployments and GitHub environments | [scripts/deploy/README.md](scripts/deploy/README.md) |
 | Development VPS bootstrap and host operations | [scripts/deploy/vps/README.md](scripts/deploy/vps/README.md) |
 | AWS development infrastructure | [infrastructure/terraform/aws-development/README.md](infrastructure/terraform/aws-development/README.md) |
+| Kubernetes application image delivery | [deploy/README.md](deploy/README.md) |
 | Auth backend, OAuth flow, and delegated authorization | [monorepo/apps/auth-backend/README.md](monorepo/apps/auth-backend/README.md) |
 | Admin backend and OAuth client administration | [monorepo/apps/admin-backend/README.md](monorepo/apps/admin-backend/README.md) |
 | Kratos configuration assets | [config/README.md](config/README.md) |
@@ -110,6 +111,7 @@ Run commands from the repository root.
 | `pnpm test:client-cors:integration` | Create a client in an isolated Hydra v26.2.0 container and verify its runtime CORS origins |
 | `pnpm test:client-secret:integration` | Replace a disposable confidential client's secret in local Hydra and verify the old value is revoked |
 | `pnpm test:deploy` | Verify deployment scripts, manifests, workflow helper usage, and Compose contracts |
+| `pnpm test:kubernetes` | Lint and render the auth/admin Helm deployment contracts |
 | `pnpm typecheck` | Type-check all projects |
 | `pnpm lint` | Lint all projects |
 | `pnpm auth-backend:build` | Build only the auth backend |

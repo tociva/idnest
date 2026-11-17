@@ -36,6 +36,29 @@ resource "aws_ecr_repository" "app" {
   }
 }
 
+resource "aws_ecr_lifecycle_policy" "app" {
+  for_each   = var.create_ecr_repositories ? var.ecr_repository_names : {}
+  repository = aws_ecr_repository.app[each.key].name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Remove untagged application images after seven days"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 7
+        }
+        action = {
+          type = "expire"
+        }
+      },
+    ]
+  })
+}
+
 data "aws_ecr_repository" "app" {
   for_each = var.create_ecr_repositories ? {} : var.ecr_repository_names
   name     = each.value
@@ -194,12 +217,15 @@ data "aws_iam_policy_document" "build_ecr" {
     effect = "Allow"
     actions = [
       "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchDeleteImage",
       "ecr:BatchGetImage",
       "ecr:CompleteLayerUpload",
+      "ecr:DescribeImageScanFindings",
       "ecr:DescribeImages",
       "ecr:GetDownloadUrlForLayer",
       "ecr:InitiateLayerUpload",
       "ecr:PutImage",
+      "ecr:StartImageScan",
       "ecr:UploadLayerPart",
     ]
     resources = concat(values(local.ecr_repository_arns), [local.builder_ecr_repository_arn])
@@ -220,8 +246,10 @@ data "aws_iam_policy_document" "deploy_ecr" {
     actions = [
       "ecr:BatchCheckLayerAvailability",
       "ecr:BatchGetImage",
+      "ecr:DescribeImageScanFindings",
       "ecr:DescribeImages",
       "ecr:GetDownloadUrlForLayer",
+      "ecr:StartImageScan",
     ]
     resources = [each.value]
   }

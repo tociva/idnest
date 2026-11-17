@@ -1,0 +1,257 @@
+name: Build and publish application image
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: Idnest application to build
+        required: true
+        type: choice
+        options: [auth, admin]
+      version:
+        description: Immutable semantic version, for example 1.4.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: idnest-image-${{ inputs.component }}
+  cancel-in-progress: false
+
+env:
+  NX_DAEMON: 'false'
+  NX_ISOLATE_PLUGINS: 'false'
+
+jobs:
+  quality:
+    name: Validate ${{ inputs.component }} ${{ inputs.version }}
+    if: ${{ github.ref == 'refs/heads/development' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Validate release request
+        env:
+          COMPONENT: ${{ inputs.component }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "${COMPONENT}" == auth || "${COMPONENT}" == admin ]]
+          [[ "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 9.15.0
+          run_install: false
+          cache: true
+          cache_dependency_path: monorepo/pnpm-lock.yaml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.22.0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.18.4
+
+      - name: Install dependencies
+        run: pnpm --dir=monorepo install --frozen-lockfile
+
+      - name: Lint, typecheck and test component
+        env:
+          COMPONENT: ${{ inputs.component }}
+        run: |
+          set -euo pipefail
+          if [[ "${COMPONENT}" == auth ]]; then
+            projects=auth-backend,auth-frontend,authz-store,server-runtime,shared-types
+            cors_test=test:cors:config
+          else
+            projects=admin-backend,admin-frontend,authz-store,server-runtime,shared-types
+            cors_test=test:cors
+          fi
+          pnpm --dir=monorepo nx run-many -t lint typecheck --projects="${projects}"
+          pnpm --dir=monorepo nx run-many -t test --projects="${projects}"
+          pnpm "${cors_test}"
+          pnpm test:deploy
+
+  build:
+    name: Publish ${{ inputs.component }} ${{ inputs.version }}
+    needs: quality
+    if: ${{ needs.quality.result == 'success' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    environment: ecr-build
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      digest: ${{ steps.image.outputs.digest }}
+      revision: ${{ github.sha }}
+      release_tag: ${{ steps.metadata.outputs.release_tag }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve component metadata
+        id: metadata
+        env:
+          COMPONENT: ${{ inputs.component }}
+          VERSION: ${{ inputs.version }}
+          AUTH_ECR_REPOSITORY: ${{ vars.AUTH_ECR_REPOSITORY }}
+          ADMIN_ECR_REPOSITORY: ${{ vars.ADMIN_ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          case "${COMPONENT}" in
+            auth)
+              repository=${AUTH_ECR_REPOSITORY}
+              dockerfile=scripts/docker/Dockerfile.auth-app
+              smoke_test=scripts/docker/smoke-test-auth-image.sh
+              ;;
+            admin)
+              repository=${ADMIN_ECR_REPOSITORY}
+              dockerfile=scripts/docker/Dockerfile.admin-app
+              smoke_test=scripts/docker/smoke-test-admin-image.sh
+              ;;
+          esac
+          [[ "${repository}" =~ ^[a-z0-9][a-z0-9._/-]*$ ]]
+          {
+            echo "repository=${repository}"
+            echo "dockerfile=${dockerfile}"
+            echo "smoke_test=${smoke_test}"
+            echo "release_tag=${COMPONENT}-v${VERSION}"
+            echo "candidate_tag=git-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "created=$(git show -s --format=%cI "${GITHUB_SHA}")"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Validate AWS configuration
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_BUILD_ROLE_ARN: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          BUILDER_ECR_REPOSITORY: ${{ vars.BUILDER_ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          [[ "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]
+          [[ "${AWS_REGION}" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]
+          [[ "${AWS_BUILD_ROLE_ARN}" == arn:aws:iam::${AWS_ACCOUNT_ID}:role/* ]]
+          [[ "${BUILDER_ECR_REPOSITORY}" =~ ^[a-z0-9][a-z0-9._/-]*$ ]]
+
+      - name: Configure short-lived AWS build credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          role-session-name: idnest-${{ inputs.component }}-release-${{ github.run_id }}
+          mask-aws-account-id: true
+
+      - name: Reject an existing release version
+        env:
+          ECR_REPOSITORY: ${{ steps.metadata.outputs.repository }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          existing=$(aws ecr describe-images --repository-name "${ECR_REPOSITORY}" \
+            --image-ids "imageTag=${RELEASE_TAG}" --query 'imageDetails[0].imageDigest' \
+            --output text 2>/dev/null || true)
+          [[ -z "${existing}" || "${existing}" == None ]]
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@19d944daaa35f0fa1d3f7f8af1d3f2e5de25c5b7 # v2.1.4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Ensure immutable dependency builder
+        id: builder
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          BUILDER_ECR_REPOSITORY: ${{ vars.BUILDER_ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          output_file="${RUNNER_TEMP}/builder-image.env"
+          scripts/docker/ensure-builder-image.sh \
+            "${AWS_ACCOUNT_ID}" "${AWS_REGION}" "${BUILDER_ECR_REPOSITORY}" "${output_file}"
+          source "${output_file}"
+          [[ "${BUILDER_IMAGE}" =~ @sha256:[a-f0-9]{64}$ ]]
+          echo "image=${BUILDER_IMAGE}" >>"${GITHUB_OUTPUT}"
+
+      - name: Build and push candidate image
+        id: image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: ${{ steps.metadata.outputs.dockerfile }}
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ steps.metadata.outputs.repository }}:${{ steps.metadata.outputs.candidate_tag }}
+          build-args: |
+            BUILDER_IMAGE=${{ steps.builder.outputs.image }}
+            APP_VERSION=${{ inputs.version }}
+            APP_REVISION=${{ github.sha }}
+            APP_CREATED=${{ steps.metadata.outputs.created }}
+            APP_SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=idnest-${{ inputs.component }}-app
+          cache-to: type=gha,mode=max,scope=idnest-${{ inputs.component }}-app
+          provenance: mode=max
+          sbom: true
+
+      - name: Enforce vulnerability threshold
+        env:
+          ECR_REPOSITORY: ${{ steps.metadata.outputs.repository }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: ECR_SCAN_PLATFORM=linux/arm64 scripts/ci/gate-ecr-image-scan.sh "${ECR_REPOSITORY}" "${IMAGE_DIGEST}"
+
+      - name: Smoke-test pushed digest
+        env:
+          IMAGE_REF: ${{ steps.ecr.outputs.registry }}/${{ steps.metadata.outputs.repository }}@${{ steps.image.outputs.digest }}
+          SMOKE_TEST: ${{ steps.metadata.outputs.smoke_test }}
+        run: |
+          set -euo pipefail
+          [[ "${IMAGE_REF}" =~ @sha256:[a-f0-9]{64}$ ]]
+          docker pull --platform linux/arm64 "${IMAGE_REF}"
+          "${SMOKE_TEST}" "${IMAGE_REF}"
+
+      - name: Publish immutable release version
+        env:
+          ECR_REPOSITORY: ${{ steps.metadata.outputs.repository }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.release_tag }}
+        run: scripts/ci/promote-ecr-image.sh "${ECR_REPOSITORY}" "${IMAGE_DIGEST}" "${RELEASE_TAG}"
+
+      - name: Remove failed candidate tag
+        if: ${{ failure() && steps.metadata.outputs.candidate_tag != '' }}
+        continue-on-error: true
+        env:
+          ECR_REPOSITORY: ${{ steps.metadata.outputs.repository }}
+          CANDIDATE_TAG: ${{ steps.metadata.outputs.candidate_tag }}
+        run: |
+          aws ecr batch-delete-image --repository-name "${ECR_REPOSITORY}" \
+            --image-ids "imageTag=${CANDIDATE_TAG}" >/dev/null
+
+      - name: Publish release summary
+        if: ${{ success() }}
+        run: |
+          {
+            echo '### Idnest application image'
+            echo '- Component: `${{ inputs.component }}`'
+            echo '- Version: `${{ inputs.version }}`'
+            echo '- Tag: `${{ steps.metadata.outputs.release_tag }}`'
+            echo '- Revision: `${{ github.sha }}`'
+            echo '- Digest: `${{ steps.image.outputs.digest }}`'
+            echo '- Platform: `linux/arm64`'
+          } >>"${GITHUB_STEP_SUMMARY}"
+

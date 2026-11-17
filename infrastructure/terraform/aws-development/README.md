@@ -81,6 +81,12 @@ Terraform also applies the provider-level tags `Application=idnest`,
 `Environment=development`, and `ManagedBy=terraform` to supported AWS
 resources. Values in `tags` are merged with those defaults.
 
+The application repositories are immutable and remove untagged manifests after
+seven days. The build role can publish candidate and release tags, enforce ECR
+image scans, and remove a failed candidate tag. Component deployment roles can
+read scan findings before a Kubernetes deployment. Re-apply a reviewed plan
+after changing these IAM or lifecycle contracts.
+
 These defaults reuse the account's existing GitHub OIDC provider and create the
 two application ECR repositories plus the separate dependency-builder
 repository. AWS permits only one provider for

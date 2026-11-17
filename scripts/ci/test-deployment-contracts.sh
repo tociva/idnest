@@ -22,6 +22,11 @@ while IFS= read -r script; do
 done < <(find scripts -type f -name '*.sh' -print | sort)
 
 bash scripts/ci/test-apple-login-contracts.sh
+bash scripts/ci/test-image-release-contracts.sh
+
+if command -v helm >/dev/null 2>&1; then
+  bash scripts/ci/test-kubernetes-deployment-contracts.sh
+fi
 
 if command -v shellcheck >/dev/null 2>&1; then
   mapfile -t shell_scripts < <(find scripts/deploy/ci scripts/deploy/vps scripts/ci -type f -name '*.sh' -print | sort)
@@ -129,6 +134,16 @@ for workflow in \
   require_text "$workflow" 'scripts/deploy/ci/submit-release-request.sh'
   require_text "$workflow" 'scripts/deploy/ci/cleanup-release-request.sh'
 done
+
+require_text .github/workflows/build-application-image.yml \
+  'scripts/ci/promote-ecr-image.sh'
+require_text .github/workflows/build-application-image.yml \
+  'scripts/ci/gate-ecr-image-scan.sh'
+require_text .github/workflows/deploy-application-version.yml \
+  'scripts/ci/resolve-ecr-release.sh'
+require_text .github/workflows/deploy-application-version.yml \
+  'image.digest=${IMAGE_DIGEST}'
+reject_pattern 'kubectl|helm upgrade' .github/workflows/build-application-image.yml
 reject_pattern 'scp_args=|ssh_args=|base64 --decode|aws ecr get-login-password|submit-idnest-release|wait-idnest-release|tar --create --gzip --file "\$\{RUNNER_TEMP\}/host-release\.tar\.gz"' \
   .github/workflows/deploy-auth-development.yml \
   .github/workflows/deploy-admin-development.yml \

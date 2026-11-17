@@ -1,0 +1,10 @@
+component: admin
+fullnameOverride: idnest-admin
+replicaCount: 2
+runtimeSecretName: idnest-admin-secrets
+postDeploy:
+  enabled: true
+  command:
+    - node
+    - scripts/setup/provision-admin-client.js
+
