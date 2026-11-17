@@ -14,10 +14,10 @@ next to the files and scripts it describes.
 | --- | --- |
 | Local setup and environment files | [scripts/setup/README.md](scripts/setup/README.md) |
 | Local Hydra/Kratos Docker stack and application images | [deploy/images/README.md](deploy/images/README.md) |
-| Development deployments and GitHub environments | [deploy/OPERATIONS.md](deploy/OPERATIONS.md) |
-| Development VPS bootstrap and host operations | [deploy/vps/README.md](deploy/vps/README.md) |
-| AWS development infrastructure | [deploy/terraform/aws-development/README.md](deploy/terraform/aws-development/README.md) |
-| Kubernetes application image delivery | [deploy/README.md](deploy/README.md) |
+| Image publishing and direct VPS operations | [deploy/OPERATIONS.md](deploy/OPERATIONS.md) |
+| Direct VPS bootstrap, deployment, and rollback | [deploy/vps/README.md](deploy/vps/README.md) |
+| AWS build infrastructure | [deploy/terraform/aws-development/README.md](deploy/terraform/aws-development/README.md) |
+| Image delivery architecture | [deploy/README.md](deploy/README.md) |
 | Auth backend, OAuth flow, and delegated authorization | [monorepo/apps/auth-backend/README.md](monorepo/apps/auth-backend/README.md) |
 | Admin backend and OAuth client administration | [monorepo/apps/admin-backend/README.md](monorepo/apps/admin-backend/README.md) |
 | Kratos configuration assets | [config/README.md](config/README.md) |
@@ -47,10 +47,10 @@ browser-accessible.
 .
 ├── config/                         # Kratos templates, identity schema, and OIDC mappers
 ├── deploy/
-│   ├── ci/                         # Image and release validation helpers
+│   ├── ci/                         # Image publication and delivery contracts
 │   ├── images/                     # Dockerfiles, local identity stack, and smoke tests
 │   ├── terraform/                  # AWS infrastructure
-│   ├── tools/                      # Deployment and environment utilities
+│   ├── tools/                      # Runtime environment and GitHub build utilities
 │   └── vps/                        # Single-server runtime assets
 ├── monorepo/
 │   ├── apps/auth-backend/          # Express OAuth orchestration service
@@ -114,8 +114,7 @@ Run commands from the repository root.
 | `pnpm test:cors:live -- https://hydra-dev.idnest.cloud` | Verify metadata-only wildcard CORS and denied protected-route origins |
 | `pnpm test:client-cors:integration` | Create a client in an isolated Hydra v26.2.0 container and verify its runtime CORS origins |
 | `pnpm test:client-secret:integration` | Replace a disposable confidential client's secret in local Hydra and verify the old value is revoked |
-| `pnpm test:deploy` | Verify deployment scripts, manifests, workflow helper usage, and Compose contracts |
-| `pnpm test:kubernetes` | Lint and render the auth/admin Helm deployment contracts |
+| `pnpm test:deploy` | Verify the build-only workflows, ECR Public helper, direct VPS scripts, and Compose contracts |
 | `pnpm typecheck` | Type-check all projects |
 | `pnpm lint` | Lint all projects |
 | `pnpm auth-backend:build` | Build only the auth backend |

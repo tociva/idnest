@@ -57,6 +57,8 @@ services:
     entrypoint: >-
       sh -c "sh /usr/local/bin/render-kratos-config.sh
       && exec kratos serve -c /tmp/kratos.yml --watch-courier"
+    volumes:
+      - /opt/idnest/identity/kratos-build/config:/etc/config:ro
     ports:
       - '127.0.0.1:${KRATOS_PUBLIC_HTTP_PORT:-8447}:4433'
       - '127.0.0.1:${KRATOS_ADMIN_HTTP_PORT:-4434}:4434'

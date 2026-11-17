@@ -5,10 +5,6 @@ github_repository_owner_id = "217876362"
 github_repository_id       = "1016627095"
 
 build_environment_name = "ecr-build"
-deploy_environment_names = {
-  auth  = "development-auth"
-  admin = "development-admin"
-}
 
 ecr_repository_names = {
   auth  = "idnest/auth-app"
@@ -17,37 +13,12 @@ ecr_repository_names = {
 builder_ecr_repository_name = "idnest/builder-base"
 
 build_role_name = "idnest-development-build"
-deploy_role_names = {
-  auth  = "idnest-auth-development-deploy"
-  admin = "idnest-admin-development-deploy"
-}
 
 # GitHub's OIDC provider is account-wide and already exists in this AWS account.
 # Use true only in a new account where token.actions.githubusercontent.com is absent.
 create_github_oidc_provider   = false
 retain_legacy_private_ecr_repositories = true
 force_delete_ecr_repositories          = false
-
-# This must be an SSH-reachable DNS-only hostname or IP address. Do not use one
-# of the Cloudflare-proxied application hostnames for SSH. All three workflows
-# share the development VPS but remain explicit deployment targets.
-github_deployment_targets = {
-  development-auth = {
-    vps_host = "vps-dev.idnest.cloud"
-    vps_port = 22
-    vps_user = "idnest-deploy"
-  }
-  development-admin = {
-    vps_host = "vps-dev.idnest.cloud"
-    vps_port = 22
-    vps_user = "idnest-deploy"
-  }
-  development-identity = {
-    vps_host = "vps-dev.idnest.cloud"
-    vps_port = 22
-    vps_user = "idnest-deploy"
-  }
-}
 
 tags = {
   Project = "idnest"

@@ -25,7 +25,6 @@
     "clients:cors:backfill": "node scripts/setup/backfill-client-cors.js",
     "test:cors:config": "bash deploy/tools/test-cors-contract.sh",
     "test:deploy": "bash deploy/ci/test-deployment-contracts.sh",
-    "test:kubernetes": "bash deploy/ci/test-kubernetes-deployment-contracts.sh",
     "test:apple": "bash deploy/ci/test-apple-login-contracts.sh",
     "test:cors": "pnpm test:cors:config && pnpm test:client-cors:integration",
     "test:cors:live": "bash deploy/tools/test-hydra-cors-live.sh",

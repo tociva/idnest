@@ -8,20 +8,18 @@ fail() {
 
 usage() {
   cat <<'EOF'
-Usage: deploy/tools/create-development-env.sh [DEVELOPMENT_ENV] [TERRAFORM_DIRECTORY]
+Usage: deploy/tools/create-development-env.sh [DEVELOPMENT_ENV]
 
 Creates or reconciles the combined protected development environment file.
 
 Defaults:
   DEVELOPMENT_ENV=tmp/development.env
-  TERRAFORM_DIRECTORY=deploy/terraform/aws-development
-
 The generator writes tracked development defaults, generates missing local
 database passwords, DSNs, application secrets, and the delegation signing key,
 and removes keys that are no longer tracked. Existing manually configured
-application values are preserved. When Terraform state is available, it imports
-the non-secret AWS and VPS values. External provider values such as Google and
-the bootstrap admin email remain replace-with-* placeholders until configured.
+application values are preserved. Build infrastructure is intentionally kept
+outside this runtime file. External provider values such as Google and the
+bootstrap admin email remain replace-with-* placeholders until configured.
 EOF
 }
 
@@ -31,7 +29,7 @@ case "${1:-}" in
     exit 0
     ;;
 esac
-[ "$#" -le 2 ] || { usage >&2; exit 2; }
+[ "$#" -le 1 ] || { usage >&2; exit 2; }
 
 for command in awk chmod dirname install mktemp mv openssl rm; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
@@ -40,7 +38,6 @@ done
 SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)
 DEVELOPMENT_ENV=${1:-$REPO_ROOT/tmp/development.env}
-TERRAFORM_DIRECTORY=${2:-$REPO_ROOT/deploy/terraform/aws-development}
 
 case "$DEVELOPMENT_ENV" in
   ""|*/) fail "DEVELOPMENT_ENV must include a filename" ;;
@@ -86,63 +83,6 @@ trap cleanup EXIT HUP INT TERM
 chmod 700 "$WORK_DIRECTORY"
 chmod 600 "$candidate"
 
-dotenv_value() {
-  source_file=$1
-  wanted_key=$2
-  awk -v wanted="$wanted_key" '
-    index($0, "=") > 0 {
-      key = substr($0, 1, index($0, "=") - 1)
-      if (key == wanted) {
-        print substr($0, index($0, "=") + 1)
-        exit
-      }
-    }
-  ' "$source_file"
-}
-
-AWS_ACCOUNT_ID=replace-with-terraform-output
-AWS_REGION=replace-with-terraform-output
-ECR_PUBLIC_REGION=us-east-1
-ECR_PUBLIC_REGISTRY=replace-with-terraform-output
-AWS_BUILD_ROLE_ARN=replace-with-terraform-output
-AUTH_AWS_DEPLOY_ROLE_ARN=replace-with-terraform-output
-ADMIN_AWS_DEPLOY_ROLE_ARN=replace-with-terraform-output
-AUTH_ECR_REPOSITORY=replace-with-terraform-output
-ADMIN_ECR_REPOSITORY=replace-with-terraform-output
-BUILDER_ECR_REPOSITORY=replace-with-terraform-output
-VPS_HOST=replace-with-terraform-output
-VPS_PORT=replace-with-terraform-output
-VPS_USER=replace-with-terraform-output
-terraform_values_loaded=false
-
-if command -v terraform >/dev/null 2>&1 \
-  && [ -d "$TERRAFORM_DIRECTORY" ] && [ ! -L "$TERRAFORM_DIRECTORY" ]; then
-  terraform_output_directory=$WORK_DIRECTORY/terraform-vars
-  if "$SCRIPT_DIR/render-github-environment-vars.sh" \
-    "$TERRAFORM_DIRECTORY" \
-    "$terraform_output_directory" >/dev/null 2>&1; then
-    ecr_file=$terraform_output_directory/ecr-build.vars.env
-    auth_file=$terraform_output_directory/development-auth.vars.env
-    admin_file=$terraform_output_directory/development-admin.vars.env
-    identity_file=$terraform_output_directory/development-identity.vars.env
-
-    AWS_ACCOUNT_ID=$(dotenv_value "$ecr_file" AWS_ACCOUNT_ID)
-    AWS_REGION=$(dotenv_value "$ecr_file" AWS_REGION)
-    ECR_PUBLIC_REGION=$(dotenv_value "$ecr_file" ECR_PUBLIC_REGION)
-    ECR_PUBLIC_REGISTRY=$(dotenv_value "$ecr_file" ECR_PUBLIC_REGISTRY)
-    AWS_BUILD_ROLE_ARN=$(dotenv_value "$ecr_file" AWS_BUILD_ROLE_ARN)
-    AUTH_AWS_DEPLOY_ROLE_ARN=$(dotenv_value "$auth_file" AWS_DEPLOY_ROLE_ARN)
-    ADMIN_AWS_DEPLOY_ROLE_ARN=$(dotenv_value "$admin_file" AWS_DEPLOY_ROLE_ARN)
-    AUTH_ECR_REPOSITORY=$(dotenv_value "$ecr_file" AUTH_ECR_REPOSITORY)
-    ADMIN_ECR_REPOSITORY=$(dotenv_value "$ecr_file" ADMIN_ECR_REPOSITORY)
-    BUILDER_ECR_REPOSITORY=$(dotenv_value "$ecr_file" BUILDER_ECR_REPOSITORY)
-    VPS_HOST=$(dotenv_value "$identity_file" VPS_HOST)
-    VPS_PORT=$(dotenv_value "$identity_file" VPS_PORT)
-    VPS_USER=$(dotenv_value "$identity_file" VPS_USER)
-    terraform_values_loaded=true
-  fi
-fi
-
 random_hex() {
   byte_count=$1
   openssl rand -hex "$byte_count"
@@ -169,19 +109,6 @@ openssl genpkey -algorithm EC \
 DELEGATION_SIGNING_PRIVATE_KEY_B64=$(openssl base64 -A -in "$delegation_private_key")
 
 {
-  printf 'AWS_ACCOUNT_ID=%s\n' "$AWS_ACCOUNT_ID"
-  printf 'AWS_REGION=%s\n' "$AWS_REGION"
-  printf 'ECR_PUBLIC_REGION=%s\n' "$ECR_PUBLIC_REGION"
-  printf 'ECR_PUBLIC_REGISTRY=%s\n' "$ECR_PUBLIC_REGISTRY"
-  printf 'AWS_BUILD_ROLE_ARN=%s\n' "$AWS_BUILD_ROLE_ARN"
-  printf 'AUTH_AWS_DEPLOY_ROLE_ARN=%s\n' "$AUTH_AWS_DEPLOY_ROLE_ARN"
-  printf 'ADMIN_AWS_DEPLOY_ROLE_ARN=%s\n' "$ADMIN_AWS_DEPLOY_ROLE_ARN"
-  printf 'AUTH_ECR_REPOSITORY=%s\n' "$AUTH_ECR_REPOSITORY"
-  printf 'ADMIN_ECR_REPOSITORY=%s\n' "$ADMIN_ECR_REPOSITORY"
-  printf 'BUILDER_ECR_REPOSITORY=%s\n' "$BUILDER_ECR_REPOSITORY"
-  printf 'VPS_HOST=%s\n' "$VPS_HOST"
-  printf 'VPS_PORT=%s\n' "$VPS_PORT"
-  printf 'VPS_USER=%s\n' "$VPS_USER"
   printf '%s\n' 'AUTH_URL=https://auth-dev.idnest.cloud'
   printf '%s\n' 'HYDRA_CORS_ALLOWED_ORIGINS=https://hydra-dev.idnest.cloud'
   printf '%s\n' 'KRATOS_CORS_ALLOWED_ORIGINS=https://auth-dev.idnest.cloud'
@@ -223,9 +150,6 @@ if [ -e "$DEVELOPMENT_ENV" ]; then
   chmod 600 "$merged_candidate"
 
   preserve_keys='HYDRA_DSN KRATOS_DSN HYDRA_SECRETS_SYSTEM KRATOS_CSRF_COOKIE_SECRET KRATOS_CIPHER_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY AUTHZ_DATABASE_URL CONSENT_ACTION_SECRET AUTH_TRANSACTION_SECRET AUTH_AUDIT_HASH_SECRET DELEGATION_SIGNING_PRIVATE_KEY_B64 ADMIN_BOOTSTRAP_EMAILS ADMIN_CSRF_SECRET ADMIN_OIDC_CLIENT_SECRET'
-  if [ "$terraform_values_loaded" != true ]; then
-    preserve_keys="$preserve_keys AWS_ACCOUNT_ID AWS_REGION ECR_PUBLIC_REGION ECR_PUBLIC_REGISTRY AWS_BUILD_ROLE_ARN AUTH_AWS_DEPLOY_ROLE_ARN ADMIN_AWS_DEPLOY_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER"
-  fi
 
   awk -v preserve="$preserve_keys" '
     BEGIN {
@@ -266,10 +190,5 @@ else
 fi
 chmod 600 "$DEVELOPMENT_ENV"
 
-if [ "$terraform_values_loaded" = true ]; then
-  echo "Reconciled $DEVELOPMENT_ENV with generated defaults and Terraform-derived infrastructure values."
-else
-  echo "Reconciled $DEVELOPMENT_ENV with generated defaults."
-  echo "Terraform output was not available; existing infrastructure values were preserved and missing ones use placeholders."
-fi
-echo "Replace remaining replace-with-* values before bootstrap or GitHub Environment upload."
+echo "Reconciled $DEVELOPMENT_ENV with runtime defaults."
+echo "Replace remaining replace-with-* provider and application values before rendering VPS environments."

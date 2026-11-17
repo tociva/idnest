@@ -1,0 +1,7 @@
+# Public pulls do not require AWS credentials. Replace only the registry alias.
+ECR_PUBLIC_REGISTRY=public.ecr.aws/replace-with-registry-alias
+AUTH_ECR_REPOSITORY=idnest/auth-app
+ADMIN_ECR_REPOSITORY=idnest/admin-app
+
+# Set true only when public health URLs are intentionally unreachable from the VPS.
+SKIP_PUBLIC_HEALTH_CHECK=false

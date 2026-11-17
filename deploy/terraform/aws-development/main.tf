@@ -158,10 +158,6 @@ locals {
     local.github_repository_parts[1],
     var.github_repository_id,
   )
-  ecr_repository_arns = {
-    for kind, name in var.ecr_repository_names : kind =>
-    "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${name}"
-  }
   ecr_public_repository_arns = {
     for kind, repository in aws_ecrpublic_repository.app : kind => repository.arn
   }
@@ -195,43 +191,10 @@ data "aws_iam_policy_document" "build_assume_role" {
   }
 }
 
-data "aws_iam_policy_document" "deploy_assume_role" {
-  for_each = var.deploy_environment_names
-  statement {
-    sid     = "GitHubActionsDevelopmentDeploy"
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-    principals {
-      type        = "Federated"
-      identifiers = [local.github_oidc_provider_arn]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = local.oidc_audience_key
-      values   = ["sts.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = local.oidc_subject_key
-      values   = ["${local.github_oidc_subject_prefix}:environment:${each.value}"]
-    }
-  }
-}
-
 resource "aws_iam_role" "build" {
   name                  = var.build_role_name
   description           = "GitHub Actions build/push role for Idnest application and builder images"
   assume_role_policy    = data.aws_iam_policy_document.build_assume_role.json
-  max_session_duration  = 3600
-  force_detach_policies = true
-}
-
-resource "aws_iam_role" "deploy" {
-  for_each = var.deploy_role_names
-
-  name                  = each.value
-  description           = "GitHub Actions pull-only ${each.key} deployment role"
-  assume_role_policy    = data.aws_iam_policy_document.deploy_assume_role[each.key].json
   max_session_duration  = 3600
   force_detach_policies = true
 }
@@ -262,40 +225,10 @@ data "aws_iam_policy_document" "build_ecr" {
   }
 }
 
-data "aws_iam_policy_document" "deploy_ecr" {
-  for_each = local.ecr_repository_arns
-  statement {
-    sid       = "GetEcrAuthorizationToken"
-    effect    = "Allow"
-    actions   = ["ecr:GetAuthorizationToken"]
-    resources = ["*"]
-  }
-  statement {
-    sid    = "PullApplicationImage"
-    effect = "Allow"
-    actions = [
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:BatchGetImage",
-      "ecr:DescribeImageScanFindings",
-      "ecr:DescribeImages",
-      "ecr:GetDownloadUrlForLayer",
-      "ecr:StartImageScan",
-    ]
-    resources = [each.value]
-  }
-}
-
 resource "aws_iam_role_policy" "build" {
   name   = "${var.build_role_name}-ecr"
   role   = aws_iam_role.build.id
   policy = data.aws_iam_policy_document.build_ecr.json
-}
-
-resource "aws_iam_role_policy" "deploy" {
-  for_each = aws_iam_role.deploy
-  name     = "${each.value.name}-ecr"
-  role     = each.value.id
-  policy   = data.aws_iam_policy_document.deploy_ecr[each.key].json
 }
 
 resource "aws_iam_role_policies_exclusive" "build" {
@@ -303,19 +236,7 @@ resource "aws_iam_role_policies_exclusive" "build" {
   policy_names = [aws_iam_role_policy.build.name]
 }
 
-resource "aws_iam_role_policies_exclusive" "deploy" {
-  for_each     = aws_iam_role.deploy
-  role_name    = each.value.name
-  policy_names = [aws_iam_role_policy.deploy[each.key].name]
-}
-
 resource "aws_iam_role_policy_attachments_exclusive" "build" {
   role_name   = aws_iam_role.build.name
-  policy_arns = []
-}
-
-resource "aws_iam_role_policy_attachments_exclusive" "deploy" {
-  for_each    = aws_iam_role.deploy
-  role_name   = each.value.name
   policy_arns = []
 }

@@ -55,8 +55,8 @@ services:
 
   kratos:
     build:
-      context: ../..
-      dockerfile: deploy/images/Dockerfile.kratos
+      context: .
+      dockerfile: Dockerfile.kratos
     image: idnest-kratos-envsubst:v26.2.0
     container_name: idnest-kratos
     user: "10000"

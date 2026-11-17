@@ -1,150 +1,86 @@
-# Development VPS
+# Direct VPS deployment
 
-This guide covers the development VPS preparation, bootstrap transfer, host
-runtime boundaries, public hostname routing, and host diagnostics.
+The VPS deployment path is intentionally local and contains two scripts:
 
-## Bootstrap the development VPS
+- `bootstrap-idnest-host.sh` installs tracked runtime assets once.
+- `deploy-idnest-version.sh` pulls and deploys one published version.
 
-Use an approved administrative account with `sudo` access. SSH private-key
-paths are workstation-specific and must not be stored in Terraform, GitHub
-variables, or repository files. The VPS runner supports Debian and Ubuntu; when
-Docker is absent, it configures Docker's official Apt repository and installs
-Docker Engine with the Compose and Buildx plugins following the
-[official Docker installation method](https://docs.docker.com/engine/install/ubuntu/).
+GitHub Actions does not connect to the server. Amazon ECR Public pulls require
+no AWS credentials on the host.
 
-When a new VPS has only the provider-created `root` account, run this one-time
-administrator preparation script from the trusted Mac:
+## Prerequisites
 
-```bash
-./deploy/tools/prepare-development-vps-admin.sh \
-  /absolute/path/to/vps-admin-ssh-private-key
-```
+Use a Linux ARM64 server with Docker Engine and the Docker Compose plugin. The
+host also needs PostgreSQL reachable from the runtime Docker network. Keep the
+application origin ports loopback-only and publish them through your existing
+reverse proxy or Cloudflare Tunnel:
 
-It defaults to creating `idnest-admin` on `vps-dev.idnest.cloud:22`, derives the
-public half of the supplied SSH key locally, installs only that public key for
-the new account, adds it to the standard `sudo` group, and verifies non-root SSH
-and sudo before succeeding. It securely prompts for the new sudo password over
-SSH; the password is not placed in command arguments or repository files. The
-private key never leaves the Mac. Pass alternative values when needed:
-
-```bash
-./deploy/tools/prepare-development-vps-admin.sh \
-  ROOT_SSH_PRIVATE_KEY VPS_ADMIN_USER VPS_HOST VPS_PORT
-```
-
-This one-time preparation is the only repository script that logs in through
-the provider `root` account. It does not disable provider root access, allowing
-it to remain available for VPS recovery. Normal transfer, bootstrap, and GitHub
-Actions deployment paths continue to reject `root`.
-
-Before transferring the bootstrap, create one remotely managed named tunnel in
-Cloudflare Zero Trust, for example `idnest-development`. Add these public
-hostname routes to that tunnel:
-
-| Public hostname | Service URL |
+| Service | Loopback origin |
 | --- | --- |
-| `auth-dev.idnest.cloud` | `http://127.0.0.1:8444` |
-| `admin-dev.idnest.cloud` | `http://127.0.0.1:8445` |
-| `hydra-dev.idnest.cloud` | `http://127.0.0.1:8446` |
-| `kratos-dev.idnest.cloud` | `http://127.0.0.1:8447` |
+| Auth | `http://127.0.0.1:8444` |
+| Admin | `http://127.0.0.1:8445` |
+| Hydra public | `http://127.0.0.1:8446` |
+| Kratos public | `http://127.0.0.1:8447` |
 
-The dashboard creates the proxied DNS records for these routes. Install and run
-the Cloudflare-provided `cloudflared` connector command on the VPS outside this
-bootstrap flow. Initialize or reconcile the protected local environment and
-synchronize the Terraform-owned VPS values:
+Hydra admin `4445`, Kratos admin `4434`, PostgreSQL, and the Docker socket must
+not be publicly reachable.
 
-```bash
-./deploy/tools/create-development-env.sh
-./deploy/tools/update-development-env-from-terraform.sh
-```
+## Bootstrap
 
-At this stage the Google OAuth and bootstrap admin email placeholders may
-remain; the transfer script reads only `VPS_HOST` and `VPS_PORT`. Keep this file
-mode `0600`.
-
-On the trusted Mac, run the transfer script from the repository root. Supply
-the existing non-root administrative account, its workstation SSH private key,
-and the protected environment file:
+Upload `deploy/` and `config/` from a trusted checkout, then run from the
+uploaded repository root:
 
 ```bash
-./deploy/tools/transfer-development-vps-bootstrap.sh \
-  idnest-admin \
-  /absolute/path/to/vps-admin-ssh-private-key \
-  tmp/development.env
+sudo ./deploy/vps/bootstrap-idnest-host.sh
 ```
 
-The defaults are `vps-dev.idnest.cloud` and SSH port `22`. Pass a different
-management endpoint after the required arguments when necessary:
+The bootstrap copies compose/configuration assets into `/opt/idnest`, installs
+the validator and deploy command under `/usr/local/sbin`, creates the runtime
+network, and creates configuration templates only when they do not already
+exist. Re-running it refreshes tracked scripts and compose assets without
+overwriting operator configuration or runtime secrets.
+
+Set the AWS-assigned public registry alias in `/etc/idnest/deploy.conf`. The
+repository names normally remain `idnest/auth-app` and `idnest/admin-app`.
+Review the other `/etc/idnest/*.conf` files for the target environment.
+
+Install these root-owned mode-`0600` runtime files separately:
+
+```text
+/etc/idnest/idnest.env
+/etc/idnest/auth-app.env
+/etc/idnest/admin-app.env
+```
+
+Use the repository renderers on a trusted workstation; do not build secret
+files interactively in shell history on the server.
+
+## Deploy and roll back
 
 ```bash
-./deploy/tools/transfer-development-vps-bootstrap.sh \
-  VPS_ADMIN_USER VPS_ADMIN_SSH_KEY DEVELOPMENT_ENV VPS_HOST VPS_PORT
+sudo deploy-idnest-version VERSION [auth|admin|all]
 ```
 
-The script creates the development-only archive and checksum under
-`../idnest-secure`, creates `~/idnest-bootstrap` on the VPS, and transfers the
-archive, checksum, VPS bootstrap runner, release-signing public key, deployment
-SSH public key. It then verifies every upload on the VPS. Its explicit archive
-manifest excludes production files and all application and identity secrets.
-It rejects `root` and `idnest-deploy` as the administrative account; use a
-separate non-root account that already has `sudo` access. The administrative
-key is not the generated `idnest-deploy` key.
-
-On the VPS, execute the transferred runner as that same non-root administrative
-account:
+Examples:
 
 ```bash
-~/idnest-bootstrap/bootstrap-development-vps.sh
+sudo deploy-idnest-version 1.4.0 all
+sudo deploy-idnest-version 1.4.1 auth
+sudo deploy-idnest-version 1.3.0 all  # rollback
 ```
 
-The runner verifies all transferred checksums again before doing any privileged
-work. It extracts a fresh repository tree, installs the minimum host packages
-and Docker from their official Apt repositories, creates `idnest-deploy` when
-needed, provisions the release processor, and installs the development
-configuration templates. It invokes `sudo` only
-for operations that require host privileges and refuses direct execution as
-`root`. The bootstrap creates `idnest-runtime-development` with the explicit
-subnet `172.23.0.0/16`. If the network already exists, provisioning verifies
-that it still uses exactly this subnet and fails instead of silently accepting
-network drift. The final host check proves Docker and the signed release queue
-are active and rejects any Idnest origin port that is listening on a public
-interface.
+The script pulls release tags, pins them to local digest references, starts and
+checks Hydra/Kratos, runs their migrations, runs the Authz migration once,
+provisions the admin OAuth client when admin is selected, starts the requested
+applications, and checks readiness. The current release is recorded in
+`/var/lib/idnest/active.env`; immutable history is kept in
+`/var/lib/idnest/releases/`.
 
-After the bootstrap runner completes, install and configure VPS-local
-PostgreSQL from the trusted Mac. The helper reads the protected
-`tmp/development.env` locally, derives the Hydra, Kratos, and Authz database
-roles, passwords, and database names from the DSNs, and sends only those
-database values over SSH. It does not copy the full development environment
-file to the VPS.
+Set `SKIP_PUBLIC_HEALTH_CHECK=true` in `/etc/idnest/deploy.conf` only when the
+public endpoints are intentionally not reachable from the VPS. Container and
+loopback checks still run.
 
-```bash
-./deploy/tools/setup-development-vps-postgres.sh \
-  idnest-admin \
-  /absolute/path/to/vps-admin-ssh-private-key \
-  tmp/development.env
-```
-
-The helper installs PostgreSQL when missing, creates or updates the required
-roles and databases, configures PostgreSQL to listen for Docker container
-traffic, adds `pg_hba.conf` entries for `idnest-runtime-development`
-(`172.23.0.0/16`), restarts PostgreSQL, and verifies connectivity from a Docker
-container before the first identity deployment. Run it from an interactive
-terminal; the remote `sudo` commands may prompt for the `idnest-admin`
-password. No separate `pg_hba.conf` edit is required after this helper succeeds.
-
-## Validate Public Hostname Routing
-
-The application hostnames must be public-hostname routes on the named tunnel,
-not `A` or `AAAA` records that expose the VPS. The separate DNS-only
-`vps-dev.idnest.cloud` record remains the SSH management endpoint. On the VPS,
-confirm all Idnest ports are loopback-only:
-
-```bash
-sudo /usr/local/sbin/validate-idnest-development-host
-sudo ss -ltnp
-```
-
-The provider firewall needs inbound SSH only from approved administration and
-CI sources. No inbound rule is required for `8444`–`8447` when the manually
-managed Cloudflare Tunnel is running. Never expose those origin ports, Hydra
-admin `4445`, Kratos admin `4434`, PostgreSQL `5432`, or the Docker socket.
+Application containers are restored automatically if a new application image
+fails readiness. Schema changes are forward-only, so deploying an older image
+does not reverse a database migration. Test backward compatibility before using
+an older version as a rollback.

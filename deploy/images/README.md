@@ -45,8 +45,7 @@ excludes application source, build output, environment files, and runtime
 secrets. Application builds consume the builder by digest rather than trusting
 its mutable dependency tag.
 
-After applying a reviewed Terraform plan, synchronize the repository name
-through the existing protected bulk-update path:
+After applying a reviewed Terraform plan, synchronize the build variables:
 
 ```bash
 terraform -chdir=deploy/terraform/aws-development plan \
@@ -54,13 +53,12 @@ terraform -chdir=deploy/terraform/aws-development plan \
 terraform -chdir=deploy/terraform/aws-development apply \
   idnest-builder.tfplan
 
-./deploy/tools/update-development-env-from-terraform.sh
-./deploy/tools/update-development-github-environments.sh
+./deploy/tools/sync-ecr-build-github.sh
 ```
 
-This adds `ECR_PUBLIC_REGION`, the AWS-assigned `ECR_PUBLIC_REGISTRY`, and the
-non-secret repository names to the protected `ecr-build` GitHub Environment.
-Do not maintain them manually in GitHub.
+This updates the AWS account/build role, `ECR_PUBLIC_REGION`, the AWS-assigned
+`ECR_PUBLIC_REGISTRY`, and the non-secret repository names in the protected
+`ecr-build` GitHub Environment. It does not touch runtime or deployment values.
 
 ### Image identity and rebuilds
 
@@ -105,7 +103,7 @@ slim non-root runtime image.
 ### Troubleshooting and rollback
 
 If the builder workflow reports a missing repository or variable, apply the
-Terraform changes and rerun both environment synchronization commands. If a
+Terraform changes and rerun the synchronization command. If a
 builder push loses an immutable-tag race, the ensure helper re-queries ECR and
 uses the successfully published digest. A genuine build failure remains fatal.
 
