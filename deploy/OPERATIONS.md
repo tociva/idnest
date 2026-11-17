@@ -56,9 +56,13 @@ Treat all four files as secrets. Do not commit or print them.
 
 ## 4. Bootstrap the VPS
 
-Upload the repository's `deploy/` and `config/` directories to the VPS. Docker
-Engine with the Compose plugin must already be installed. From the uploaded
-repository root run:
+For a fresh Ubuntu ARM64 host, follow the complete SSH, Docker installation,
+file upload, deployment, verification, and reboot-persistence runbook in
+[vps/README.md](vps/README.md).
+
+In summary, upload the repository's `deploy/` and `config/` directories to the
+VPS. Docker Engine with the Compose plugin must already be installed. From the
+uploaded repository root run:
 
 ```bash
 sudo ./deploy/vps/bootstrap-idnest-host.sh
