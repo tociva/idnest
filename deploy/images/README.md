@@ -27,7 +27,7 @@ docker compose -f deploy/images/docker-compose.yml up -d --force-recreate kratos
 The auth and admin image builds share a public dependency image in
 `idnest/builder-base`. It contains Node, Corepack, pnpm, and the frozen workspace
 dependency tree, but no application source, build output, environment file, or
-runtime secret. The Node 22.22.0 image is pinned by its Docker manifest digest,
+runtime secret. The Node 22.23.5 image is pinned by its Docker manifest digest,
 which includes the required Linux ARM64 variant. The builder is a build input
 only and is never deployed to the VPS.
 

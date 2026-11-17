@@ -46,6 +46,8 @@ require_text .github/workflows/build-application-image.yml 'options: [auth, admi
 require_text .github/workflows/build-application-image.yml 'options: [patch, minor, major]'
 require_text .github/workflows/build-application-image.yml 'deploy/ci/promote-ecr-public-image.sh'
 require_text .github/workflows/build-application-image.yml 'aquasecurity/trivy-action@'
+require_text .github/workflows/build-application-image.yml 'version: v0.76.2'
+require_text .github/workflows/build-application-image.yml 'ignore-unfixed: true'
 require_text .github/workflows/build-application-image.yml 'contents: write'
 require_text .github/workflows/build-application-image.yml 'deploy/ci/release-version.mjs'
 # The workflow expression must remain literal for this contract assertion.

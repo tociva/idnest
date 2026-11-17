@@ -93,7 +93,7 @@ jobs:
           architecture=$(docker image inspect "${BUILDER_IMAGE}" --format '{{.Architecture}}')
           [[ "${architecture}" == arm64 ]]
           docker run --rm --entrypoint /bin/sh "${BUILDER_IMAGE}" -euc '
-            [ "$(node --version)" = "v22.22.0" ]
+            [ "$(node --version)" = "v22.23.5" ]
             [ "$(pnpm --version)" = "9.15.0" ]
             [ -d /workspace/monorepo/node_modules/.pnpm ]
             [ ! -e /workspace/monorepo/apps/auth-backend/src ]

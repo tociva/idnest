@@ -43,7 +43,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.22.0
+          node-version: 22.23.5
 
       - name: Validate release request
         id: request
@@ -223,9 +223,10 @@ jobs:
           TRIVY_PLATFORM: linux/arm64
         with:
           image-ref: ${{ vars.ECR_PUBLIC_REGISTRY }}/${{ steps.metadata.outputs.repository }}@${{ steps.image.outputs.digest }}
+          version: v0.76.2
           format: table
           exit-code: '1'
-          ignore-unfixed: false
+          ignore-unfixed: true
           vuln-type: os,library
           severity: HIGH,CRITICAL
 

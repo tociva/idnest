@@ -7,7 +7,7 @@ and the local service bootstrap.
 
 ### Prerequisites
 
-- Node.js `22.22.0` (see `.nvmrc`)
+- Node.js `22.23.5` (see `.nvmrc`)
 - pnpm `9.15.0` through Corepack
 - PostgreSQL 18 on macOS, or PostgreSQL from distribution packages on Linux
 - Docker with Docker Compose
