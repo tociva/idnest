@@ -9,8 +9,9 @@ fail() {
 [ "$#" -eq 1 ] || fail "usage: validate-apple-private-key.sh PRIVATE_KEY_FILE"
 private_key_file=$1
 
-[ -f "$private_key_file" ] && [ ! -L "$private_key_file" ] && [ -s "$private_key_file" ] \
-  || fail "private key must be a non-empty regular file"
+if [ ! -f "$private_key_file" ] || [ -L "$private_key_file" ] || [ ! -s "$private_key_file" ]; then
+  fail "private key must be a non-empty regular file"
+fi
 
 for command in grep openssl sed tail; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"

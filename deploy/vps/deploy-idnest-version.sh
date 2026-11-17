@@ -109,8 +109,11 @@ start_identity() {
   "${identity_compose[@]}" config --quiet
   "${identity_compose[@]}" pull hydra
   "${identity_compose[@]}" build --pull kratos
+  # DSN is expanded by the shell inside the container, not by this script.
+  # shellcheck disable=SC2016
   "${identity_compose[@]}" run --rm --no-deps --entrypoint sh hydra -c \
     'export DSN="$HYDRA_DSN"; exec hydra migrate sql up -e --yes'
+  # shellcheck disable=SC2016
   "${identity_compose[@]}" run --rm --no-deps --entrypoint sh kratos -c \
     'export DSN="$KRATOS_DSN"; exec kratos migrate sql -e --yes'
   "${identity_compose[@]}" up --detach

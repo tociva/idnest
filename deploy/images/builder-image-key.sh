@@ -6,8 +6,8 @@ fail() {
   exit 1
 }
 
-SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../.." && pwd)
 
 sha256_stream() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -48,8 +48,9 @@ for relative_path in \
   monorepo/.npmrc \
   monorepo/nx.json \
   monorepo/tsconfig.base.json; do
-  [ -f "$REPO_ROOT/$relative_path" ] && [ ! -L "$REPO_ROOT/$relative_path" ] \
-    || fail "missing or invalid builder input: $relative_path"
+  if [ ! -f "$REPO_ROOT/$relative_path" ] || [ -L "$REPO_ROOT/$relative_path" ]; then
+    fail "missing or invalid builder input: $relative_path"
+  fi
   printf '%s\n' "$relative_path" >>"$inputs_file"
 done
 

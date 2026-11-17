@@ -6,7 +6,7 @@ fail() {
   exit 1
 }
 
-SCRIPT_DIR=$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/idnest-image-release-contract.XXXXXX")
 cleanup() { rm -rf -- "$temporary"; }
 trap cleanup EXIT HUP INT TERM

@@ -68,12 +68,17 @@ require_text "$REPO_ROOT/deploy/images/render-kratos-config.sh" \
   'KRATOS_CORS_ALLOWED_ORIGINS:?KRATOS_CORS_ALLOWED_ORIGINS is required'
 require_text "$REPO_ROOT/deploy/images/render-kratos-config.sh" \
   'KRATOS_TOTP_ISSUER:?KRATOS_TOTP_ISSUER is required'
+# Template variables must remain literal for these contract assertions.
+# shellcheck disable=SC2016
 require_text "$REPO_ROOT/config/kratos.tpl.yml" \
   'allowed_origins: ${KRATOS_CORS_ALLOWED_ORIGINS_YAML}'
+# shellcheck disable=SC2016
 require_text "$REPO_ROOT/config/kratos.tpl.yml" \
   'issuer: ${KRATOS_TOTP_ISSUER}'
 
 local_gateway_config="$REPO_ROOT/deploy/nginx/hydra-local.idnest.cloud.conf.example"
+# Nginx variables must remain literal for these contract assertions.
+# shellcheck disable=SC2016
 for gateway_contract in \
   'openid-configuration' \
   'oauth-authorization-server' \

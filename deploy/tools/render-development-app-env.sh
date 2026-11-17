@@ -121,8 +121,8 @@ case "$kind" in
     ;;
 esac
 
-SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../.." && pwd)
 "$REPO_ROOT/deploy/vps/validate-app-env.sh" "$candidate" "$kind" >/dev/null
 chmod 600 "$candidate"
 mv -- "$candidate" "$output_file"

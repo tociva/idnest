@@ -35,8 +35,8 @@ for command in awk chmod dirname install mktemp mv openssl rm; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
-SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../.." && pwd)
 DEVELOPMENT_ENV=${1:-$REPO_ROOT/tmp/development.env}
 
 case "$DEVELOPMENT_ENV" in
@@ -47,7 +47,7 @@ esac
 development_filename=${DEVELOPMENT_ENV##*/}
 development_directory=$(dirname "$DEVELOPMENT_ENV")
 if [ -L "$development_directory" ]; then
-  resolved_development_directory=$(CDPATH= cd "$development_directory" && pwd -P) \
+  resolved_development_directory=$(CDPATH='' cd "$development_directory" && pwd -P) \
     || fail "could not resolve development input directory: $development_directory"
   [ -d "$resolved_development_directory" ] \
     || fail "development input directory symlink target is invalid: $development_directory"

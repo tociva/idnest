@@ -26,8 +26,8 @@ for command in aws chmod dirname docker mktemp mv rm; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
-SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../.." && pwd)
 KEY_SCRIPT=$SCRIPT_DIR/builder-image-key.sh
 [ -x "$KEY_SCRIPT" ] && [ ! -L "$KEY_SCRIPT" ] || fail "missing executable key helper: $KEY_SCRIPT"
 

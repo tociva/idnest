@@ -6,8 +6,8 @@ fail() {
   exit 1
 }
 
-SCRIPT_DIR=$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../.." && pwd)
 TERRAFORM_DIRECTORY=${1:-$REPO_ROOT/deploy/terraform/aws-development}
 GITHUB_REPOSITORY=${2:-tociva/idnest}
 ENVIRONMENT=ecr-build

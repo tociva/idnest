@@ -47,6 +47,8 @@ require_text .github/workflows/build-application-image.yml 'deploy/ci/promote-ec
 require_text .github/workflows/build-application-image.yml 'aquasecurity/trivy-action@'
 require_text .github/workflows/build-application-image.yml 'contents: write'
 require_text .github/workflows/build-application-image.yml 'deploy/ci/release-version.mjs'
+# The workflow expression must remain literal for this contract assertion.
+# shellcheck disable=SC2016
 require_text .github/workflows/build-application-image.yml 'git push origin "HEAD:${GITHUB_REF_NAME}"'
 reject_pattern 'setup-helm|kubectl|helm upgrade|AWS_DEPLOY_ROLE_ARN|VPS_SSH' .github/workflows
 reject_pattern 'inputs\.version|^[[:space:]]+version:[[:space:]]*$' \
@@ -61,14 +63,21 @@ require_text deploy/vps/deploy-idnest-version.sh \
   'usage: deploy-idnest-version VERSION [auth|admin|all]'
 require_text deploy/vps/deploy-idnest-version.sh \
   'Rollback uses the same command with an older published version.'
+# The deployment-script variable must remain literal for this contract assertion.
+# shellcheck disable=SC2016
 require_text deploy/vps/deploy-idnest-version.sh 'docker pull "$tag_ref"'
 require_text deploy/vps/deploy-idnest-version.sh 'node migrations/authz-migrate.cjs'
 require_text deploy/vps/deploy-idnest-version.sh 'node scripts/setup/provision-admin-client.js'
 require_text deploy/vps/bootstrap-idnest-host.sh '/usr/local/sbin/deploy-idnest-version'
 
+# Compose variables must remain literal for these contract assertions.
+# shellcheck disable=SC2016
 require_text deploy/vps/compose.auth.yaml '127.0.0.1:${AUTH_HTTP_PORT:-8444}:3000'
+# shellcheck disable=SC2016
 require_text deploy/vps/compose.admin.yaml '127.0.0.1:${ADMIN_HTTP_PORT:-8445}:3000'
+# shellcheck disable=SC2016
 require_text deploy/vps/compose.idnest.yaml '127.0.0.1:${HYDRA_PUBLIC_HTTP_PORT:-8446}:4444'
+# shellcheck disable=SC2016
 require_text deploy/vps/compose.idnest.yaml '127.0.0.1:${KRATOS_ADMIN_HTTP_PORT:-4434}:4434'
 reject_pattern '0\.0\.0\.0:\$\{[^}]*PORT' deploy/vps/compose.*.yaml
 

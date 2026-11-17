@@ -8,8 +8,8 @@ fail() {
 
 [[ ${EUID} -eq 0 ]] || fail "run this script as root (for example, sudo $0)"
 
-SCRIPT_DIR=$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=${1:-$(CDPATH= cd "$SCRIPT_DIR/../.." && pwd)}
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=${1:-$(CDPATH='' cd "$SCRIPT_DIR/../.." && pwd)}
 APP_ROOT=/opt/idnest
 CONFIG_ROOT=/etc/idnest
 STATE_ROOT=/var/lib/idnest
