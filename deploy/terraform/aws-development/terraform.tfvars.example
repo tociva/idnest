@@ -1,4 +1,3 @@
-aws_region                 = "ap-south-1"
 ecr_public_region          = "us-east-1"
 github_repository          = "tociva/idnest"
 github_repository_owner_id = "217876362"
@@ -16,9 +15,7 @@ build_role_name = "idnest-development-build"
 
 # GitHub's OIDC provider is account-wide and already exists in this AWS account.
 # Use true only in a new account where token.actions.githubusercontent.com is absent.
-create_github_oidc_provider   = false
-retain_legacy_private_ecr_repositories = true
-force_delete_ecr_repositories          = false
+create_github_oidc_provider = false
 
 tags = {
   Project = "idnest"

@@ -20,63 +20,7 @@ data "aws_iam_openid_connect_provider" "github" {
   }
 }
 
-resource "aws_ecr_repository" "app" {
-  for_each = var.retain_legacy_private_ecr_repositories ? var.ecr_repository_names : {}
-
-  name                 = each.value
-  image_tag_mutability = "IMMUTABLE"
-  force_delete         = var.force_delete_ecr_repositories
-
-  encryption_configuration {
-    encryption_type = "AES256"
-  }
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
-
-resource "aws_ecr_lifecycle_policy" "app" {
-  for_each   = var.retain_legacy_private_ecr_repositories ? var.ecr_repository_names : {}
-  repository = aws_ecr_repository.app[each.key].name
-
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Remove untagged application images after seven days"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 7
-        }
-        action = {
-          type = "expire"
-        }
-      },
-    ]
-  })
-}
-
-resource "aws_ecr_repository" "builder" {
-  count = var.retain_legacy_private_ecr_repositories ? 1 : 0
-
-  name                 = var.builder_ecr_repository_name
-  image_tag_mutability = "IMMUTABLE"
-  force_delete         = var.force_delete_ecr_repositories
-
-  encryption_configuration {
-    encryption_type = "AES256"
-  }
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
-
 resource "aws_ecrpublic_repository" "app" {
-  provider = aws.ecr_public
   for_each = var.ecr_repository_names
 
   repository_name = each.value
@@ -95,8 +39,6 @@ resource "aws_ecrpublic_repository" "app" {
 }
 
 resource "aws_ecrpublic_repository" "builder" {
-  provider = aws.ecr_public
-
   repository_name = var.builder_ecr_repository_name
 
   catalog_data {
@@ -110,42 +52,6 @@ resource "aws_ecrpublic_repository" "builder" {
   lifecycle {
     prevent_destroy = true
   }
-}
-
-resource "aws_ecr_lifecycle_policy" "builder" {
-  count      = var.retain_legacy_private_ecr_repositories ? 1 : 0
-  repository = aws_ecr_repository.builder[0].name
-
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Remove untagged builder images after seven days"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 7
-        }
-        action = {
-          type = "expire"
-        }
-      },
-      {
-        rulePriority = 2
-        description  = "Retain the latest twenty dependency builder images"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["deps-"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 20
-        }
-        action = {
-          type = "expire"
-        }
-      },
-    ]
-  })
 }
 
 locals {

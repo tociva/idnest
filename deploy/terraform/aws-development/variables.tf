@@ -1,13 +1,3 @@
-variable "aws_region" {
-  type        = string
-  description = "AWS region containing the temporarily retained legacy private ECR repositories."
-  default     = "ap-south-1"
-  validation {
-    condition     = can(regex("^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$", var.aws_region))
-    error_message = "aws_region must be a valid AWS region name."
-  }
-}
-
 variable "ecr_public_region" {
   type        = string
   description = "AWS control-plane region for Amazon ECR Public. AWS requires us-east-1."
@@ -93,18 +83,6 @@ variable "build_role_name" {
 variable "create_github_oidc_provider" {
   type        = bool
   description = "Create the account-wide GitHub OIDC provider; false references an existing provider."
-  default     = false
-}
-
-variable "retain_legacy_private_ecr_repositories" {
-  type        = bool
-  description = "Retain the Terraform-managed private ECR repositories during migration. Set false only after public images are verified and private images may be retired."
-  default     = true
-}
-
-variable "force_delete_ecr_repositories" {
-  type        = bool
-  description = "Permit repository destruction with images. Keep false except deliberate decommissioning."
   default     = false
 }
 

@@ -30,9 +30,8 @@ The checked-in example contains the complete input shape. Verify the immutable
 GitHub owner/repository IDs before applying. `create_github_oidc_provider=false`
 reuses the account-wide provider that already exists.
 
-`retain_legacy_private_ecr_repositories=true` keeps the old private ECR
-repositories during this migration. Retire them later through a separate,
-reviewed plan; do not combine that deletion with deployment-role removal.
+The configuration is ECR Public-only. It contains no private ECR repository,
+lifecycle-policy, regional ECR, or force-delete settings.
 
 ## Plan and apply
 
@@ -47,9 +46,11 @@ terraform -chdir=deploy/terraform/aws-development plan \
 terraform -chdir=deploy/terraform/aws-development show idnest-build-only.tfplan
 ```
 
-The first plan after this change should delete only the obsolete auth/admin
-deployment IAM roles and their policies, while retaining ECR repositories, the
-build role, and GitHub OIDC provider. Apply only after that is confirmed:
+The first plan after this change should create or retain the public ECR
+repositories, retain the build role and GitHub OIDC provider, and delete only
+the obsolete auth/admin deployment IAM roles and their policies. It should
+recognize the private ECR resources as already deleted and must not recreate
+them. Apply only after that is confirmed:
 
 ```bash
 terraform -chdir=deploy/terraform/aws-development apply idnest-build-only.tfplan

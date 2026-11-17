@@ -11,22 +11,13 @@ if [ "$#" -ne 4 ]; then
   exit 2
 fi
 
-registry_input=$1
+registry=$1
 ecr_region=$2
 ecr_repository=$3
 output_file=$4
 
-if [[ "$registry_input" =~ ^[0-9]{12}$ ]]; then
-  # Temporary compatibility for the legacy private-ECR deployment workflows.
-  [[ "$ecr_region" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]] || fail "invalid AWS region"
-  registry=$registry_input.dkr.ecr.$ecr_region.amazonaws.com
-  ecr_service=ecr
-else
-  registry=$registry_input
-  [[ "$registry" =~ ^public\.ecr\.aws/[a-z0-9][a-z0-9._-]*$ ]] || fail "invalid ECR Public registry"
-  [ "$ecr_region" = us-east-1 ] || fail "ECR Public region must be us-east-1"
-  ecr_service=ecr-public
-fi
+[[ "$registry" =~ ^public\.ecr\.aws/[a-z0-9][a-z0-9._-]*$ ]] || fail "invalid ECR Public registry"
+[ "$ecr_region" = us-east-1 ] || fail "ECR Public region must be us-east-1"
 [[ "$ecr_repository" =~ ^[a-z0-9][a-z0-9._/-]*$ ]] || fail "invalid ECR repository name"
 [ -n "$output_file" ] && [ ! -L "$output_file" ] || fail "output file must not be a symbolic link"
 [ ! -e "$output_file" ] || [ -f "$output_file" ] || fail "output path must be a regular file"
@@ -47,7 +38,7 @@ image_tag=deps-$builder_key
 tagged_image=$registry/$ecr_repository:$image_tag
 
 resolve_digest() {
-  aws "$ecr_service" describe-images \
+  aws ecr-public describe-images \
     --region "$ecr_region" \
     --repository-name "$ecr_repository" \
     --image-ids "imageTag=$image_tag" \

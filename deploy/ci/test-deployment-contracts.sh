@@ -67,6 +67,12 @@ reject_pattern 'development-auth|development-admin|development-identity|AWS_DEPL
   deploy/terraform/aws-development/terraform.tfvars.example \
   deploy/tools/sync-ecr-build-github.sh \
   deploy/env/development.env.example
+reject_pattern 'aws_region|retain_legacy_private_ecr|force_delete_ecr|aws_ecr_repository|aws_ecr_lifecycle_policy|aws\.ecr_public' \
+  deploy/terraform/aws-development/*.tf \
+  deploy/terraform/aws-development/terraform.tfvars.example
+reject_pattern 'dkr\.ecr\.|aws ecr describe-images|ecr_service' \
+  deploy/images/ensure-builder-image.sh .github/workflows
+require_text deploy/images/ensure-builder-image.sh 'aws ecr-public describe-images'
 
 reject_pattern 'release.queue|release-queue|KUBECONFIG|deploy/charts|helm' \
   .github deploy/ci deploy/tools deploy/vps deploy/README.md package.json
