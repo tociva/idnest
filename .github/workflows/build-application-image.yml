@@ -7,7 +7,7 @@ on:
         description: Idnest application to build
         required: true
         type: choice
-        options: [auth, admin]
+        options: [auth, admin, all]
       version:
         description: Immutable semantic version, for example 1.4.0
         required: true
@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: idnest-image-${{ inputs.component }}
+  group: idnest-image-release
   cancel-in-progress: false
 
 env:
@@ -30,15 +30,23 @@ jobs:
     if: ${{ github.ref == 'refs/heads/development' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    outputs:
+      components: ${{ steps.request.outputs.components }}
     steps:
       - name: Validate release request
+        id: request
         env:
           COMPONENT: ${{ inputs.component }}
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          [[ "${COMPONENT}" == auth || "${COMPONENT}" == admin ]]
+          [[ "${COMPONENT}" == auth || "${COMPONENT}" == admin || "${COMPONENT}" == all ]]
           [[ "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          case "${COMPONENT}" in
+            auth) printf '%s\n' 'components=["auth"]' >>"${GITHUB_OUTPUT}" ;;
+            admin) printf '%s\n' 'components=["admin"]' >>"${GITHUB_OUTPUT}" ;;
+            all) printf '%s\n' 'components=["auth","admin"]' >>"${GITHUB_OUTPUT}" ;;
+          esac
 
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -66,37 +74,46 @@ jobs:
       - name: Install dependencies
         run: pnpm --dir=monorepo install --frozen-lockfile
 
-      - name: Lint, typecheck and test component
+      - name: Lint, typecheck and test selected components
         env:
           COMPONENT: ${{ inputs.component }}
         run: |
           set -euo pipefail
-          if [[ "${COMPONENT}" == auth ]]; then
-            projects=auth-backend,auth-frontend,authz-store,server-runtime,shared-types
-            cors_test=test:cors:config
-          else
-            projects=admin-backend,admin-frontend,authz-store,server-runtime,shared-types
-            cors_test=test:cors
-          fi
+          case "${COMPONENT}" in
+            auth)
+              projects=auth-backend,auth-frontend,authz-store,server-runtime,shared-types
+              ;;
+            admin)
+              projects=admin-backend,admin-frontend,authz-store,server-runtime,shared-types
+              ;;
+            all)
+              projects=auth-backend,auth-frontend,admin-backend,admin-frontend,authz-store,server-runtime,shared-types
+              ;;
+          esac
           pnpm --dir=monorepo nx run-many -t lint typecheck --projects="${projects}"
           pnpm --dir=monorepo nx run-many -t test --projects="${projects}"
-          pnpm "${cors_test}"
+          if [[ "${COMPONENT}" == auth || "${COMPONENT}" == all ]]; then
+            pnpm test:cors:config
+          fi
+          if [[ "${COMPONENT}" == admin || "${COMPONENT}" == all ]]; then
+            pnpm test:cors
+          fi
           pnpm test:deploy
 
   build:
-    name: Publish ${{ inputs.component }} ${{ inputs.version }}
+    name: Build ${{ matrix.component }} ${{ inputs.version }}
     needs: quality
     if: ${{ needs.quality.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        component: ${{ fromJSON(needs.quality.outputs.components) }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     environment: ecr-build
     permissions:
       contents: read
       id-token: write
-    outputs:
-      digest: ${{ steps.image.outputs.digest }}
-      revision: ${{ github.sha }}
-      release_tag: ${{ steps.metadata.outputs.release_tag }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -106,8 +123,7 @@ jobs:
       - name: Resolve component metadata
         id: metadata
         env:
-          COMPONENT: ${{ inputs.component }}
-          VERSION: ${{ inputs.version }}
+          COMPONENT: ${{ matrix.component }}
           AUTH_ECR_REPOSITORY: ${{ vars.AUTH_ECR_REPOSITORY }}
           ADMIN_ECR_REPOSITORY: ${{ vars.ADMIN_ECR_REPOSITORY }}
         run: |
@@ -129,21 +145,22 @@ jobs:
             echo "repository=${repository}"
             echo "dockerfile=${dockerfile}"
             echo "smoke_test=${smoke_test}"
-            echo "release_tag=${COMPONENT}-v${VERSION}"
             echo "candidate_tag=git-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
             echo "created=$(git show -s --format=%cI "${GITHUB_SHA}")"
           } >>"${GITHUB_OUTPUT}"
 
-      - name: Validate AWS configuration
+      - name: Validate ECR Public configuration
         env:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECR_PUBLIC_REGION: ${{ vars.ECR_PUBLIC_REGION }}
+          ECR_PUBLIC_REGISTRY: ${{ vars.ECR_PUBLIC_REGISTRY }}
           AWS_BUILD_ROLE_ARN: ${{ vars.AWS_BUILD_ROLE_ARN }}
           BUILDER_ECR_REPOSITORY: ${{ vars.BUILDER_ECR_REPOSITORY }}
         run: |
           set -euo pipefail
           [[ "${AWS_ACCOUNT_ID}" =~ ^[0-9]{12}$ ]]
-          [[ "${AWS_REGION}" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]
+          [[ "${ECR_PUBLIC_REGION}" == us-east-1 ]]
+          [[ "${ECR_PUBLIC_REGISTRY}" =~ ^public\.ecr\.aws/[a-z0-9][a-z0-9._-]*$ ]]
           [[ "${AWS_BUILD_ROLE_ARN}" == arn:aws:iam::${AWS_ACCOUNT_ID}:role/* ]]
           [[ "${BUILDER_ECR_REPOSITORY}" =~ ^[a-z0-9][a-z0-9._/-]*$ ]]
 
@@ -151,25 +168,15 @@ jobs:
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ vars.ECR_PUBLIC_REGION }}
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
-          role-session-name: idnest-${{ inputs.component }}-release-${{ github.run_id }}
+          role-session-name: idnest-${{ matrix.component }}-build-${{ github.run_id }}
           mask-aws-account-id: true
 
-      - name: Reject an existing release version
-        env:
-          ECR_REPOSITORY: ${{ steps.metadata.outputs.repository }}
-          RELEASE_TAG: ${{ steps.metadata.outputs.release_tag }}
-        run: |
-          set -euo pipefail
-          existing=$(aws ecr describe-images --repository-name "${ECR_REPOSITORY}" \
-            --image-ids "imageTag=${RELEASE_TAG}" --query 'imageDetails[0].imageDigest' \
-            --output text 2>/dev/null || true)
-          [[ -z "${existing}" || "${existing}" == None ]]
-
-      - name: Log in to Amazon ECR
-        id: ecr
+      - name: Log in to Amazon ECR Public
         uses: aws-actions/amazon-ecr-login@19d944daaa35f0fa1d3f7f8af1d3f2e5de25c5b7 # v2.1.4
+        with:
+          registry-type: public
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -177,14 +184,15 @@ jobs:
       - name: Ensure immutable dependency builder
         id: builder
         env:
-          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECR_PUBLIC_REGION: ${{ vars.ECR_PUBLIC_REGION }}
+          ECR_PUBLIC_REGISTRY: ${{ vars.ECR_PUBLIC_REGISTRY }}
           BUILDER_ECR_REPOSITORY: ${{ vars.BUILDER_ECR_REPOSITORY }}
         run: |
           set -euo pipefail
           output_file="${RUNNER_TEMP}/builder-image.env"
           scripts/docker/ensure-builder-image.sh \
-            "${AWS_ACCOUNT_ID}" "${AWS_REGION}" "${BUILDER_ECR_REPOSITORY}" "${output_file}"
+            "${ECR_PUBLIC_REGISTRY}" "${ECR_PUBLIC_REGION}" \
+            "${BUILDER_ECR_REPOSITORY}" "${output_file}"
           source "${output_file}"
           [[ "${BUILDER_IMAGE}" =~ @sha256:[a-f0-9]{64}$ ]]
           echo "image=${BUILDER_IMAGE}" >>"${GITHUB_OUTPUT}"
@@ -197,27 +205,31 @@ jobs:
           file: ${{ steps.metadata.outputs.dockerfile }}
           platforms: linux/arm64
           push: true
-          tags: ${{ steps.ecr.outputs.registry }}/${{ steps.metadata.outputs.repository }}:${{ steps.metadata.outputs.candidate_tag }}
+          tags: ${{ vars.ECR_PUBLIC_REGISTRY }}/${{ steps.metadata.outputs.repository }}:${{ steps.metadata.outputs.candidate_tag }}
           build-args: |
             BUILDER_IMAGE=${{ steps.builder.outputs.image }}
             APP_VERSION=${{ inputs.version }}
             APP_REVISION=${{ github.sha }}
             APP_CREATED=${{ steps.metadata.outputs.created }}
             APP_SOURCE=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=idnest-${{ inputs.component }}-app
-          cache-to: type=gha,mode=max,scope=idnest-${{ inputs.component }}-app
+          cache-from: type=gha,scope=idnest-${{ matrix.component }}-app
+          cache-to: type=gha,mode=max,scope=idnest-${{ matrix.component }}-app
           provenance: mode=max
           sbom: true
 
       - name: Enforce vulnerability threshold
-        env:
-          ECR_REPOSITORY: ${{ steps.metadata.outputs.repository }}
-          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-        run: ECR_SCAN_PLATFORM=linux/arm64 scripts/ci/gate-ecr-image-scan.sh "${ECR_REPOSITORY}" "${IMAGE_DIGEST}"
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ vars.ECR_PUBLIC_REGISTRY }}/${{ steps.metadata.outputs.repository }}@${{ steps.image.outputs.digest }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: false
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
 
       - name: Smoke-test pushed digest
         env:
-          IMAGE_REF: ${{ steps.ecr.outputs.registry }}/${{ steps.metadata.outputs.repository }}@${{ steps.image.outputs.digest }}
+          IMAGE_REF: ${{ vars.ECR_PUBLIC_REGISTRY }}/${{ steps.metadata.outputs.repository }}@${{ steps.image.outputs.digest }}
           SMOKE_TEST: ${{ steps.metadata.outputs.smoke_test }}
         run: |
           set -euo pipefail
@@ -225,33 +237,121 @@ jobs:
           docker pull --platform linux/arm64 "${IMAGE_REF}"
           "${SMOKE_TEST}" "${IMAGE_REF}"
 
-      - name: Publish immutable release version
-        env:
-          ECR_REPOSITORY: ${{ steps.metadata.outputs.repository }}
-          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-          RELEASE_TAG: ${{ steps.metadata.outputs.release_tag }}
-        run: scripts/ci/promote-ecr-image.sh "${ECR_REPOSITORY}" "${IMAGE_DIGEST}" "${RELEASE_TAG}"
-
       - name: Remove failed candidate tag
         if: ${{ failure() && steps.metadata.outputs.candidate_tag != '' }}
         continue-on-error: true
         env:
+          ECR_PUBLIC_REGION: ${{ vars.ECR_PUBLIC_REGION }}
           ECR_REPOSITORY: ${{ steps.metadata.outputs.repository }}
           CANDIDATE_TAG: ${{ steps.metadata.outputs.candidate_tag }}
         run: |
-          aws ecr batch-delete-image --repository-name "${ECR_REPOSITORY}" \
+          aws ecr-public batch-delete-image --region "${ECR_PUBLIC_REGION}" \
+            --repository-name "${ECR_REPOSITORY}" \
             --image-ids "imageTag=${CANDIDATE_TAG}" >/dev/null
 
-      - name: Publish release summary
-        if: ${{ success() }}
-        run: |
-          {
-            echo '### Idnest application image'
-            echo '- Component: `${{ inputs.component }}`'
-            echo '- Version: `${{ inputs.version }}`'
-            echo '- Tag: `${{ steps.metadata.outputs.release_tag }}`'
-            echo '- Revision: `${{ github.sha }}`'
-            echo '- Digest: `${{ steps.image.outputs.digest }}`'
-            echo '- Platform: `linux/arm64`'
-          } >>"${GITHUB_STEP_SUMMARY}"
+  publish:
+    name: Publish ${{ inputs.component }} ${{ inputs.version }}
+    needs: [quality, build]
+    if: ${{ always() && needs.quality.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: ecr-build
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
+      - name: Configure short-lived AWS build credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ vars.ECR_PUBLIC_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          role-session-name: idnest-publish-${{ github.run_id }}
+          mask-aws-account-id: true
+
+      - name: Log in to Amazon ECR Public
+        uses: aws-actions/amazon-ecr-login@19d944daaa35f0fa1d3f7f8af1d3f2e5de25c5b7 # v2.1.4
+        with:
+          registry-type: public
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Publish release tags or clean up failed candidates
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          COMPONENT: ${{ inputs.component }}
+          VERSION: ${{ inputs.version }}
+          ECR_PUBLIC_REGION: ${{ vars.ECR_PUBLIC_REGION }}
+          ECR_PUBLIC_REGISTRY: ${{ vars.ECR_PUBLIC_REGISTRY }}
+          AUTH_ECR_REPOSITORY: ${{ vars.AUTH_ECR_REPOSITORY }}
+          ADMIN_ECR_REPOSITORY: ${{ vars.ADMIN_ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          candidate_tag=git-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}
+          if [[ "${COMPONENT}" == all ]]; then
+            components=(auth admin)
+          else
+            components=("${COMPONENT}")
+          fi
+
+          repository_for() {
+            if [[ "$1" == auth ]]; then
+              printf '%s\n' "${AUTH_ECR_REPOSITORY}"
+            else
+              printf '%s\n' "${ADMIN_ECR_REPOSITORY}"
+            fi
+          }
+
+          cleanup_candidates() {
+            for item in "${components[@]}"; do
+              repository=$(repository_for "${item}")
+              aws ecr-public batch-delete-image --region "${ECR_PUBLIC_REGION}" \
+                --repository-name "${repository}" \
+                --image-ids "imageTag=${candidate_tag}" >/dev/null 2>&1 || true
+            done
+          }
+          trap cleanup_candidates EXIT
+
+          [[ "${BUILD_RESULT}" == success ]] || {
+            echo "At least one component failed validation; no release tag was published." >&2
+            exit 1
+          }
+
+          # Check every final tag before publishing any of them. This preserves
+          # the all-components release contract for normal and retry paths.
+          for item in "${components[@]}"; do
+            repository=$(repository_for "${item}")
+            release_tag=${item}-v${VERSION}
+            existing=$(aws ecr-public describe-images --region "${ECR_PUBLIC_REGION}" \
+              --repository-name "${repository}" --image-ids "imageTag=${release_tag}" \
+              --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)
+            [[ -z "${existing}" || "${existing}" == None ]] || {
+              echo "Release tag already exists: ${repository}:${release_tag}" >&2
+              exit 1
+            }
+          done
+
+          for item in "${components[@]}"; do
+            repository=$(repository_for "${item}")
+            release_tag=${item}-v${VERSION}
+            candidate_digest=$(aws ecr-public describe-images --region "${ECR_PUBLIC_REGION}" \
+              --repository-name "${repository}" --image-ids "imageTag=${candidate_tag}" \
+              --query 'imageDetails[0].imageDigest' --output text)
+            [[ "${candidate_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
+            scripts/ci/promote-ecr-public-image.sh \
+              "${ECR_PUBLIC_REGISTRY}" "${repository}" \
+              "${candidate_digest}" "${release_tag}"
+            {
+              echo "### Idnest ${item} image"
+              echo "- Version: \`${VERSION}\`"
+              echo "- Image: \`${ECR_PUBLIC_REGISTRY}/${repository}:${release_tag}\`"
+              echo "- Digest: \`${candidate_digest}\`"
+              echo "- Platform: \`linux/arm64\`"
+            } >>"${GITHUB_STEP_SUMMARY}"
+          done

@@ -47,7 +47,7 @@ expected_environments="development-admin development-auth development-identity e
 expected_keys() {
   case "$1" in
     ecr-build)
-      printf '%s\n' "ADMIN_ECR_REPOSITORY AUTH_ECR_REPOSITORY AWS_ACCOUNT_ID AWS_BUILD_ROLE_ARN AWS_REGION BUILDER_ECR_REPOSITORY"
+      printf '%s\n' "ADMIN_ECR_REPOSITORY AUTH_ECR_REPOSITORY AWS_ACCOUNT_ID AWS_BUILD_ROLE_ARN AWS_REGION BUILDER_ECR_REPOSITORY ECR_PUBLIC_REGION ECR_PUBLIC_REGISTRY"
       ;;
     development-auth|development-admin)
       printf '%s\n' "AWS_ACCOUNT_ID AWS_DEPLOY_ROLE_ARN AWS_REGION ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER"
@@ -74,6 +74,12 @@ validate_value() {
       ;;
     AWS_REGION)
       [[ "$value" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]] || fail "$key is not a valid AWS region"
+      ;;
+    ECR_PUBLIC_REGION)
+      [ "$value" = us-east-1 ] || fail "$key must be us-east-1"
+      ;;
+    ECR_PUBLIC_REGISTRY)
+      [[ "$value" =~ ^public\.ecr\.aws/[a-z0-9][a-z0-9._-]*$ ]] || fail "$key is not a valid ECR Public registry"
       ;;
     AWS_BUILD_ROLE_ARN|AWS_DEPLOY_ROLE_ARN)
       [[ "$value" =~ ^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]] || fail "$key is not a valid IAM role ARN"

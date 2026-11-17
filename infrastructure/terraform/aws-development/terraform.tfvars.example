@@ -1,4 +1,5 @@
 aws_region                 = "ap-south-1"
+ecr_public_region          = "us-east-1"
 github_repository          = "tociva/idnest"
 github_repository_owner_id = "217876362"
 github_repository_id       = "1016627095"
@@ -24,8 +25,8 @@ deploy_role_names = {
 # GitHub's OIDC provider is account-wide and already exists in this AWS account.
 # Use true only in a new account where token.actions.githubusercontent.com is absent.
 create_github_oidc_provider   = false
-create_ecr_repositories       = true
-force_delete_ecr_repositories = false
+retain_legacy_private_ecr_repositories = true
+force_delete_ecr_repositories          = false
 
 # This must be an SSH-reachable DNS-only hostname or IP address. Do not use one
 # of the Cloudflare-proxied application hostnames for SSH. All three workflows

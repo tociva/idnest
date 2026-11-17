@@ -22,7 +22,15 @@ set -eu
 arguments=$*
 case "$arguments" in
   *"describe-images"*"--query imageDetails[0].imageDigest"*)
-    printf '%s\n' "${MOCK_EXISTING_DIGEST:-None}"
+    if [ -n "${MOCK_PUBLIC_STATE:-}" ]; then
+      if [ -f "$MOCK_PUBLIC_STATE" ]; then
+        printf '%s\n' "$MOCK_DIGEST"
+      else
+        printf '%s\n' None
+      fi
+    else
+      printf '%s\n' "${MOCK_EXISTING_DIGEST:-None}"
+    fi
     ;;
   *"describe-images"*"--query imageDetails[0]"*)
     printf '{"imageDigest":"%s","imageTags":["auth-v1.4.0","git-%s-123-1"]}\n' \
@@ -52,6 +60,21 @@ esac
 EOF
 chmod 700 "$mock_bin/aws"
 
+cat >"$mock_bin/docker" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+case "$*" in
+  "buildx imagetools create --tag public.ecr.aws/idnest/idnest/auth-app:auth-v1.4.0 public.ecr.aws/idnest/idnest/auth-app@"*)
+    : >"$MOCK_PUBLIC_STATE"
+    ;;
+  *)
+    echo "Unexpected mocked Docker command: $*" >&2
+    exit 64
+    ;;
+esac
+EOF
+chmod 700 "$mock_bin/docker"
+
 export MOCK_DIGEST=$digest
 export MOCK_REVISION=$revision
 export PATH=$mock_bin:$PATH
@@ -72,6 +95,18 @@ MOCK_EXISTING_DIGEST=$digest
 export MOCK_EXISTING_DIGEST
 if $SCRIPT_DIR/promote-ecr-image.sh idnest/auth-app "$digest" auth-v1.4.0 >/dev/null 2>&1; then
   fail "release promotion accepted an existing immutable version"
+fi
+
+unset MOCK_EXISTING_DIGEST
+export MOCK_PUBLIC_STATE=$temporary/public-promoted
+public_promotion_output=$(ECR_PUBLIC_REGION=us-east-1 \
+  "$SCRIPT_DIR/promote-ecr-public-image.sh" \
+  public.ecr.aws/idnest idnest/auth-app "$digest" auth-v1.4.0)
+[[ "$public_promotion_output" == *"Published public.ecr.aws/idnest/idnest/auth-app:auth-v1.4.0"* ]] \
+  || fail "ECR Public promotion did not publish the version tag"
+if ECR_PUBLIC_REGION=us-east-1 "$SCRIPT_DIR/promote-ecr-public-image.sh" \
+  public.ecr.aws/idnest idnest/auth-app "$digest" auth-v1.4.0 >/dev/null 2>&1; then
+  fail "ECR Public promotion accepted an existing immutable version"
 fi
 
 echo "Image release contracts passed."

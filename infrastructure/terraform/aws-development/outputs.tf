@@ -20,22 +20,40 @@ output "aws_deploy_role_arns" {
 
 output "ecr_repositories" {
   value       = var.ecr_repository_names
-  description = "ECR repository names consumed by the workflows."
+  description = "ECR Public repository names consumed by the workflows."
+}
+
+output "ecr_public_region" {
+  value       = var.ecr_public_region
+  description = "Amazon ECR Public control-plane region."
+}
+
+output "ecr_public_registry" {
+  value       = local.ecr_public_registry
+  description = "ECR Public registry URI including the AWS-assigned registry alias."
+}
+
+output "ecr_public_repository_urls" {
+  value = merge(
+    { for kind, repository in aws_ecrpublic_repository.app : kind => repository.repository_uri },
+    { builder = aws_ecrpublic_repository.builder.repository_uri },
+  )
+  description = "Complete ECR Public repository URIs for application and builder images."
 }
 
 output "builder_ecr_repository_name" {
   value       = var.builder_ecr_repository_name
-  description = "Private ECR repository name for the dependency builder image."
+  description = "ECR Public repository name for the dependency builder image."
 }
 
 output "builder_ecr_repository_arn" {
-  value       = local.builder_ecr_repository_arn
-  description = "Private ECR repository ARN for the dependency builder image."
+  value       = aws_ecrpublic_repository.builder.arn
+  description = "ECR Public repository ARN for the dependency builder image."
 }
 
 output "builder_ecr_repository_url" {
-  value       = local.builder_ecr_repository_url
-  description = "Private ECR repository URL for the dependency builder image."
+  value       = aws_ecrpublic_repository.builder.repository_uri
+  description = "ECR Public repository URL for the dependency builder image."
 }
 
 output "github_environment_variables" {
@@ -44,6 +62,8 @@ output "github_environment_variables" {
     "ecr-build" = {
       AWS_ACCOUNT_ID         = data.aws_caller_identity.current.account_id
       AWS_REGION             = var.aws_region
+      ECR_PUBLIC_REGION      = var.ecr_public_region
+      ECR_PUBLIC_REGISTRY    = local.ecr_public_registry
       AWS_BUILD_ROLE_ARN     = aws_iam_role.build.arn
       AUTH_ECR_REPOSITORY    = var.ecr_repository_names.auth
       ADMIN_ECR_REPOSITORY   = var.ecr_repository_names.admin

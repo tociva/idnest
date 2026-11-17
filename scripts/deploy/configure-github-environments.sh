@@ -74,6 +74,8 @@ validate_env_contract() {
       malformed = 0
       if (key == "AWS_ACCOUNT_ID" && (length(value) != 12 || value !~ /^[0-9]+$/)) malformed = 1
       if (key == "AWS_REGION" && value !~ /^[a-z][a-z](-gov)?-[a-z]+-[0-9]+$/) malformed = 1
+      if (key == "ECR_PUBLIC_REGION" && value != "us-east-1") malformed = 1
+      if (key == "ECR_PUBLIC_REGISTRY" && value !~ /^public\.ecr\.aws\/[a-z0-9][a-z0-9._-]*$/) malformed = 1
       if ((key == "AWS_BUILD_ROLE_ARN" || key == "AWS_DEPLOY_ROLE_ARN") && value !~ /^arn:aws:iam::[0-9]+:role\/[A-Za-z0-9+=,.@_\/-]+$/) malformed = 1
       if ((key == "AUTH_ECR_REPOSITORY" || key == "ADMIN_ECR_REPOSITORY" || key == "BUILDER_ECR_REPOSITORY" || key == "ECR_REPOSITORY") && value !~ /^[a-z0-9][a-z0-9._\/-]*$/) malformed = 1
       if (key == "VPS_HOST" && value !~ /^[A-Za-z0-9.-]+$/) malformed = 1
@@ -110,7 +112,7 @@ for environment in ecr-build development-auth development-admin development-iden
   }
   case "$environment" in
     ecr-build)
-      expected="AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY"
+      expected="AWS_ACCOUNT_ID AWS_REGION ECR_PUBLIC_REGION ECR_PUBLIC_REGISTRY AWS_BUILD_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY"
       ;;
     development-auth)
       expected="AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS"
@@ -193,7 +195,7 @@ grep -q '^APPLE_PRIVATE_KEY_B64=' "$prepared_directory/development-identity.secr
 expected_variables_for_environment() {
   case "$1" in
     ecr-build)
-      printf '%s\n' "AWS_ACCOUNT_ID AWS_REGION AWS_BUILD_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY"
+      printf '%s\n' "AWS_ACCOUNT_ID AWS_REGION ECR_PUBLIC_REGION ECR_PUBLIC_REGISTRY AWS_BUILD_ROLE_ARN AUTH_ECR_REPOSITORY ADMIN_ECR_REPOSITORY BUILDER_ECR_REPOSITORY"
       ;;
     development-auth)
       printf '%s\n' "AWS_ACCOUNT_ID AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY VPS_HOST VPS_PORT VPS_USER ADMIN_BOOTSTRAP_EMAILS KUBE_NAMESPACE APP_SECRET_NAME PUBLIC_HEALTH_URL KUBERNETES_ACCESS_HOSTNAME CLOUDFLARED_VERSION CLOUDFLARED_LINUX_AMD64_SHA256 ECR_IMAGE_PULL_SECRET"

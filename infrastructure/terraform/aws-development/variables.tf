@@ -8,6 +8,16 @@ variable "aws_region" {
   }
 }
 
+variable "ecr_public_region" {
+  type        = string
+  description = "AWS control-plane region for Amazon ECR Public. AWS requires us-east-1."
+  default     = "us-east-1"
+  validation {
+    condition     = var.ecr_public_region == "us-east-1"
+    error_message = "ecr_public_region must be us-east-1 for Amazon ECR Public."
+  }
+}
+
 variable "github_repository" {
   type        = string
   description = "GitHub repository in owner/name form."
@@ -65,7 +75,7 @@ variable "deploy_environment_names" {
 
 variable "ecr_repository_names" {
   type        = map(string)
-  description = "Private ECR repository name for each application."
+  description = "ECR Public repository name for each application."
   default = {
     auth  = "idnest/auth-app"
     admin = "idnest/admin-app"
@@ -82,7 +92,7 @@ variable "ecr_repository_names" {
 
 variable "builder_ecr_repository_name" {
   type        = string
-  description = "Private ECR repository containing CI builder dependency images."
+  description = "ECR Public repository containing CI builder dependency images."
   default     = "idnest/builder-base"
 
   validation {
@@ -146,9 +156,9 @@ variable "create_github_oidc_provider" {
   default     = false
 }
 
-variable "create_ecr_repositories" {
+variable "retain_legacy_private_ecr_repositories" {
   type        = bool
-  description = "Create the application and builder ECR repositories; false references existing repositories."
+  description = "Retain the Terraform-managed private ECR repositories during migration. Set false only after public images are verified and private images may be retired."
   default     = true
 }
 

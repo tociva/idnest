@@ -136,9 +136,11 @@ for workflow in \
 done
 
 require_text .github/workflows/build-application-image.yml \
-  'scripts/ci/promote-ecr-image.sh'
+  'scripts/ci/promote-ecr-public-image.sh'
 require_text .github/workflows/build-application-image.yml \
-  'scripts/ci/gate-ecr-image-scan.sh'
+  'aquasecurity/trivy-action@'
+require_text .github/workflows/build-application-image.yml \
+  'options: [auth, admin, all]'
 require_text .github/workflows/deploy-application-version.yml \
   'scripts/ci/resolve-ecr-release.sh'
 require_text .github/workflows/deploy-application-version.yml \
@@ -202,7 +204,7 @@ generated_cipher_secret=$(awk -F= '$1 == "KRATOS_CIPHER_SECRET" { print $2 }' "$
 [ "${#generated_cipher_secret}" -eq 32 ] \
   || fail "development environment generator wrote invalid KRATOS_CIPHER_SECRET length"
 generated_placeholder_keys=$(awk -F= '$2 ~ /^replace-with-/ { print $1 }' "$generated_development_env" | sort | tr '\n' ' ')
-expected_placeholder_keys="ADMIN_AWS_DEPLOY_ROLE_ARN ADMIN_BOOTSTRAP_EMAILS ADMIN_ECR_REPOSITORY AUTH_AWS_DEPLOY_ROLE_ARN AUTH_ECR_REPOSITORY AWS_ACCOUNT_ID AWS_BUILD_ROLE_ARN AWS_REGION BUILDER_ECR_REPOSITORY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET VPS_HOST VPS_PORT VPS_USER "
+expected_placeholder_keys="ADMIN_AWS_DEPLOY_ROLE_ARN ADMIN_BOOTSTRAP_EMAILS ADMIN_ECR_REPOSITORY AUTH_AWS_DEPLOY_ROLE_ARN AUTH_ECR_REPOSITORY AWS_ACCOUNT_ID AWS_BUILD_ROLE_ARN AWS_REGION BUILDER_ECR_REPOSITORY ECR_PUBLIC_REGISTRY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET VPS_HOST VPS_PORT VPS_USER "
 [ "$generated_placeholder_keys" = "$expected_placeholder_keys" ] \
   || fail "development environment generator wrote unexpected replace-with placeholders"
 printf '%s' "$(awk -F= '$1 == "DELEGATION_SIGNING_PRIVATE_KEY_B64" { print $2 }' "$generated_development_env")" \

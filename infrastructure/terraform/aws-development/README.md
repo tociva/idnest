@@ -1,12 +1,12 @@
 # AWS Development Terraform
 
 This guide covers the AWS development infrastructure used by the GitHub Actions
-development deployment flow.
+image build and publication flow.
 
 ## Provision AWS with Terraform
 
 Install Terraform, AWS CLI, GitHub CLI, `jq`, OpenSSL, and OpenSSH on a trusted
-workstation. Authenticate AWS with permission to manage ECR, IAM roles and
+workstation. Authenticate AWS with permission to manage ECR Public, IAM roles and
 policies, and the account-wide GitHub OIDC provider.
 
 ```bash
@@ -28,6 +28,7 @@ editor. The checked-in example contains the complete development configuration:
 
 ```hcl
 aws_region                 = "ap-south-1"
+ecr_public_region          = "us-east-1"
 github_repository          = "tociva/idnest"
 github_repository_owner_id = "217876362"
 github_repository_id       = "1016627095"
@@ -51,8 +52,8 @@ deploy_role_names = {
 }
 
 create_github_oidc_provider   = false
-create_ecr_repositories       = true
-force_delete_ecr_repositories = false
+retain_legacy_private_ecr_repositories = true
+force_delete_ecr_repositories          = false
 
 github_deployment_targets = {
   development-auth = {
@@ -81,22 +82,30 @@ Terraform also applies the provider-level tags `Application=idnest`,
 `Environment=development`, and `ManagedBy=terraform` to supported AWS
 resources. Values in `tags` are merged with those defaults.
 
-The application repositories are immutable and remove untagged manifests after
-seven days. The build role can publish candidate and release tags, enforce ECR
-image scans, and remove a failed candidate tag. Component deployment roles can
-read scan findings before a Kubernetes deployment. Re-apply a reviewed plan
-after changing these IAM or lifecycle contracts.
+Terraform creates three public repositories in the account's ECR Public
+registry: `idnest/auth-app`, `idnest/admin-app`, and `idnest/builder-base`.
+ECR Public's control plane is fixed to `us-east-1`, independently of the
+application region. The build role can push, describe, promote, and remove
+images in only these public repositories. Public pulls require no AWS role.
 
-These defaults reuse the account's existing GitHub OIDC provider and create the
-two application ECR repositories plus the separate dependency-builder
-repository. AWS permits only one provider for
+ECR Public does not provide private ECR's repository immutability, lifecycle,
+or scan-on-push controls. The workflows therefore reject an existing semantic
+version before publication, remove temporary candidate tags, and run Trivy
+against each candidate before creating its release tag.
+
+These defaults reuse the account's existing GitHub OIDC provider. AWS permits only one provider for
 `https://token.actions.githubusercontent.com` in an account, so it is shared
 with other projects. Set `create_github_oidc_provider=true` only in a new AWS
-account where that provider does not exist. Change `create_ecr_repositories` to
-`false` only if all three named repositories already exist. Keep
-`force_delete_ecr_repositories=false` for normal operation.
+account where that provider does not exist.
 
-Idnest remains isolated through its own `idnest-*` IAM roles and ECR
+`retain_legacy_private_ecr_repositories=true` deliberately keeps the existing
+private repositories during the migration, so applying this change does not
+delete previously published images. After the public images and VPS pulls are
+verified, those repositories can be retired in a separate reviewed plan by
+setting the value to `false`. Keep `force_delete_ecr_repositories=false` unless
+their remaining images have been deliberately removed first.
+
+Idnest remains isolated through its own `idnest-*` IAM roles and ECR Public
 repositories. Each role's trust policy also restricts tokens to the immutable
 `tociva@217876362/idnest@1016627095` repository identity and the exact GitHub
 environment used by that role. Verify the immutable repository values before
@@ -129,8 +138,12 @@ terraform -chdir=infrastructure/terraform/aws-development apply \
   idnest-deployment.tfplan
 terraform -chdir=infrastructure/terraform/aws-development output \
   github_environment_variables
+
+./scripts/deploy/update-development-env-from-terraform.sh
+./scripts/deploy/update-development-github-environments.sh
 ```
 
-Run the output command only after a successful apply. Terraform reads outputs
-from state, so `github_environment_variables` is unavailable when an apply
-fails before the new state and outputs are committed.
+Run the output and synchronization commands only after a successful apply.
+Terraform derives `ECR_PUBLIC_REGISTRY` from the AWS-assigned public registry
+alias, then the sync scripts replace the temporary marker in
+`tmp/development.env` and update the protected `ecr-build` GitHub Environment.

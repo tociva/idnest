@@ -2,7 +2,7 @@
 
 This guide covers the local Hydra/Kratos Docker stack, Kratos configuration
 refreshes, CORS integration checks, and the shared ARM64 dependency builder
-image used by development deployments.
+image used by the application build pipeline.
 
 ## Local Hydra and Kratos
 
@@ -24,7 +24,7 @@ docker compose -f scripts/docker/docker-compose.yml up -d --force-recreate krato
 
 ## ARM64 dependency builder image
 
-The auth and admin image builds share a private dependency image in
+The auth and admin image builds share a public dependency image in
 `idnest/builder-base`. It contains Node, Corepack, pnpm, and the frozen workspace
 dependency tree, but no application source, build output, environment file, or
 runtime secret. The Node 22.22.0 image is pinned by its Docker manifest digest,
@@ -39,11 +39,11 @@ runs exactly once inside the ARM64 application-image build.
 
 ### Provisioning and GitHub variables
 
-Terraform creates the separate immutable ECR repository, enables scan-on-push,
-and applies a lifecycle policy that removes untagged images after seven days and
-retains the latest twenty tagged dependency images. Only the `ecr-build` role
-can push or pull builder images; application deployment roles remain limited to
-their respective runtime repositories.
+Terraform creates the repository in ECR Public. Only the protected `ecr-build`
+OIDC role can push it; anyone can pull it, so its Dockerfile contract explicitly
+excludes application source, build output, environment files, and runtime
+secrets. Application builds consume the builder by digest rather than trusting
+its mutable dependency tag.
 
 After applying a reviewed Terraform plan, synchronize the repository name
 through the existing protected bulk-update path:
@@ -58,8 +58,9 @@ terraform -chdir=infrastructure/terraform/aws-development apply \
 ./scripts/deploy/update-development-github-environments.sh
 ```
 
-This adds the non-secret `BUILDER_ECR_REPOSITORY` variable only to the protected
-`ecr-build` GitHub Environment. Do not maintain it manually in GitHub.
+This adds `ECR_PUBLIC_REGION`, the AWS-assigned `ECR_PUBLIC_REGISTRY`, and the
+non-secret repository names to the protected `ecr-build` GitHub Environment.
+Do not maintain them manually in GitHub.
 
 ### Image identity and rebuilds
 
@@ -79,7 +80,7 @@ gh workflow run build-builder-base-development.yml \
 gh run watch --repo tociva/idnest --exit-status
 ```
 
-The workflow uses short-lived GitHub OIDC credentials, checks ECR before
+The workflow uses short-lived GitHub OIDC credentials, checks ECR Public before
 building, builds only on a miss, publishes SBOM and maximum provenance
 attestations, resolves the immutable digest, and verifies Node, pnpm,
 `node_modules`, and the ARM64 architecture. Auth and admin call the same ensure
@@ -89,8 +90,8 @@ has not completed yet.
 Inspect the published images without printing credentials:
 
 ```bash
-aws ecr describe-images \
-  --region ap-south-1 \
+aws ecr-public describe-images \
+  --region us-east-1 \
   --repository-name idnest/builder-base \
   --query 'reverse(sort_by(imageDetails,& imagePushedAt))[:5].[imageTags[0],imageDigest,imagePushedAt]' \
   --output table

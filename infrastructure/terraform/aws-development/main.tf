@@ -21,7 +21,7 @@ data "aws_iam_openid_connect_provider" "github" {
 }
 
 resource "aws_ecr_repository" "app" {
-  for_each = var.create_ecr_repositories ? var.ecr_repository_names : {}
+  for_each = var.retain_legacy_private_ecr_repositories ? var.ecr_repository_names : {}
 
   name                 = each.value
   image_tag_mutability = "IMMUTABLE"
@@ -37,7 +37,7 @@ resource "aws_ecr_repository" "app" {
 }
 
 resource "aws_ecr_lifecycle_policy" "app" {
-  for_each   = var.create_ecr_repositories ? var.ecr_repository_names : {}
+  for_each   = var.retain_legacy_private_ecr_repositories ? var.ecr_repository_names : {}
   repository = aws_ecr_repository.app[each.key].name
 
   policy = jsonencode({
@@ -59,13 +59,8 @@ resource "aws_ecr_lifecycle_policy" "app" {
   })
 }
 
-data "aws_ecr_repository" "app" {
-  for_each = var.create_ecr_repositories ? {} : var.ecr_repository_names
-  name     = each.value
-}
-
 resource "aws_ecr_repository" "builder" {
-  count = var.create_ecr_repositories ? 1 : 0
+  count = var.retain_legacy_private_ecr_repositories ? 1 : 0
 
   name                 = var.builder_ecr_repository_name
   image_tag_mutability = "IMMUTABLE"
@@ -80,13 +75,45 @@ resource "aws_ecr_repository" "builder" {
   }
 }
 
-data "aws_ecr_repository" "builder" {
-  count = var.create_ecr_repositories ? 0 : 1
-  name  = var.builder_ecr_repository_name
+resource "aws_ecrpublic_repository" "app" {
+  provider = aws.ecr_public
+  for_each = var.ecr_repository_names
+
+  repository_name = each.value
+
+  catalog_data {
+    architectures     = ["ARM 64"]
+    operating_systems = ["Linux"]
+    description       = "Idnest ${each.key} application image"
+    about_text        = "Official ARM64 Linux container images for the open-source Idnest ${each.key} application."
+    usage_text        = "Pull a versioned image with `docker pull ${each.value}:<tag>` after prefixing the repository with its public.ecr.aws registry URI."
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecrpublic_repository" "builder" {
+  provider = aws.ecr_public
+
+  repository_name = var.builder_ecr_repository_name
+
+  catalog_data {
+    architectures     = ["ARM 64"]
+    operating_systems = ["Linux"]
+    description       = "Idnest reproducible dependency builder image"
+    about_text        = "Dependency-only ARM64 Linux builder image used by the open-source Idnest CI pipeline. It contains no application source or runtime secrets."
+    usage_text        = "This repository is consumed by the Idnest application image build pipeline and is pinned by digest."
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_ecr_lifecycle_policy" "builder" {
-  count      = var.create_ecr_repositories ? 1 : 0
+  count      = var.retain_legacy_private_ecr_repositories ? 1 : 0
   repository = aws_ecr_repository.builder[0].name
 
   policy = jsonencode({
@@ -132,14 +159,18 @@ locals {
     var.github_repository_id,
   )
   ecr_repository_arns = {
-    for kind in keys(var.ecr_repository_names) : kind => (
-      var.create_ecr_repositories ? aws_ecr_repository.app[kind].arn : data.aws_ecr_repository.app[kind].arn
-    )
+    for kind, name in var.ecr_repository_names : kind =>
+    "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${name}"
   }
-  builder_ecr_repository_arn = var.create_ecr_repositories ? one(aws_ecr_repository.builder[*].arn) : one(data.aws_ecr_repository.builder[*].arn)
-  builder_ecr_repository_url = var.create_ecr_repositories ? one(aws_ecr_repository.builder[*].repository_url) : one(data.aws_ecr_repository.builder[*].repository_url)
-  oidc_audience_key          = "token.actions.githubusercontent.com:aud"
-  oidc_subject_key           = "token.actions.githubusercontent.com:sub"
+  ecr_public_repository_arns = {
+    for kind, repository in aws_ecrpublic_repository.app : kind => repository.arn
+  }
+  ecr_public_registry = trimsuffix(
+    aws_ecrpublic_repository.app["auth"].repository_uri,
+    "/${var.ecr_repository_names.auth}",
+  )
+  oidc_audience_key = "token.actions.githubusercontent.com:aud"
+  oidc_subject_key  = "token.actions.githubusercontent.com:sub"
 }
 
 data "aws_iam_policy_document" "build_assume_role" {
@@ -207,28 +238,27 @@ resource "aws_iam_role" "deploy" {
 
 data "aws_iam_policy_document" "build_ecr" {
   statement {
-    sid       = "GetEcrAuthorizationToken"
-    effect    = "Allow"
-    actions   = ["ecr:GetAuthorizationToken"]
+    sid    = "GetEcrPublicAuthorizationToken"
+    effect = "Allow"
+    actions = [
+      "ecr-public:GetAuthorizationToken",
+      "sts:GetServiceBearerToken",
+    ]
     resources = ["*"]
   }
   statement {
-    sid    = "PushAndPullBuildImages"
+    sid    = "ManagePublicBuildImages"
     effect = "Allow"
     actions = [
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:BatchDeleteImage",
-      "ecr:BatchGetImage",
-      "ecr:CompleteLayerUpload",
-      "ecr:DescribeImageScanFindings",
-      "ecr:DescribeImages",
-      "ecr:GetDownloadUrlForLayer",
-      "ecr:InitiateLayerUpload",
-      "ecr:PutImage",
-      "ecr:StartImageScan",
-      "ecr:UploadLayerPart",
+      "ecr-public:BatchCheckLayerAvailability",
+      "ecr-public:BatchDeleteImage",
+      "ecr-public:CompleteLayerUpload",
+      "ecr-public:DescribeImages",
+      "ecr-public:InitiateLayerUpload",
+      "ecr-public:PutImage",
+      "ecr-public:UploadLayerPart",
     ]
-    resources = concat(values(local.ecr_repository_arns), [local.builder_ecr_repository_arn])
+    resources = concat(values(local.ecr_public_repository_arns), [aws_ecrpublic_repository.builder.arn])
   }
 }
 

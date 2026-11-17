@@ -7,17 +7,26 @@ fail() {
 }
 
 if [ "$#" -ne 4 ]; then
-  echo "Usage: $0 AWS_ACCOUNT_ID AWS_REGION ECR_REPOSITORY OUTPUT_FILE" >&2
+  echo "Usage: $0 ECR_PUBLIC_REGISTRY ECR_PUBLIC_REGION ECR_REPOSITORY OUTPUT_FILE" >&2
   exit 2
 fi
 
-aws_account_id=$1
-aws_region=$2
+registry_input=$1
+ecr_region=$2
 ecr_repository=$3
 output_file=$4
 
-[[ "$aws_account_id" =~ ^[0-9]{12}$ ]] || fail "AWS account ID must contain exactly 12 digits"
-[[ "$aws_region" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]] || fail "invalid AWS region"
+if [[ "$registry_input" =~ ^[0-9]{12}$ ]]; then
+  # Temporary compatibility for the legacy private-ECR deployment workflows.
+  [[ "$ecr_region" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]] || fail "invalid AWS region"
+  registry=$registry_input.dkr.ecr.$ecr_region.amazonaws.com
+  ecr_service=ecr
+else
+  registry=$registry_input
+  [[ "$registry" =~ ^public\.ecr\.aws/[a-z0-9][a-z0-9._-]*$ ]] || fail "invalid ECR Public registry"
+  [ "$ecr_region" = us-east-1 ] || fail "ECR Public region must be us-east-1"
+  ecr_service=ecr-public
+fi
 [[ "$ecr_repository" =~ ^[a-z0-9][a-z0-9._/-]*$ ]] || fail "invalid ECR repository name"
 [ -n "$output_file" ] && [ ! -L "$output_file" ] || fail "output file must not be a symbolic link"
 [ ! -e "$output_file" ] || [ -f "$output_file" ] || fail "output path must be a regular file"
@@ -35,12 +44,11 @@ builder_key=$($KEY_SCRIPT)
 [[ "$builder_key" =~ ^[a-f0-9]{64}$ ]] || fail "key helper returned an invalid SHA-256 value"
 
 image_tag=deps-$builder_key
-registry=$aws_account_id.dkr.ecr.$aws_region.amazonaws.com
 tagged_image=$registry/$ecr_repository:$image_tag
 
 resolve_digest() {
-  aws ecr describe-images \
-    --region "$aws_region" \
+  aws "$ecr_service" describe-images \
+    --region "$ecr_region" \
     --repository-name "$ecr_repository" \
     --image-ids "imageTag=$image_tag" \
     --query 'imageDetails[0].imageDigest' \

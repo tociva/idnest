@@ -32,16 +32,20 @@ for application in auth admin; do
 done
 
 for workflow in \
-  "$REPO_ROOT/.github/workflows/deploy-auth-development.yml" \
-  "$REPO_ROOT/.github/workflows/deploy-admin-development.yml"; do
+  "$REPO_ROOT/.github/workflows/build-application-image.yml" \
+  "$REPO_ROOT/.github/workflows/build-builder-base-development.yml"; do
   grep -Fq 'runs-on: ubuntu-24.04-arm' "$workflow" \
     || fail "$workflow does not use a native ARM64 build runner"
-  grep -Fq 'platforms: linux/arm64' "$workflow" \
-    || fail "$workflow does not publish only linux/arm64"
   if grep -Eq 'setup-qemu|linux/amd64' "$workflow"; then
     fail "$workflow still contains an emulated or unused platform"
   fi
 done
+grep -Fq 'platforms: linux/arm64' "$REPO_ROOT/.github/workflows/build-application-image.yml" \
+  || fail "application workflow does not publish only linux/arm64"
+grep -Fq 'registry-type: public' "$REPO_ROOT/.github/workflows/build-application-image.yml" \
+  || fail "application workflow does not authenticate to ECR Public"
+grep -Fq 'registry-type: public' "$REPO_ROOT/.github/workflows/build-builder-base-development.yml" \
+  || fail "builder workflow does not authenticate to ECR Public"
 
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/idnest-builder-contract.XXXXXX")
 cleanup() {

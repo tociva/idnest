@@ -117,6 +117,8 @@ identity_file=$RENDERED_DIRECTORY/development-identity.vars.env
 
 AWS_ACCOUNT_ID=$(dotenv_value "$ecr_file" AWS_ACCOUNT_ID)
 AWS_REGION=$(dotenv_value "$ecr_file" AWS_REGION)
+ECR_PUBLIC_REGION=$(dotenv_value "$ecr_file" ECR_PUBLIC_REGION)
+ECR_PUBLIC_REGISTRY=$(dotenv_value "$ecr_file" ECR_PUBLIC_REGISTRY)
 AWS_BUILD_ROLE_ARN=$(dotenv_value "$ecr_file" AWS_BUILD_ROLE_ARN)
 AUTH_AWS_DEPLOY_ROLE_ARN=$(dotenv_value "$auth_file" AWS_DEPLOY_ROLE_ARN)
 ADMIN_AWS_DEPLOY_ROLE_ARN=$(dotenv_value "$admin_file" AWS_DEPLOY_ROLE_ARN)
@@ -150,6 +152,8 @@ done
 {
   printf 'AWS_ACCOUNT_ID=%s\n' "$AWS_ACCOUNT_ID"
   printf 'AWS_REGION=%s\n' "$AWS_REGION"
+  printf 'ECR_PUBLIC_REGION=%s\n' "$ECR_PUBLIC_REGION"
+  printf 'ECR_PUBLIC_REGISTRY=%s\n' "$ECR_PUBLIC_REGISTRY"
   printf 'AWS_BUILD_ROLE_ARN=%s\n' "$AWS_BUILD_ROLE_ARN"
   printf 'AUTH_AWS_DEPLOY_ROLE_ARN=%s\n' "$AUTH_AWS_DEPLOY_ROLE_ARN"
   printf 'ADMIN_AWS_DEPLOY_ROLE_ARN=%s\n' "$ADMIN_AWS_DEPLOY_ROLE_ARN"
