@@ -18,8 +18,9 @@ esac
 [ ! -L "$output_file" ] || fail "refusing to replace symbolic link: $output_file"
 output_directory=${output_file%/*}
 [ "$output_directory" != "$output_file" ] || output_directory=.
-[ -d "$output_directory" ] && [ ! -L "$output_directory" ] \
-  || fail "output directory must be a regular directory: $output_directory"
+if [ ! -d "$output_directory" ] || [ -L "$output_directory" ]; then
+  fail "output directory must be a regular directory: $output_directory"
+fi
 
 for command in awk chmod dirname mktemp mv openssl rm tr; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"

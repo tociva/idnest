@@ -19,7 +19,9 @@ output_file=$4
 [[ "$registry" =~ ^public\.ecr\.aws/[a-z0-9][a-z0-9._-]*$ ]] || fail "invalid ECR Public registry"
 [ "$ecr_region" = us-east-1 ] || fail "ECR Public region must be us-east-1"
 [[ "$ecr_repository" =~ ^[a-z0-9][a-z0-9._/-]*$ ]] || fail "invalid ECR repository name"
-[ -n "$output_file" ] && [ ! -L "$output_file" ] || fail "output file must not be a symbolic link"
+if [ -z "$output_file" ] || [ -L "$output_file" ]; then
+  fail "output file must not be a symbolic link"
+fi
 [ ! -e "$output_file" ] || [ -f "$output_file" ] || fail "output path must be a regular file"
 
 for command in aws chmod dirname docker mktemp mv rm; do
@@ -29,9 +31,11 @@ done
 SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../.." && pwd)
 KEY_SCRIPT=$SCRIPT_DIR/builder-image-key.sh
-[ -x "$KEY_SCRIPT" ] && [ ! -L "$KEY_SCRIPT" ] || fail "missing executable key helper: $KEY_SCRIPT"
+if [ ! -x "$KEY_SCRIPT" ] || [ -L "$KEY_SCRIPT" ]; then
+  fail "missing executable key helper: $KEY_SCRIPT"
+fi
 
-builder_key=$($KEY_SCRIPT)
+builder_key=$("$KEY_SCRIPT")
 [[ "$builder_key" =~ ^[a-f0-9]{64}$ ]] || fail "key helper returned an invalid SHA-256 value"
 
 image_tag=deps-$builder_key
@@ -77,8 +81,9 @@ fi
 builder_image=$registry/$ecr_repository@$builder_digest
 
 output_directory=$(dirname "$output_file")
-[ -d "$output_directory" ] && [ ! -L "$output_directory" ] \
-  || fail "output directory must be a regular directory"
+if [ ! -d "$output_directory" ] || [ -L "$output_directory" ]; then
+  fail "output directory must be a regular directory"
+fi
 temporary_output=$(mktemp "$output_directory/.builder-image.XXXXXX")
 cleanup() {
   rm -f -- "${temporary_output:-}"

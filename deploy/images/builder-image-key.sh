@@ -55,8 +55,9 @@ for relative_path in \
 done
 
 for workspace_directory in monorepo/apps monorepo/libs; do
-  [ -d "$REPO_ROOT/$workspace_directory" ] && [ ! -L "$REPO_ROOT/$workspace_directory" ] \
-    || fail "missing or invalid workspace directory: $workspace_directory"
+  if [ ! -d "$REPO_ROOT/$workspace_directory" ] || [ -L "$REPO_ROOT/$workspace_directory" ]; then
+    fail "missing or invalid workspace directory: $workspace_directory"
+  fi
 done
 
 find "$REPO_ROOT/monorepo/apps" "$REPO_ROOT/monorepo/libs" \

@@ -55,8 +55,9 @@ if [ -L "$development_directory" ]; then
   DEVELOPMENT_ENV=$development_directory/$development_filename
 fi
 if [ -e "$development_directory" ] || [ -L "$development_directory" ]; then
-  [ -d "$development_directory" ] && [ ! -L "$development_directory" ] \
-    || fail "development input directory is invalid: $development_directory"
+  if [ ! -d "$development_directory" ] || [ -L "$development_directory" ]; then
+    fail "development input directory is invalid: $development_directory"
+  fi
 else
   install -d -m 700 "$development_directory" \
     || fail "could not create protected input directory: $development_directory"
