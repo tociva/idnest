@@ -17,12 +17,14 @@ The sync script never changes deployment environments or secrets.
 ```bash
 gh workflow run build-application-image.yml \
   --repo tociva/idnest \
-  --ref development \
+  --ref BRANCH_NAME \
   -f component=all \
   -f version=1.4.0
 ```
 
-The separate builder workflow runs automatically when dependency inputs change.
+The selected branch must contain the current workflow and delivery scripts.
+The separate builder workflow runs automatically on dependency-input changes
+from any branch and can also be dispatched against a user-selected branch.
 
 ## 3. Prepare runtime values
 

@@ -15,6 +15,10 @@ queue, or Kubernetes chart in this repository.
 - `component`: `auth`, `admin`, or `all`
 - `version`: an immutable semantic version such as `1.4.0`
 
+The operator may select any repository branch when dispatching the workflow.
+The selected ref is checked out, validated, and recorded in the image metadata;
+there is no hardcoded release branch.
+
 For `all`, auth and admin are built in parallel and neither final version tag is
 published unless both candidates pass. Published tags are `auth-v1.4.0` and
 `admin-v1.4.0`. Images contain the matching backend and frontend together.

@@ -1,10 +1,8 @@
-name: Build dependency base (development)
+name: Build dependency base
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - development
     paths:
       - deploy/images/Dockerfile.builder-base
       - deploy/images/builder-image-key.sh
@@ -20,7 +18,7 @@ on:
       - monorepo/libs/*/package.json
 
 concurrency:
-  group: idnest-development-builder-base-arm64
+  group: idnest-builder-base-arm64
   cancel-in-progress: false
 
 permissions:
@@ -36,13 +34,6 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Require the development branch
-        env:
-          BUILDER_REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          [[ "${BUILDER_REF}" == refs/heads/development ]]
-
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -39,12 +39,15 @@ fi
 mapfile -t workflows < <(find .github/workflows -maxdepth 1 -type f -name '*.yml' -print | sort)
 [[ ${#workflows[@]} -eq 2 ]] || fail "exactly two build workflows must remain"
 [[ ${workflows[0]} == .github/workflows/build-application-image.yml ]]
-[[ ${workflows[1]} == .github/workflows/build-builder-base-development.yml ]]
+[[ ${workflows[1]} == .github/workflows/build-builder-base.yml ]]
 
 require_text .github/workflows/build-application-image.yml 'options: [auth, admin, all]'
 require_text .github/workflows/build-application-image.yml 'deploy/ci/promote-ecr-public-image.sh'
 require_text .github/workflows/build-application-image.yml 'aquasecurity/trivy-action@'
 reject_pattern 'setup-helm|kubectl|helm upgrade|AWS_DEPLOY_ROLE_ARN|VPS_SSH' .github/workflows
+reject_pattern 'refs/heads/development|Require the development branch|branches:[[:space:]]*$' \
+  .github/workflows/build-application-image.yml \
+  .github/workflows/build-builder-base.yml
 
 require_text deploy/vps/deploy-idnest-version.sh \
   'usage: deploy-idnest-version VERSION [auth|admin|all]'

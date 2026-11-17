@@ -27,7 +27,6 @@ env:
 jobs:
   quality:
     name: Validate ${{ inputs.component }} ${{ inputs.version }}
-    if: ${{ github.ref == 'refs/heads/development' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     outputs:
