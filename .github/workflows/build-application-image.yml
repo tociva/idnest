@@ -8,10 +8,12 @@ on:
         required: true
         type: choice
         options: [auth, admin, all]
-      version:
-        description: Immutable semantic version, for example 1.4.0
+      release:
+        description: Semantic version increment from package.json
         required: true
-        type: string
+        type: choice
+        default: patch
+        options: [patch, minor, major]
 
 permissions:
   contents: read
@@ -26,31 +28,40 @@ env:
 
 jobs:
   quality:
-    name: Validate ${{ inputs.component }} ${{ inputs.version }}
+    name: Validate ${{ inputs.component }} ${{ inputs.release }} release
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     outputs:
       components: ${{ steps.request.outputs.components }}
+      version: ${{ steps.request.outputs.version }}
     steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.22.0
+
       - name: Validate release request
         id: request
         env:
           COMPONENT: ${{ inputs.component }}
-          VERSION: ${{ inputs.version }}
+          RELEASE_TYPE: ${{ inputs.release }}
         run: |
           set -euo pipefail
+          [[ "${GITHUB_REF_TYPE}" == branch ]]
           [[ "${COMPONENT}" == auth || "${COMPONENT}" == admin || "${COMPONENT}" == all ]]
-          [[ "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "${RELEASE_TYPE}" == major || "${RELEASE_TYPE}" == minor || "${RELEASE_TYPE}" == patch ]]
+          version=$(node deploy/ci/release-version.mjs "${RELEASE_TYPE}")
           case "${COMPONENT}" in
             auth) printf '%s\n' 'components=["auth"]' >>"${GITHUB_OUTPUT}" ;;
             admin) printf '%s\n' 'components=["admin"]' >>"${GITHUB_OUTPUT}" ;;
             all) printf '%s\n' 'components=["auth","admin"]' >>"${GITHUB_OUTPUT}" ;;
           esac
-
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+          printf 'version=%s\n' "${version}" >>"${GITHUB_OUTPUT}"
 
       - name: Set up pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -59,11 +70,6 @@ jobs:
           run_install: false
           cache: true
           cache_dependency_path: monorepo/pnpm-lock.yaml
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.22.0
 
       - name: Install dependencies
         run: pnpm --dir=monorepo install --frozen-lockfile
@@ -95,7 +101,7 @@ jobs:
           pnpm test:deploy
 
   build:
-    name: Build ${{ matrix.component }} ${{ inputs.version }}
+    name: Build ${{ matrix.component }} ${{ needs.quality.outputs.version }}
     needs: quality
     if: ${{ needs.quality.result == 'success' }}
     strategy:
@@ -202,7 +208,7 @@ jobs:
           tags: ${{ vars.ECR_PUBLIC_REGISTRY }}/${{ steps.metadata.outputs.repository }}:${{ steps.metadata.outputs.candidate_tag }}
           build-args: |
             BUILDER_IMAGE=${{ steps.builder.outputs.image }}
-            APP_VERSION=${{ inputs.version }}
+            APP_VERSION=${{ needs.quality.outputs.version }}
             APP_REVISION=${{ github.sha }}
             APP_CREATED=${{ steps.metadata.outputs.created }}
             APP_SOURCE=${{ github.server_url }}/${{ github.repository }}
@@ -244,20 +250,22 @@ jobs:
             --image-ids "imageTag=${CANDIDATE_TAG}" >/dev/null
 
   publish:
-    name: Publish ${{ inputs.component }} ${{ inputs.version }}
+    name: Publish ${{ inputs.component }} ${{ needs.quality.outputs.version }}
     needs: [quality, build]
     if: ${{ always() && needs.quality.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: ecr-build
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+          persist-credentials: true
 
       - name: Configure short-lived AWS build credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
@@ -280,7 +288,8 @@ jobs:
         env:
           BUILD_RESULT: ${{ needs.build.result }}
           COMPONENT: ${{ inputs.component }}
-          VERSION: ${{ inputs.version }}
+          RELEASE_TYPE: ${{ inputs.release }}
+          VERSION: ${{ needs.quality.outputs.version }}
           ECR_PUBLIC_REGION: ${{ vars.ECR_PUBLIC_REGION }}
           ECR_PUBLIC_REGISTRY: ${{ vars.ECR_PUBLIC_REGISTRY }}
           AUTH_ECR_REPOSITORY: ${{ vars.AUTH_ECR_REPOSITORY }}
@@ -330,6 +339,26 @@ jobs:
               exit 1
             }
           done
+
+          # Persist the version only after every selected candidate passes. A
+          # concurrent update to the selected branch invalidates this release.
+          [[ "$(git rev-parse HEAD)" == "${GITHUB_SHA}" ]] || {
+            echo "The selected branch advanced during validation; rerun the release." >&2
+            exit 1
+          }
+          computed_version=$(node deploy/ci/release-version.mjs "${RELEASE_TYPE}")
+          [[ "${computed_version}" == "${VERSION}" ]]
+          written_version=$(node deploy/ci/release-version.mjs "${RELEASE_TYPE}" --write)
+          [[ "${written_version}" == "${VERSION}" ]]
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json
+          git diff --cached --quiet && {
+            echo "package.json version did not change." >&2
+            exit 1
+          }
+          git commit -m "chore(release): v${VERSION} [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
           for item in "${components[@]}"; do
             repository=$(repository_for "${item}")

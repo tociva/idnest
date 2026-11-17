@@ -13,15 +13,21 @@ queue, or Kubernetes chart in this repository.
 `.github/workflows/build-application-image.yml` accepts:
 
 - `component`: `auth`, `admin`, or `all`
-- `version`: an immutable semantic version such as `1.4.0`
+- `release`: `patch`, `minor`, or `major`
 
 The operator may select any repository branch when dispatching the workflow.
 The selected ref is checked out, validated, and recorded in the image metadata;
 there is no hardcoded release branch.
 
+The release version is calculated from the root `package.json`. For example,
+`patch` changes `0.1.0` to `0.1.1`, `minor` to `0.2.0`, and `major` to `1.0.0`.
+The workflow updates and commits `package.json` to the selected branch only
+after every selected image passes its build, scan, and smoke test.
+
 For `all`, auth and admin are built in parallel and neither final version tag is
-published unless both candidates pass. Published tags are `auth-v1.4.0` and
-`admin-v1.4.0`. Images contain the matching backend and frontend together.
+published unless both candidates pass. Published tags use the calculated
+version, such as `auth-v0.1.1` and `admin-v0.1.1`. Images contain the matching
+backend and frontend together.
 
 The workflows use only the `ecr-build` GitHub Environment:
 

@@ -19,12 +19,14 @@ gh workflow run build-application-image.yml \
   --repo tociva/idnest \
   --ref BRANCH_NAME \
   -f component=all \
-  -f version=1.4.0
+  -f release=patch
 ```
 
 The selected branch must contain the current workflow and delivery scripts.
-The separate builder workflow runs automatically on dependency-input changes
-from any branch and can also be dispatched against a user-selected branch.
+Choose `patch`, `minor`, or `major`; the workflow derives the next version from
+the selected branch's root `package.json` and commits it after the selected
+images pass. The separate builder workflow is manual-only. Application builds
+still create the required builder image automatically when it is missing.
 
 ## 3. Prepare runtime values
 

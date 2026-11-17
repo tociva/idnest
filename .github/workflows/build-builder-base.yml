@@ -2,20 +2,6 @@ name: Build dependency base
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - deploy/images/Dockerfile.builder-base
-      - deploy/images/builder-image-key.sh
-      - deploy/images/ensure-builder-image.sh
-      - deploy/images/test-builder-contract.sh
-      - monorepo/package.json
-      - monorepo/pnpm-lock.yaml
-      - monorepo/pnpm-workspace.yaml
-      - monorepo/.npmrc
-      - monorepo/nx.json
-      - monorepo/tsconfig.base.json
-      - monorepo/apps/*/package.json
-      - monorepo/libs/*/package.json
 
 concurrency:
   group: idnest-builder-base-arm64

@@ -68,8 +68,8 @@ and every workspace package manifest. Images use the immutable tag
 `deps-<sha256>`. Source-only changes reuse the existing image; dependency,
 toolchain, or builder-definition changes produce a new tag.
 
-The `build-builder-base.yml` workflow runs automatically on any branch when a
-builder input changes. It can also be run manually against any selected branch:
+The `build-builder-base.yml` workflow is manual-only and may be run against any
+selected branch:
 
 ```bash
 gh workflow run build-builder-base.yml \

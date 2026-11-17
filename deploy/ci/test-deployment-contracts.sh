@@ -42,12 +42,20 @@ mapfile -t workflows < <(find .github/workflows -maxdepth 1 -type f -name '*.yml
 [[ ${workflows[1]} == .github/workflows/build-builder-base.yml ]]
 
 require_text .github/workflows/build-application-image.yml 'options: [auth, admin, all]'
+require_text .github/workflows/build-application-image.yml 'options: [patch, minor, major]'
 require_text .github/workflows/build-application-image.yml 'deploy/ci/promote-ecr-public-image.sh'
 require_text .github/workflows/build-application-image.yml 'aquasecurity/trivy-action@'
+require_text .github/workflows/build-application-image.yml 'contents: write'
+require_text .github/workflows/build-application-image.yml 'deploy/ci/release-version.mjs'
+require_text .github/workflows/build-application-image.yml 'git push origin "HEAD:${GITHUB_REF_NAME}"'
 reject_pattern 'setup-helm|kubectl|helm upgrade|AWS_DEPLOY_ROLE_ARN|VPS_SSH' .github/workflows
+reject_pattern 'inputs\.version|^[[:space:]]+version:[[:space:]]*$' \
+  .github/workflows/build-application-image.yml
 reject_pattern 'refs/heads/development|Require the development branch|branches:[[:space:]]*$' \
   .github/workflows/build-application-image.yml \
   .github/workflows/build-builder-base.yml
+reject_pattern '^[[:space:]]+push:[[:space:]]*$' .github/workflows/build-builder-base.yml
+require_text .github/workflows/build-builder-base.yml 'workflow_dispatch:'
 
 require_text deploy/vps/deploy-idnest-version.sh \
   'usage: deploy-idnest-version VERSION [auth|admin|all]'
@@ -83,6 +91,19 @@ reject_pattern 'release.queue|release-queue|KUBECONFIG|deploy/charts|helm' \
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/idnest-delivery-contract.XXXXXX")
 cleanup() { rm -rf -- "$temporary"; }
 trap cleanup EXIT HUP INT TERM
+
+release_manifest=$temporary/package.json
+for release_case in patch:1.2.4 minor:1.3.0 major:2.0.0; do
+  release_type=${release_case%%:*}
+  expected_version=${release_case#*:}
+  printf '%s\n' '{"name":"release-contract","version":"1.2.3"}' >"$release_manifest"
+  actual_version=$(node deploy/ci/release-version.mjs "$release_type" \
+    --write --package "$release_manifest")
+  [[ "$actual_version" == "$expected_version" ]] \
+    || fail "$release_type calculated $actual_version instead of $expected_version"
+  [[ $(node -p "require(process.argv[1]).version" "$release_manifest") == "$expected_version" ]] \
+    || fail "$release_type did not persist $expected_version"
+done
 
 generated=$temporary/development.env
 bash deploy/tools/create-development-env.sh "$generated" >/dev/null
