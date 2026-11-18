@@ -95,8 +95,9 @@ Install all four rendered files:
 ```
 
 They must be owned by root with mode `0600`. Configure PostgreSQL and the
-Cloudflare Tunnel before the first deployment. The three DSNs must be reachable
-from containers through the configured runtime network.
+Cloudflare Tunnel before enabling public health checks. Follow the four-route
+mapping and verification procedure in [vps/README.md](vps/README.md). The three
+DSNs must be reachable from containers through the configured runtime network.
 
 ## 5. Deploy or roll back
 

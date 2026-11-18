@@ -19,16 +19,18 @@ and users for Hydra, Kratos, and Authz.
 All application origins bind only to loopback. Publish them through an HTTPS
 reverse proxy or Cloudflare Tunnel:
 
-| Public service | VPS origin |
+| Public hostname | VPS origin |
 | --- | --- |
-| Auth | http://127.0.0.1:8444 |
-| Admin | http://127.0.0.1:8445 |
-| Hydra public | http://127.0.0.1:8446 |
-| Kratos public | http://127.0.0.1:8447 |
+| auth-dev.idnest.cloud | http://127.0.0.1:8444 |
+| admin-dev.idnest.cloud | http://127.0.0.1:8445 |
+| hydra-dev.idnest.cloud | http://127.0.0.1:8446 |
+| kratos-dev.idnest.cloud | http://127.0.0.1:8447 |
 
 Hydra admin port 4445, Kratos admin port 4434, PostgreSQL, and the Docker socket
-must not be publicly reachable. Normally only SSH, HTTP, and HTTPS are allowed
-through the VPS firewall.
+must not be publicly reachable. With Cloudflare Tunnel, the VPS does not need
+inbound HTTP or HTTPS firewall rules: `cloudflared` connects outbound and
+forwards only the published loopback services. Keep only the explicitly
+required SSH path and outbound DNS, HTTPS, and Cloudflare Tunnel connectivity.
 
 ## Complete setup on a fresh Ubuntu ARM64 VPS
 
@@ -300,20 +302,122 @@ network; do not expose port 5432 publicly.
 
 ### 7. Configure HTTPS routes
 
-Before the first deployment, configure the reverse proxy or Cloudflare Tunnel
-routes from the public hostnames to the four loopback origins in the network
-table above.
+These instructions use a remotely managed Cloudflare Tunnel installed as a
+systemd service on the VPS. If the applications were initially deployed with
+public checks disabled, complete this section before enabling those checks.
+
+First verify all four loopback origins on the VPS:
+
+~~~bash
+curl --fail --silent --show-error http://127.0.0.1:8444/health >/dev/null \
+  && echo 'Auth origin is healthy'
+curl --fail --silent --show-error http://127.0.0.1:8445/health >/dev/null \
+  && echo 'Admin origin is healthy'
+curl --fail --silent --show-error http://127.0.0.1:8446/health/ready >/dev/null \
+  && echo 'Hydra origin is healthy'
+curl --fail --silent --show-error http://127.0.0.1:8447/health/ready >/dev/null \
+  && echo 'Kratos origin is healthy'
+~~~
+
+Confirm that the installed development configuration refers to the same
+public hostnames:
+
+~~~bash
+grep -hE \
+  '^(COMPOSE_PROJECT_NAME|PUBLIC_HEALTH_URL|HYDRA_PUBLIC_HEALTH_URL|KRATOS_PUBLIC_HEALTH_URL)=' \
+  /etc/idnest/auth.conf \
+  /etc/idnest/admin.conf \
+  /etc/idnest/idnest.conf
+~~~
+
+The three Compose project names should end in `-development`, and the health
+URLs should use `auth-dev`, `admin-dev`, `hydra-dev`, and `kratos-dev`. Correct
+an environment mismatch before publishing routes.
+
+In the Cloudflare dashboard:
+
+1. Open **Networking > Tunnels** and create or select the tunnel whose connector
+   runs on this VPS.
+2. If the connector is new, run the exact `cloudflared service install` command
+   supplied by Cloudflare on this VPS. Treat its tunnel token as a secret.
+3. On the tunnel's **Routes** tab, add four **Published application** routes:
+
+| Subdomain | Domain | Service URL |
+| --- | --- | --- |
+| auth-dev | idnest.cloud | http://127.0.0.1:8444 |
+| admin-dev | idnest.cloud | http://127.0.0.1:8445 |
+| hydra-dev | idnest.cloud | http://127.0.0.1:8446 |
+| kratos-dev | idnest.cloud | http://127.0.0.1:8447 |
+
+Cloudflare creates the proxied DNS records when each published application is
+saved. If a hostname already has an A, AAAA, or CNAME record, review and remove
+the conflicting record before adding the route. Do not publish Hydra admin
+port 4445, Kratos admin port 4434, PostgreSQL, or the Docker socket.
+
+Verify the connector on the VPS:
+
+~~~bash
+cloudflared --version
+sudo systemctl enable --now cloudflared
+sudo systemctl is-active cloudflared
+sudo journalctl --unit cloudflared --lines 50 --no-pager
+~~~
+
+The firewall must allow `cloudflared` outbound connectivity on port 7844 over
+UDP or TCP. The applications remain loopback-only.
+
+Verify the four public routes from the VPS and from a separate client:
+
+~~~bash
+curl --fail --silent --show-error https://auth-dev.idnest.cloud/health
+curl --fail --silent --show-error https://admin-dev.idnest.cloud/health
+curl --fail --silent --show-error https://hydra-dev.idnest.cloud/health/ready
+curl --fail --silent --show-error https://kratos-dev.idnest.cloud/health/ready
+~~~
+
+Do not add a Cloudflare Access login policy in front of these public identity
+endpoints without testing the complete OAuth, OIDC, logout, callback, and
+Kratos self-service flows. An additional Access challenge can interrupt those
+protocol redirects.
 
 The deployment command checks both loopback and public health endpoints. If the
-public routes are intentionally unavailable during initial setup, temporarily
-set this in /etc/idnest/deploy.conf:
+public routes are intentionally unavailable during initial setup, keep this in
+the canonical `tmp/development.env` source:
 
 ~~~text
 SKIP_PUBLIC_HEALTH_CHECK=true
 ~~~
 
-Restore it to false after HTTPS routing is ready and run the deployment again
-to verify public health.
+After all four public checks succeed, set the value to `false` on the trusted
+workstation, render and upload the deployment configuration, then install it on
+the VPS:
+
+~~~bash
+vi tmp/development.env
+
+set -a
+source tmp/development.env
+set +a
+./deploy/tools/render-development-deploy-conf.sh tmp/deploy.conf
+
+VPS=deploy@ssh.example.com
+rsync -a --progress tmp/deploy.conf "$VPS:idnest-bootstrap/"
+ssh "$VPS" 'chmod 600 "$HOME/idnest-bootstrap/deploy.conf"'
+~~~
+
+~~~bash
+cd "$HOME/idnest-bootstrap"
+sudo install -o root -g root -m 600 deploy.conf /etc/idnest/deploy.conf
+grep '^SKIP_PUBLIC_HEALTH_CHECK=false$' /etc/idnest/deploy.conf
+~~~
+
+Run the same version deployment again to make the deployment command verify
+the public routes as part of its health gate.
+
+Cloudflare's current published-application procedure is documented at
+https://developers.cloudflare.com/cloudflare-one/networks/routes/add-routes/.
+Firewall requirements are documented at
+https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/.
 
 ### 8. Pull and start the complete application
 

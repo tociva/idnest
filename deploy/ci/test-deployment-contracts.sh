@@ -83,6 +83,10 @@ require_text deploy/vps/compose.idnest.yaml '127.0.0.1:${HYDRA_PUBLIC_HTTP_PORT:
 # shellcheck disable=SC2016
 require_text deploy/vps/compose.idnest.yaml '127.0.0.1:${KRATOS_ADMIN_HTTP_PORT:-4434}:4434'
 reject_pattern '0\.0\.0\.0:\$\{[^}]*PORT' deploy/vps/compose.*.yaml
+require_text deploy/vps/README.md '| auth-dev | idnest.cloud | http://127.0.0.1:8444 |'
+require_text deploy/vps/README.md '| admin-dev | idnest.cloud | http://127.0.0.1:8445 |'
+require_text deploy/vps/README.md '| hydra-dev | idnest.cloud | http://127.0.0.1:8446 |'
+require_text deploy/vps/README.md '| kratos-dev | idnest.cloud | http://127.0.0.1:8447 |'
 
 require_text deploy/tools/sync-ecr-build-github.sh 'ENVIRONMENT=ecr-build'
 reject_pattern 'development-auth|development-admin|development-identity|AWS_DEPLOY_ROLE_ARN|VPS_HOST|VPS_PORT|VPS_USER' \
