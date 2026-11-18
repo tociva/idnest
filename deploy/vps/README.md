@@ -92,27 +92,43 @@ deployment assets and the four rendered configuration files:
 ~~~bash
 VPS=deploy@ssh.example.com
 
-ssh "$VPS" 'install -d -m 700 "$HOME/idnest-bootstrap"'
+(
+  set -e
 
-rsync -aR --progress \
-  ./deploy/vps \
-  ./deploy/images/Dockerfile.kratos \
-  ./deploy/images/render-kratos-config.sh \
-  ./config \
-  "$VPS:idnest-bootstrap/"
+  for file in \
+    tmp/deploy.conf \
+    tmp/idnest.env \
+    tmp/auth-app.env \
+    tmp/admin-app.env
+  do
+    if [ ! -s "$file" ]; then
+      echo "Missing rendered file: $file" >&2
+      exit 1
+    fi
+  done
 
-rsync -a --progress \
-  tmp/deploy.conf \
-  tmp/idnest.env \
-  tmp/auth-app.env \
-  tmp/admin-app.env \
-  "$VPS:idnest-bootstrap/"
+  ssh "$VPS" 'install -d -m 700 "$HOME/idnest-bootstrap"'
 
-ssh "$VPS" 'chmod 600 \
-  "$HOME/idnest-bootstrap/deploy.conf" \
-  "$HOME/idnest-bootstrap/idnest.env" \
-  "$HOME/idnest-bootstrap/auth-app.env" \
-  "$HOME/idnest-bootstrap/admin-app.env"'
+  rsync -aR --progress \
+    ./deploy/vps \
+    ./deploy/images/Dockerfile.kratos \
+    ./deploy/images/render-kratos-config.sh \
+    ./config \
+    "$VPS:idnest-bootstrap/"
+
+  rsync -a --progress \
+    tmp/deploy.conf \
+    tmp/idnest.env \
+    tmp/auth-app.env \
+    tmp/admin-app.env \
+    "$VPS:idnest-bootstrap/"
+
+  ssh "$VPS" 'chmod 600 \
+    "$HOME/idnest-bootstrap/deploy.conf" \
+    "$HOME/idnest-bootstrap/idnest.env" \
+    "$HOME/idnest-bootstrap/auth-app.env" \
+    "$HOME/idnest-bootstrap/admin-app.env"'
+)
 ~~~
 
 Run these commands from the repository root. The restricted path list uploads
@@ -120,6 +136,8 @@ everything required by `bootstrap-idnest-host.sh` without copying the local
 Terraform provider cache, state, variable, or saved plan files. The commands
 use options supported by the macOS-bundled `rsync` 2.6.9-compatible client and
 then explicitly protect the uploaded configuration files with mode `0600`.
+The subshell stops on a missing file or failed SSH/rsync command without
+changing the parent shell's error-handling settings.
 
 Replace `deploy@ssh.example.com` with the real SSH user and DNS-only hostname or
 IP address. If SSH is intentionally routed through Cloudflare Access, use the
