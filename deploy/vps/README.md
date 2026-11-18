@@ -66,22 +66,36 @@ Do not commit, print, or upload tmp/development.env. Upload only the tracked
 deployment assets and the three rendered runtime files:
 
 ~~~bash
-VPS=ubuntu@vps.example.com
+VPS=deploy@ssh.example.com
 
 ssh "$VPS" 'install -d -m 700 "$HOME/idnest-bootstrap"'
-rsync -a deploy config "$VPS:idnest-bootstrap/"
-rsync -a --chmod=F600 \
-  tmp/idnest.env tmp/auth-app.env tmp/admin-app.env \
+
+rsync -aR --info=progress2 \
+  ./deploy/vps \
+  ./deploy/images/Dockerfile.kratos \
+  ./deploy/images/render-kratos-config.sh \
+  ./config \
+  "$VPS:idnest-bootstrap/"
+
+rsync -a --chmod=F600 --info=progress2 \
+  tmp/idnest.env \
+  tmp/auth-app.env \
+  tmp/admin-app.env \
   "$VPS:idnest-bootstrap/"
 ~~~
 
-Replace ubuntu@vps.example.com with the real SSH user and DNS-only hostname or
-IP address. Do not use a Cloudflare-proxied application hostname for SSH.
+Run these commands from the repository root. The restricted path list uploads
+everything required by `bootstrap-idnest-host.sh` without copying the local
+Terraform provider cache, state, variable, or saved plan files.
+
+Replace `deploy@ssh.example.com` with the real SSH user and DNS-only hostname or
+IP address. If SSH is intentionally routed through Cloudflare Access, use the
+hostname configured with the matching `cloudflared` `ProxyCommand` instead.
 
 ### 2. SSH into the VPS and confirm ARM64
 
 ~~~bash
-ssh ubuntu@vps.example.com
+ssh deploy@ssh.example.com
 
 uname -m
 ~~~
@@ -338,7 +352,7 @@ sudo reboot
 The SSH connection will close. After the VPS returns, reconnect and verify:
 
 ~~~bash
-ssh ubuntu@vps.example.com
+ssh deploy@ssh.example.com
 
 sudo systemctl is-active docker.service containerd.service
 sudo docker ps --format 'table {{.Names}}\t{{.Status}}'
