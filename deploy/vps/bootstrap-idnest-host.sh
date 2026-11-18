@@ -83,7 +83,7 @@ fi
 
 echo "Idnest host files are installed."
 echo "Before the first deployment:"
-echo "  1. Set the ECR Public alias in $CONFIG_ROOT/deploy.conf."
+echo "  1. Install the rendered deploy.conf in $CONFIG_ROOT/deploy.conf."
 echo "  2. Review $CONFIG_ROOT/auth.conf, admin.conf, and idnest.conf."
 echo "  3. Install root-owned mode-0600 idnest.env, auth-app.env, and admin-app.env in $CONFIG_ROOT."
 echo "  4. Run: sudo deploy-idnest-version VERSION all"

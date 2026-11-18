@@ -39,8 +39,29 @@ using Docker's distribution-specific instructions.
 ### 1. Prepare and upload files from the trusted workstation
 
 The repository's renderers create the development runtime files, including the
-`*-dev.idnest.cloud` URLs. When configuring or rotating Apple login, import the
-downloaded PKCS#8 `.p8` key directly into the protected source file:
+`*-dev.idnest.cloud` URLs. Reconcile the protected source file and synchronize
+its ECR Public values from the applied Terraform outputs:
+
+~~~bash
+./deploy/tools/create-development-env.sh
+./deploy/tools/sync-development-ecr-values.sh
+vi tmp/development.env
+~~~
+
+~~~dotenv
+ECR_PUBLIC_REGISTRY=public.ecr.aws/your-registry-alias
+AUTH_ECR_REPOSITORY=idnest/auth-app
+ADMIN_ECR_REPOSITORY=idnest/admin-app
+SKIP_PUBLIC_HEALTH_CHECK=false
+~~~
+
+The sync command reads the registry and Auth/Admin repository values from the
+applied Terraform outputs. It preserves the existing public-health setting,
+defaulting it to `false` only when the key is missing. Verify the resulting
+values while reviewing the rest of the protected source file.
+
+When configuring or rotating Apple login, import the downloaded PKCS#8 `.p8`
+key directly into the protected source file:
 
 ~~~bash
 ./deploy/tools/update-development-apple-key.sh \
@@ -48,8 +69,10 @@ downloaded PKCS#8 `.p8` key directly into the protected source file:
 ~~~
 
 The command validates the key and updates only `APPLE_PRIVATE_KEY`; it does not
-print the secret. Then render the three protected files on the trusted
-workstation as described in [../OPERATIONS.md](../OPERATIONS.md):
+print the secret.
+
+Then render the four protected files on the trusted workstation as described
+in [../OPERATIONS.md](../OPERATIONS.md):
 
 ~~~bash
 ./deploy/vps/validate-app-env.sh tmp/development.env development-source
@@ -57,13 +80,14 @@ workstation as described in [../OPERATIONS.md](../OPERATIONS.md):
 set -a
 source tmp/development.env
 set +a
+./deploy/tools/render-development-deploy-conf.sh tmp/deploy.conf
 ./deploy/tools/render-development-identity-env.sh tmp/idnest.env
 ./deploy/tools/render-development-app-env.sh auth tmp/auth-app.env
 ./deploy/tools/render-development-app-env.sh admin tmp/admin-app.env
 ~~~
 
 Do not commit, print, or upload tmp/development.env. Upload only the tracked
-deployment assets and the three rendered runtime files:
+deployment assets and the four rendered configuration files:
 
 ~~~bash
 VPS=deploy@ssh.example.com
@@ -78,12 +102,14 @@ rsync -aR --progress \
   "$VPS:idnest-bootstrap/"
 
 rsync -a --progress \
+  tmp/deploy.conf \
   tmp/idnest.env \
   tmp/auth-app.env \
   tmp/admin-app.env \
   "$VPS:idnest-bootstrap/"
 
 ssh "$VPS" 'chmod 600 \
+  "$HOME/idnest-bootstrap/deploy.conf" \
   "$HOME/idnest-bootstrap/idnest.env" \
   "$HOME/idnest-bootstrap/auth-app.env" \
   "$HOME/idnest-bootstrap/admin-app.env"'
@@ -93,7 +119,7 @@ Run these commands from the repository root. The restricted path list uploads
 everything required by `bootstrap-idnest-host.sh` without copying the local
 Terraform provider cache, state, variable, or saved plan files. The commands
 use options supported by the macOS-bundled `rsync` 2.6.9-compatible client and
-then explicitly protect the uploaded runtime files with mode `0600`.
+then explicitly protect the uploaded configuration files with mode `0600`.
 
 Replace `deploy@ssh.example.com` with the real SSH user and DNS-only hostname or
 IP address. If SSH is intentionally routed through Cloudflare Access, use the
@@ -180,22 +206,26 @@ It is safe to rerun after uploading a newer trusted checkout. It refreshes
 tracked deployment assets without replacing operator configuration or runtime
 secrets.
 
-### 5. Select development or production configuration
+### 5. Install development deployment configuration
 
-Bootstrap installs the development examples on a new host. Review all four
-files:
+Install the rendered deployment configuration, then review it and the three
+development configuration templates created by bootstrap:
 
 ~~~bash
+cd "$HOME/idnest-bootstrap"
+sudo install -o root -g root -m 600 deploy.conf /etc/idnest/deploy.conf
+
 sudoedit /etc/idnest/deploy.conf
 sudoedit /etc/idnest/idnest.conf
 sudoedit /etc/idnest/auth.conf
 sudoedit /etc/idnest/admin.conf
 ~~~
 
-Set the public ECR registry alias and keep the published repository names:
+The rendered deployment configuration contains the values sourced from
+`tmp/development.env`:
 
 ~~~text
-ECR_PUBLIC_REGISTRY=public.ecr.aws/replace-with-registry-alias
+ECR_PUBLIC_REGISTRY=public.ecr.aws/your-registry-alias
 AUTH_ECR_REPOSITORY=idnest/auth-app
 ADMIN_ECR_REPOSITORY=idnest/admin-app
 SKIP_PUBLIC_HEALTH_CHECK=false
@@ -241,7 +271,7 @@ After validation, remove only the staging copies; the protected copies remain
 under /etc/idnest:
 
 ~~~bash
-rm -f idnest.env auth-app.env admin-app.env
+rm -f deploy.conf idnest.env auth-app.env admin-app.env
 ~~~
 
 The Hydra, Kratos, and Authz PostgreSQL DSNs in these files must be reachable

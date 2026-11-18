@@ -55,7 +55,15 @@ them. Apply only after that is confirmed:
 ```bash
 terraform -chdir=deploy/terraform/aws-development apply idnest-build-only.tfplan
 ./deploy/tools/sync-ecr-build-github.sh
+./deploy/tools/sync-development-ecr-values.sh
 ```
+
+The second sync command updates only `ECR_PUBLIC_REGISTRY`,
+`AUTH_ECR_REPOSITORY`, and `ADMIN_ECR_REPOSITORY` in
+`tmp/development.env`. It preserves the operator-controlled
+`SKIP_PUBLIC_HEALTH_CHECK` value and all application secrets. Create the local
+source first with `./deploy/tools/create-development-env.sh` when it does not
+yet exist.
 
 The sync updates these variables only in the `ecr-build` GitHub Environment:
 

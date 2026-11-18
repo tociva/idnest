@@ -34,12 +34,16 @@ Create or reconcile the protected runtime source on a trusted workstation:
 
 ```bash
 ./deploy/tools/create-development-env.sh
+./deploy/tools/sync-development-ecr-values.sh
 ```
 
-`tmp/development.env` contains application, identity, database, and provider
-values only. AWS roles, repositories, and VPS SSH coordinates are deliberately
-not part of it. To import or replace the Apple PKCS#8 `.p8` private key without
-printing it, run:
+`tmp/development.env` is the canonical local source for application, identity,
+database, provider, and direct-VPS image settings. AWS roles and VPS SSH
+coordinates are deliberately not part of it. The sync command reads the
+registry and Auth/Admin repository names from the applied Terraform outputs,
+preserves `SKIP_PUBLIC_HEALTH_CHECK`, and leaves every unrelated value intact.
+To import or replace the Apple PKCS#8 `.p8` private key without printing it,
+run:
 
 ```bash
 ./deploy/tools/update-development-apple-key.sh \
@@ -48,8 +52,8 @@ printing it, run:
 
 The helper validates the key, stores `APPLE_PRIVATE_KEY` as a safe single-line
 value, and atomically protects `tmp/development.env` with mode `0600`. Replace
-the remaining provider/admin placeholders, validate the source, and render the
-three files required by the host:
+the remaining placeholders, validate the source, and render the four files
+required by the host:
 
 ```bash
 ./deploy/vps/validate-app-env.sh tmp/development.env development-source
@@ -57,12 +61,14 @@ three files required by the host:
 set -a
 source tmp/development.env
 set +a
+./deploy/tools/render-development-deploy-conf.sh tmp/deploy.conf
 ./deploy/tools/render-development-identity-env.sh tmp/idnest.env
 ./deploy/tools/render-development-app-env.sh auth tmp/auth-app.env
 ./deploy/tools/render-development-app-env.sh admin tmp/admin-app.env
 ```
 
-Treat all four files as secrets. Do not commit or print them.
+Treat the source and all four rendered files as protected configuration. Do not
+commit or print them.
 
 ## 4. Bootstrap the VPS
 
@@ -70,18 +76,19 @@ For a fresh Ubuntu ARM64 host, follow the complete SSH, Docker installation,
 file upload, deployment, verification, and reboot-persistence runbook in
 [vps/README.md](vps/README.md).
 
-In summary, upload the repository's `deploy/` and `config/` directories to the
-VPS. Docker Engine with the Compose plugin must already be installed. From the
-uploaded repository root run:
+Use the restricted upload commands in the VPS runbook; do not upload the local
+Terraform directory, state, variables, plans, or provider cache. Docker Engine
+with the Compose plugin must already be installed. From the uploaded repository
+root run:
 
 ```bash
 sudo ./deploy/vps/bootstrap-idnest-host.sh
 ```
 
-Review `/etc/idnest/*.conf`, set the public registry alias in
-`/etc/idnest/deploy.conf`, and install the rendered files:
+Install all four rendered files:
 
 ```text
+/etc/idnest/deploy.conf
 /etc/idnest/idnest.env
 /etc/idnest/auth-app.env
 /etc/idnest/admin-app.env

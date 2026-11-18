@@ -127,7 +127,63 @@ bash deploy/tools/create-development-env.sh "$generated" >/dev/null
 generated_keys=$(awk -F= 'NF >= 2 { print $1 }' "$generated" | sort | tr '\n' ' ')
 example_keys=$(awk -F= 'NF >= 2 { print $1 }' deploy/env/development.env.example | sort | tr '\n' ' ')
 [[ "$generated_keys" == "$example_keys" ]] || fail "runtime environment generator drifted from its example"
-reject_pattern '^AWS_|^ECR_|^VPS_' "$generated"
+reject_pattern '^AWS_|^VPS_' "$generated"
+
+fake_bin=$temporary/fake-bin
+fake_terraform_directory=$temporary/terraform
+mkdir -p "$fake_bin" "$fake_terraform_directory"
+cat >"$fake_bin/terraform" <<'EOF'
+#!/bin/sh
+case "$*" in
+  *" output -raw ecr_public_registry")
+    printf '%s\n' 'public.ecr.aws/contract-alias'
+    ;;
+  *" output -json ecr_repositories")
+    printf '%s\n' '{"auth":"idnest/contract-auth","admin":"idnest/contract-admin"}'
+    ;;
+  *)
+    echo "Unexpected fake Terraform arguments: $*" >&2
+    exit 1
+    ;;
+esac
+EOF
+chmod 755 "$fake_bin/terraform"
+
+synced_development_env=$temporary/synced-development.env
+printf '%s\n' \
+  'ECR_PUBLIC_REGISTRY=public.ecr.aws/stale' \
+  'AUTH_ECR_REPOSITORY=idnest/stale-auth' \
+  'ADMIN_ECR_REPOSITORY=idnest/stale-admin' \
+  'SKIP_PUBLIC_HEALTH_CHECK=true' \
+  'PRESERVED_SECRET=contract-secret' >"$synced_development_env"
+PATH="$fake_bin:$PATH" deploy/tools/sync-development-ecr-values.sh \
+  "$fake_terraform_directory" "$synced_development_env" >/dev/null
+require_text "$synced_development_env" 'ECR_PUBLIC_REGISTRY=public.ecr.aws/contract-alias'
+require_text "$synced_development_env" 'AUTH_ECR_REPOSITORY=idnest/contract-auth'
+require_text "$synced_development_env" 'ADMIN_ECR_REPOSITORY=idnest/contract-admin'
+require_text "$synced_development_env" 'SKIP_PUBLIC_HEALTH_CHECK=true'
+require_text "$synced_development_env" 'PRESERVED_SECRET=contract-secret'
+[[ $(stat -f '%Lp' "$synced_development_env" 2>/dev/null || stat -c '%a' "$synced_development_env") == 600 ]] \
+  || fail "Terraform ECR sync did not protect development.env"
+
+ECR_PUBLIC_REGISTRY='public.ecr.aws/example-alias' \
+AUTH_ECR_REPOSITORY='idnest/auth-app' \
+ADMIN_ECR_REPOSITORY='idnest/admin-app' \
+SKIP_PUBLIC_HEALTH_CHECK='false' \
+  deploy/tools/render-development-deploy-conf.sh "$temporary/deploy.conf" >/dev/null
+require_text "$temporary/deploy.conf" 'ECR_PUBLIC_REGISTRY=public.ecr.aws/example-alias'
+require_text "$temporary/deploy.conf" 'AUTH_ECR_REPOSITORY=idnest/auth-app'
+require_text "$temporary/deploy.conf" 'ADMIN_ECR_REPOSITORY=idnest/admin-app'
+require_text "$temporary/deploy.conf" 'SKIP_PUBLIC_HEALTH_CHECK=false'
+[[ $(stat -f '%Lp' "$temporary/deploy.conf" 2>/dev/null || stat -c '%a' "$temporary/deploy.conf") == 600 ]] \
+  || fail "rendered deployment configuration does not have mode 600"
+if ECR_PUBLIC_REGISTRY='private.invalid/example' \
+  AUTH_ECR_REPOSITORY='idnest/auth-app' \
+  ADMIN_ECR_REPOSITORY='idnest/admin-app' \
+  SKIP_PUBLIC_HEALTH_CHECK='false' \
+    deploy/tools/render-development-deploy-conf.sh "$temporary/invalid-deploy.conf" >/dev/null 2>&1; then
+  fail "deployment configuration renderer accepted a non-ECR-Public registry"
+fi
 
 HYDRA_DSN='postgres://hydra:test@db.invalid:5432/hydra?sslmode=disable' \
 HYDRA_SECRETS_SYSTEM='0123456789abcdef0123456789abcdef' \
