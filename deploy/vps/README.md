@@ -70,23 +70,30 @@ VPS=deploy@ssh.example.com
 
 ssh "$VPS" 'install -d -m 700 "$HOME/idnest-bootstrap"'
 
-rsync -aR --info=progress2 \
+rsync -aR --progress \
   ./deploy/vps \
   ./deploy/images/Dockerfile.kratos \
   ./deploy/images/render-kratos-config.sh \
   ./config \
   "$VPS:idnest-bootstrap/"
 
-rsync -a --chmod=F600 --info=progress2 \
+rsync -a --progress \
   tmp/idnest.env \
   tmp/auth-app.env \
   tmp/admin-app.env \
   "$VPS:idnest-bootstrap/"
+
+ssh "$VPS" 'chmod 600 \
+  "$HOME/idnest-bootstrap/idnest.env" \
+  "$HOME/idnest-bootstrap/auth-app.env" \
+  "$HOME/idnest-bootstrap/admin-app.env"'
 ~~~
 
 Run these commands from the repository root. The restricted path list uploads
 everything required by `bootstrap-idnest-host.sh` without copying the local
-Terraform provider cache, state, variable, or saved plan files.
+Terraform provider cache, state, variable, or saved plan files. The commands
+use options supported by the macOS-bundled `rsync` 2.6.9-compatible client and
+then explicitly protect the uploaded runtime files with mode `0600`.
 
 Replace `deploy@ssh.example.com` with the real SSH user and DNS-only hostname or
 IP address. If SSH is intentionally routed through Cloudflare Access, use the
