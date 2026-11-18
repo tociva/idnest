@@ -9,6 +9,7 @@ fail() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 KEY_VALIDATOR="$REPO_ROOT/deploy/tools/validate-apple-private-key.sh"
+KEY_UPDATER="$REPO_ROOT/deploy/tools/update-development-apple-key.sh"
 IDENTITY_RENDERER="$REPO_ROOT/deploy/tools/render-development-identity-env.sh"
 KRATOS_RENDERER="$REPO_ROOT/deploy/images/render-kratos-config.sh"
 
@@ -39,7 +40,29 @@ for invalid_key in "$rsa_key" "$p384_key" "$sec1_key"; do
   fi
 done
 
-valid_key_b64=$(openssl base64 -A -in "$valid_key")
+development_env="$temporary_directory/development.env"
+printf '%s\n' \
+  'APPLE_PRIVATE_KEY=stale-value' \
+  'APPLE_PRIVATE_KEY=duplicate-stale-value' \
+  'APPLE_PRIVATE_KEY_B64=retired-value' \
+  'PRESERVED_VALUE=preserved' >"$development_env"
+"$KEY_UPDATER" "$valid_key" "$development_env" >/dev/null
+[[ $(grep -c '^APPLE_PRIVATE_KEY=' "$development_env") -eq 1 ]] \
+  || fail "Apple key updater did not write exactly one APPLE_PRIVATE_KEY"
+grep -Fq 'PRESERVED_VALUE=preserved' "$development_env" \
+  || fail "Apple key updater removed an unrelated value"
+if grep -q '^APPLE_PRIVATE_KEY_B64=' "$development_env"; then
+  fail "Apple key updater retained the retired APPLE_PRIVATE_KEY_B64 value"
+fi
+[[ $(stat -f '%Lp' "$development_env" 2>/dev/null || stat -c '%a' "$development_env") == 600 ]] \
+  || fail "Apple key updater did not protect development.env"
+
+set -a
+# shellcheck source=/dev/null
+. "$development_env"
+set +a
+valid_apple_private_key=$APPLE_PRIVATE_KEY
+
 common_identity_env=(
   HYDRA_DSN=postgres://hydra:test@db.invalid:5432/hydra?sslmode=disable
   HYDRA_SECRETS_SYSTEM=0123456789abcdef0123456789abcdef
@@ -54,7 +77,6 @@ empty_apple_env=(
   APPLE_TEAM_ID=
   APPLE_PRIVATE_KEY_ID=
   APPLE_PRIVATE_KEY=
-  APPLE_PRIVATE_KEY_B64=
 )
 
 enabled_env="$temporary_directory/apple-enabled.env"
@@ -62,7 +84,7 @@ env "${common_identity_env[@]}" \
   APPLE_CLIENT_ID=cloud.idnest.contract \
   APPLE_TEAM_ID=TEAMID1234 \
   APPLE_PRIVATE_KEY_ID=KEYID12345 \
-  APPLE_PRIVATE_KEY_B64="$valid_key_b64" \
+  APPLE_PRIVATE_KEY="$valid_apple_private_key" \
   "$IDENTITY_RENDERER" "$enabled_env" >/dev/null
 
 grep -Fq "APPLE_CLIENT_ID='cloud.idnest.contract'" "$enabled_env" \
@@ -92,7 +114,7 @@ if env "${common_identity_env[@]}" \
   APPLE_CLIENT_ID=cloud.idnest.contract \
   APPLE_TEAM_ID=TEAMID1234 \
   APPLE_PRIVATE_KEY_ID=KEYID12345 \
-  APPLE_PRIVATE_KEY_B64=dGVzdA== \
+  APPLE_PRIVATE_KEY='"-----BEGIN PRIVATE KEY-----\ninvalid\n-----END PRIVATE KEY-----\n"' \
   "$IDENTITY_RENDERER" "$temporary_directory/invalid-key.env" >/dev/null 2>&1; then
   fail "invalid Apple private key was accepted"
 fi
@@ -101,7 +123,7 @@ if env "${common_identity_env[@]}" \
   APPLE_CLIENT_ID=cloud.idnest.contract \
   APPLE_TEAM_ID=lowercase1 \
   APPLE_PRIVATE_KEY_ID=KEYID12345 \
-  APPLE_PRIVATE_KEY_B64="$valid_key_b64" \
+  APPLE_PRIVATE_KEY="$valid_apple_private_key" \
   "$IDENTITY_RENDERER" "$temporary_directory/invalid-id.env" >/dev/null 2>&1; then
   fail "invalid Apple Team ID was accepted"
 fi

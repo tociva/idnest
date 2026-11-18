@@ -22,7 +22,7 @@ if [ ! -d "$output_directory" ] || [ -L "$output_directory" ]; then
   fail "output directory must be a regular directory: $output_directory"
 fi
 
-for command in awk chmod dirname mktemp mv openssl rm tr; do
+for command in awk chmod dirname mktemp mv rm tr; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
 
@@ -46,7 +46,7 @@ for key in \
 done
 
 apple_value_count=0
-for key in APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY_B64; do
+for key in APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY; do
   eval "value=\${$key:-}"
   if [ -n "$value" ]; then
     apple_value_count=$((apple_value_count + 1))
@@ -55,32 +55,31 @@ for key in APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_PRIVATE_KEY_ID APPLE_PRIVATE_KEY_
 done
 case "$apple_value_count" in
   0|4) ;;
-  *) fail "Apple login requires APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_PRIVATE_KEY_ID, and APPLE_PRIVATE_KEY_B64 together" ;;
+  *) fail "Apple login requires APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_PRIVATE_KEY_ID, and APPLE_PRIVATE_KEY together" ;;
 esac
 
-apple_private_key_yaml=
 apple_key_file=
 if [ "$apple_value_count" -eq 4 ]; then
+  case "$APPLE_PRIVATE_KEY" in
+    \"*\") ;;
+    *) fail "APPLE_PRIVATE_KEY must be the escaped single-line value created by update-development-apple-key.sh" ;;
+  esac
+
   umask 077
   apple_key_file=$(mktemp "$output_directory/.apple-private-key.XXXXXX")
-  printf '%s' "$APPLE_PRIVATE_KEY_B64" | openssl base64 -d -A >"$apple_key_file" 2>/dev/null \
-    || fail "APPLE_PRIVATE_KEY_B64 is not valid base64"
-  "$APPLE_KEY_VALIDATOR" "$apple_key_file" >/dev/null \
-    || fail "APPLE_PRIVATE_KEY_B64 must contain an Apple PKCS#8 P-256 private key"
-  apple_private_key_yaml=$(awk '
-    BEGIN {
-      backslash = sprintf("%c", 92)
-      quote = sprintf("%c", 34)
-      printf "%s", quote
-    }
+  apple_private_key_body=${APPLE_PRIVATE_KEY#\"}
+  apple_private_key_body=${apple_private_key_body%\"}
+  printf '%s' "$apple_private_key_body" | awk '
     {
-      gsub(/\\/, backslash backslash)
-      gsub(/"/, backslash quote)
-      gsub(/\r/, "")
-      printf "%s\\n", $0
+      value = $0
+      gsub(/\\n/, ORS, value)
+      if (index(value, "\\") != 0) exit 1
+      printf "%s", value
     }
-    END { printf "%s", quote }
-  ' "$apple_key_file")
+  ' >"$apple_key_file" \
+    || fail "APPLE_PRIVATE_KEY contains an unsupported escape sequence"
+  "$APPLE_KEY_VALIDATOR" "$apple_key_file" >/dev/null \
+    || fail "APPLE_PRIVATE_KEY must contain an Apple PKCS#8 P-256 private key"
 fi
 
 umask 077
@@ -117,7 +116,7 @@ trap cleanup EXIT HUP INT TERM
   printf "APPLE_CLIENT_ID='%s'\n" "${APPLE_CLIENT_ID:-}"
   printf "APPLE_TEAM_ID='%s'\n" "${APPLE_TEAM_ID:-}"
   printf "APPLE_PRIVATE_KEY_ID='%s'\n" "${APPLE_PRIVATE_KEY_ID:-}"
-  printf "APPLE_PRIVATE_KEY='%s'\n" "$apple_private_key_yaml"
+  printf "APPLE_PRIVATE_KEY='%s'\n" "${APPLE_PRIVATE_KEY:-}"
 } >"$candidate"
 
 "$REPO_ROOT/deploy/vps/validate-app-env.sh" "$candidate" identity >/dev/null

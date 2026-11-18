@@ -39,7 +39,16 @@ using Docker's distribution-specific instructions.
 ### 1. Prepare and upload files from the trusted workstation
 
 The repository's renderers create the development runtime files, including the
-`*-dev.idnest.cloud` URLs. Render the three protected files on the trusted
+`*-dev.idnest.cloud` URLs. When configuring or rotating Apple login, import the
+downloaded PKCS#8 `.p8` key directly into the protected source file:
+
+~~~bash
+./deploy/tools/update-development-apple-key.sh \
+  /secure/path/AuthKey_KEYID.p8
+~~~
+
+The command validates the key and updates only `APPLE_PRIVATE_KEY`; it does not
+print the secret. Then render the three protected files on the trusted
 workstation as described in [../OPERATIONS.md](../OPERATIONS.md):
 
 ~~~bash

@@ -99,6 +99,11 @@ require_text deploy/images/ensure-builder-image.sh 'aws ecr-public describe-imag
 
 reject_pattern 'release.queue|release-queue|KUBECONFIG|deploy/charts|helm' \
   .github deploy/ci deploy/tools deploy/vps deploy/README.md package.json
+reject_pattern 'APPLE_PRIVATE_KEY_B64' \
+  deploy/tools/create-development-env.sh \
+  deploy/tools/render-development-identity-env.sh \
+  deploy/vps/validate-app-env.sh \
+  deploy/env config .github
 
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/idnest-delivery-contract.XXXXXX")
 cleanup() { rm -rf -- "$temporary"; }

@@ -38,8 +38,18 @@ Create or reconcile the protected runtime source on a trusted workstation:
 
 `tmp/development.env` contains application, identity, database, and provider
 values only. AWS roles, repositories, and VPS SSH coordinates are deliberately
-not part of it. Replace the remaining provider/admin placeholders, validate it,
-and render the three files required by the host:
+not part of it. To import or replace the Apple PKCS#8 `.p8` private key without
+printing it, run:
+
+```bash
+./deploy/tools/update-development-apple-key.sh \
+  /secure/path/AuthKey_KEYID.p8
+```
+
+The helper validates the key, stores `APPLE_PRIVATE_KEY` as a safe single-line
+value, and atomically protects `tmp/development.env` with mode `0600`. Replace
+the remaining provider/admin placeholders, validate the source, and render the
+three files required by the host:
 
 ```bash
 ./deploy/vps/validate-app-env.sh tmp/development.env development-source
